@@ -17,7 +17,7 @@ const COMMAND = "@omp-session-recap";
 const TOOL_DIR = dirname(realpathSync(process.argv[1]));
 const PROMPTS = join(TOOL_DIR, "prompts");
 const INJECT_EXTENSION = join(TOOL_DIR, "inject-recap.ts");
-const DEFAULT_ROLE = "my-astra";
+const DEFAULT_ROLE = "astra";
 const DEFAULT_THINKING = "xhigh";
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const RENDER_CONCURRENCY = 8;
@@ -46,7 +46,7 @@ already in the new session's context, so your first message follows it
 without an agent turn in between. Otherwise the recap is printed to stdout.
 
 Options:
-  --model <role|model>   Summarizer, e.g. @my-astra:xhigh (default)
+  --model <role|model>   Summarizer, e.g. @astra:xhigh (default)
   --thinking <level>     ${THINKING_LEVELS.join(", ")}
   --guidance <text>      Extra focus for the summary
   --max-sessions <n>     Newest sessions to include (default 30)
