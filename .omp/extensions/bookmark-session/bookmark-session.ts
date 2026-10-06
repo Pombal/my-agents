@@ -99,7 +99,7 @@ export function resolveDefaultWikiRoot(
 	envWikiRoot: string | undefined = process.env.AGENTS_WIKI_DIR,
 ): string {
 	if (isNiloTree(cwd)) return join(homeDirectory, ...NILO_WIKI_SEGMENTS);
-	return envWikiRoot?.trim() || join(homeDirectory, "agents-wiki");
+	return envWikiRoot?.trim() || join(homeDirectory, "agentspace", "index", "wiki");
 }
 
 export function parseBookmarkFilename(
@@ -126,7 +126,7 @@ export function resolveBookmarkFile(
 	defaultFilename: string | undefined = process.env.AGENTS_BOOKMARK_FILE,
 ): string {
 	const filename = parseBookmarkFilename(args, defaultFilename);
-	const configured = wikiRoot?.trim() || join(homeDirectory, "agents-wiki");
+	const configured = wikiRoot?.trim() || join(homeDirectory, "agentspace", "index", "wiki");
 	const expanded =
 		configured === "~"
 			? homeDirectory

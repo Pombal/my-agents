@@ -89,6 +89,25 @@ describe("bookmark filename and path", () => {
 		);
 	});
 
+	test("missing wiki configuration routes bookmarks to the index wiki", () => {
+		const original = process.env.AGENTS_WIKI_DIR;
+		try {
+			delete process.env.AGENTS_WIKI_DIR;
+			const home = "/home/cx";
+			const wiki = "/home/cx/agentspace/index/wiki";
+			expect(resolveDefaultWikiRoot("/tmp/other", home)).toBe(wiki);
+			expect(resolveBookmarkFile("", undefined, home, "default")).toBe(
+				`${wiki}/omp-bookmarks/default.md`,
+			);
+			expect(resolveBookmarkFile("", "   ", home, "default")).toBe(
+				`${wiki}/omp-bookmarks/default.md`,
+			);
+		} finally {
+			if (original === undefined) delete process.env.AGENTS_WIKI_DIR;
+			else process.env.AGENTS_WIKI_DIR = original;
+		}
+	});
+
 	test("every Nilo checkout and worktree shares the wayfinder wiki", () => {
 		const home = "/home/cx";
 		const envWiki = "/home/cx/agentspace/index/wiki";
@@ -107,7 +126,7 @@ describe("bookmark filename and path", () => {
 		}
 		expect(isNiloTree("/tmp/other")).toBe(false);
 		expect(resolveDefaultWikiRoot("/tmp/other", home, envWiki)).toBe(envWiki);
-		expect(resolveDefaultWikiRoot("/tmp/other", home, "")).toBe("/home/cx/agents-wiki");
+		expect(resolveDefaultWikiRoot("/tmp/other", home, "")).toBe("/home/cx/agentspace/index/wiki");
 	});
 });
 
