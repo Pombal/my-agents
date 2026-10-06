@@ -3,12 +3,14 @@
 `prose.ts` forks the current branch into a new session containing only what was
 said: your messages and the agent's replies, verbatim. Provider bookkeeping and
 reasoning are dropped, skill injections shrink to a stub, and every tool call
-collapses to one bracketed line naming the tool, its target, and a direct
-artifact recovery pointer (e.g. `[ran read foo.ts; recover: artifact://1:10-50]`)
-pointing into a single `.prose.log` session artifact containing the full discarded
+collapses to one bracketed, blockquoted line (muted in the TUI) naming the tool,
+its target, and a direct artifact recovery pointer (e.g.
+`> [ran read foo.ts; recover: artifact://1:10-50]`) pointing into a single `.prose.log` session artifact containing the full discarded
 inputs and results — unless you ask for `+tools`, which keeps the native `toolCall`
-/ `toolResult` turns. No model call, no tokens, instant. The fork's header points
-back at the source, so `/tree` and `/resume` still reach the original.
+/ `toolResult` turns. No model call, no tokens, instant. Consecutive bracketed
+artifacts stay in one compact group, with one empty line between that group and
+any surrounding verbatim prose. The fork's header points back at the source, so
+`/tree` and `/resume` still reach the original.
 
 One axis governs tool calls, at three levels — `none`, `trace` (the default),
 `full` — set for everything at once, or per tool name:
@@ -24,7 +26,15 @@ One axis governs tool calls, at three levels — `none`, `trace` (the default),
 /prose +tools=read,edit     those native, every other tool still traced
 /prose -tools=bash,todo     those erased, every other tool still traced
 /prose -tools +tools=task   the slots compose — delegations native, rest erased
-/prose +think               also keep reasoning, in [thinking]…[/thinking]
+/prose +think               also keep reasoning, in [thinking]…[/thinking], each line
+                            quoted like a trace, with a blank line on both sides
+/prose -sub                 each background subagent delivery shrinks to one
+                            [subagent result: Name (agent, status, time); recover: …]
+                            line; the full reports go to the archive. Bash job
+                            output stays whole
+/prose +compacted           bare fork only: also distill history sealed behind the
+                            latest /clear or compaction (the old default — the fork
+                            can end up larger than its source)
 ```
 
 What follows is the measurement, run over a real corpus of **3506 sessions,
@@ -108,17 +118,27 @@ rejection when you resume the fork.
 - **File size is not branch payload.** One 1.4M file carried only 31K on its
   active branch; the rest was abandoned branches and retries, which `/prose`
   never sees.
-- `/prose` reads the whole branch, so on a compacted session it **recovers
-  messages that `/compact` had already summarized away**.
-- `/prose ^N` trims via a `/clear`-style reset boundary: the original turns stay
-  on the branch above it (state entries included), so a later bare `/prose`
-  distills both the original region and the kept copies — the fork is a superset.
-- **In-place trims never reopen sealed history.** Both `/prose N` and `/prose ^N`
-  address only the region the host still emits — after the latest `/clear`
-  boundary, or a compaction's summary plus the tail it kept. Distilling above
-  that would put collapsed turns back into the context (and *grow* it), so
-  turn numbering stops there and out-of-range asks say `turn(s) reachable`.
-  Bare `/prose` is the exception, by design: a fork exports the full branch.
+- **`/prose` never reopens sealed history unless asked.** Every form, bare
+  `/prose`, `/prose N` and `/prose ^N`, addresses only the region the host still
+  emits: after the latest `/clear` boundary, or a compaction's summary plus the
+  tail it kept. Distilling above that puts collapsed turns back into the context
+  and *grows* it. A bare fork of a twice-compacted session once went from 364K to
+  732K tokens this way. Turn numbering stops there too, and out-of-range asks say
+  `turn(s) reachable`. The sealed turns stay readable in the parent session, which
+  the fork's note links. `+compacted` opts a bare fork back into them; the
+  in-place forms refuse it.
+- **Subagent reports are kept whole by default.** They are often the only record
+  of what a delegation found, so trimming them is opt-in (`-sub`). On that same
+  session: bare 191K chars, `-sub` 159K, `+compacted` 1.99M, `+compacted -sub`
+  806K.
+- **A bare fork kills background work, so it asks first.** Leaving a session
+  cancels every subagent and background bash/eval job it still runs, and drops
+  finished results not yet delivered. With any of those pending, bare `/prose`
+  lists them and waits for a Yes (the cursor starts on No); without a UI it
+  refuses. `N` and `^N` trim in place, so they never ask.
+- Since `/prose ^N` trims via a `/clear`-style reset boundary, a later bare
+  `/prose` distills only what follows it: the kept copies, not the originals
+  above the boundary.
 - After `/prose ^N` the context meter shows an **estimate** until the next real
   turn. The originals stay on the branch, and the host picks its context anchor
   by scanning the whole branch (it stops at a compaction, not at a reset

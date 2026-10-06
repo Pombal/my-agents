@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI, SessionEntry } from "@oh-my-pi/pi-coding-agent";
+import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-session-types";
 import type { ToolResultMessage } from "@oh-my-pi/pi-ai";
 import proseExtension, { buildProseArchive, parseFlags, proseOf, verbatimCopyOf } from "./prose";
 
@@ -118,11 +119,15 @@ interface RunProseOptions {
 	entries?: SessionEntry[];
 	saveArtifactSupported?: boolean;
 	saveArtifactReturnsId?: string;
+	jobs?: AsyncJobSnapshot;
+	hasUI?: boolean;
+	/** Answer every confirm dialog with this. */
+	confirm?: boolean;
 }
 
 /** Drive the real `/prose` handler over fake host surfaces, collecting the two
  *  places it speaks: `ui.notify` and the entries appended into the fork. */
-async function runProse(args: string, options: RunProseOptions = {}): Promise<{ notices: string[]; forkEntries: string[]; liveEntries: unknown[]; branchCalls: string[]; savedArtifacts: Array<{ content: string; type: string }> }> {
+async function runProse(args: string, options: RunProseOptions = {}): Promise<{ notices: string[]; confirms: string[]; forkEntries: string[]; liveEntries: unknown[]; branchCalls: string[]; savedArtifacts: Array<{ content: string; type: string }> }> {
 	let handler: CommandHandler | undefined;
 	const pi = {
 		on: () => {},
@@ -134,6 +139,7 @@ async function runProse(args: string, options: RunProseOptions = {}): Promise<{ 
 	if (!handler) throw new Error("/prose did not register a command");
 
 	const notices: string[] = [];
+	const confirms: string[] = [];
 	const forkEntries: string[] = [];
 	// Entries appended to the LIVE manager (the ^N trim writes here, never to a fork).
 	const liveEntries: unknown[] = [];
@@ -162,8 +168,15 @@ async function runProse(args: string, options: RunProseOptions = {}): Promise<{ 
 	const currentEntries = options.entries ?? branchEntries;
 	const ctx = {
 		isIdle: () => true,
-		hasUI: false,
-		ui: { notify: (message: string) => notices.push(message) },
+		hasUI: options.hasUI ?? false,
+		ui: {
+			notify: (message: string) => notices.push(message),
+			confirm: async (title: string, message: string) => {
+				confirms.push(`${title}\n${message}`);
+				return options.confirm ?? false;
+			},
+		},
+		getAsyncJobSnapshot: () => options.jobs ?? null,
 		sessionManager: {
 			appendResetBoundary: () => {
 				liveEntries.push("[reset_boundary]");
@@ -197,7 +210,7 @@ async function runProse(args: string, options: RunProseOptions = {}): Promise<{ 
 	};
 
 	await handler(args, ctx);
-	return { notices, forkEntries, liveEntries, branchCalls, savedArtifacts };
+	return { notices, confirms, forkEntries, liveEntries, branchCalls, savedArtifacts };
 }
 
 describe("bare /prose", () => {
@@ -317,6 +330,99 @@ describe("artifact-backed prose recovery", () => {
 			expect(textPart).toContain("[ran read package.json ×2; recover: artifact://42:3-23]");
 			expect(textPart).toContain("[ran bash npm test; recover: artifact://42:25-35]");
 		}
+	});
+	test("separates bracketed trace groups from prose in both directions", () => {
+		const entries = [
+			{ type: "message", id: "s1", message: { role: "user", content: "inspect, then test" } },
+			{
+				type: "message",
+				id: "s2",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Before." },
+						{ type: "toolCall", id: "spacing-read", name: "read", arguments: { path: "a.ts" } },
+						{ type: "toolCall", id: "spacing-edit", name: "edit", arguments: { path: "b.ts" } },
+					],
+					stopReason: "toolUse",
+					usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15 },
+				},
+			},
+			{
+				type: "message",
+				id: "s3",
+				message: {
+					role: "toolResult",
+					toolCallId: "spacing-read",
+					toolName: "read",
+					content: [{ type: "text", text: "read" }],
+				},
+			},
+			{
+				type: "message",
+				id: "s4",
+				message: {
+					role: "toolResult",
+					toolCallId: "spacing-edit",
+					toolName: "edit",
+					content: [{ type: "text", text: "edited" }],
+				},
+			},
+			{
+				type: "message",
+				id: "s5",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "Between." },
+						{ type: "toolCall", id: "spacing-bash", name: "bash", arguments: { command: "npm test" } },
+					],
+					stopReason: "toolUse",
+					usage: { input: 15, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 20 },
+				},
+			},
+			{
+				type: "message",
+				id: "s6",
+				message: {
+					role: "toolResult",
+					toolCallId: "spacing-bash",
+					toolName: "bash",
+					content: [{ type: "text", text: "passed" }],
+				},
+			},
+			{
+				type: "message",
+				id: "s7",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "After." }],
+					stopReason: "stop",
+					usage: { input: 20, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 25 },
+				},
+			},
+		] as unknown as SessionEntry[];
+
+		const items = proseOf(entries, parseFlags("").keep);
+		const assistant = items.find(item => item.kind === "message" && item.message.role === "assistant");
+		if (!assistant || assistant.kind !== "message") throw new Error("shape");
+		expect(assistant.message.content).toEqual([
+			{
+				type: "text",
+				text: [
+					"Before.",
+					"",
+					"> [ran read a.ts]",
+					"> [ran edit]",
+					"",
+					"Between.",
+					"",
+					"> [ran bash npm test]",
+					"",
+					"After.",
+				].join("\n"),
+			},
+		]);
 	});
 
 	test("preserves byte-verbatim code with leading tabs and whitespace in archive", () => {
@@ -1247,6 +1353,39 @@ describe("sealed history stays sealed", () => {
 		expect(flat).not.toContain("SEALED-OLD");
 	});
 
+	test("bare /prose forks only the emitted region after a compaction or /clear", async () => {
+		const compacted = await runProse("", { entries: compactedBranch });
+		const compactedFork = compacted.forkEntries.join("\n");
+		expect(compactedFork).toContain("kept question");
+		expect(compactedFork).toContain("SUMMARY-KEPT");
+		expect(compactedFork).toContain("latest question");
+		// A fork carrying both the summary and what it summarized is larger than
+		// the session it was meant to shrink.
+		expect(compactedFork).not.toContain("SEALED-OLD");
+		expect(compacted.savedArtifacts.map(artifact => artifact.content).join("\n")).not.toContain("SEALED-OLD");
+
+		const cleared = await runProse("", { entries: clearedBranch });
+		const clearedFork = cleared.forkEntries.join("\n");
+		expect(clearedFork).toContain("fresh question");
+		expect(clearedFork).not.toContain("SEALED-OLD");
+	});
+
+	test("+compacted forks the sealed history too, but only from the bare form", async () => {
+		const { forkEntries } = await runProse("+compacted", { entries: compactedBranch });
+		const fork = forkEntries.join("\n");
+		expect(fork).toContain("SEALED-OLD question");
+		expect(fork).toContain("SUMMARY-KEPT");
+		expect(fork).toContain("latest question");
+
+		// In place, reopening sealed turns would grow the live context: refuse.
+		for (const args of ["1 +compacted", "^1 +compacted"]) {
+			const { notices, liveEntries, branchCalls } = await runProse(args, { entries: compactedBranch });
+			expect(liveEntries.length).toBe(0);
+			expect(branchCalls).toEqual([]);
+			expect(notices.some(notice => notice.includes("+compacted applies to the bare fork only"))).toBe(true);
+		}
+	});
+
 	test("numbered /prose cannot cut past a collapse marker", async () => {
 		// Only two reachable turns follow the boundary; cutting at the third
 		// would move the leaf above the boundary and re-emit what it sealed.
@@ -1259,5 +1398,155 @@ describe("sealed history stays sealed", () => {
 		const ok = await runProse("1", { entries: clearedBranch });
 		expect(ok.branchCalls).toEqual(["c5"]);
 		expect(JSON.stringify(ok.liveEntries)).not.toContain("SEALED-OLD");
+	});
+});
+
+const subagentReport = "SUBAGENT-REPORT-BODY: the sidebar uses a 22 px row height";
+/** One batched delivery of two subagent reports, then a bash-only delivery. */
+const delegatedBranch = [
+	{ type: "message", id: "d1", parentId: undefined, message: { role: "user", content: "delegate the sidebar audit" } },
+	{
+		type: "custom_message",
+		id: "d2",
+		parentId: "d1",
+		customType: "async-result",
+		display: true,
+		content: [
+			"<system-notice>",
+			'<task-result id="SidebarAudit" agent="opus" status="completed" duration="3m8s">',
+			`<output>\n${subagentReport}\n</output>`,
+			"</task-result>",
+			'<task-result id="FontAudit" agent="astra" status="failed" duration="1m2s">',
+			"<output>\nfont stack unresolved\n</output>",
+			"</task-result>",
+			"</system-notice>",
+		].join("\n"),
+		details: { jobs: [{ jobId: "SidebarAudit", type: "task" }, { jobId: "FontAudit", type: "task" }] },
+	},
+	{
+		type: "custom_message",
+		id: "d3",
+		parentId: "d2",
+		customType: "async-result",
+		display: true,
+		content: "<system-notice>\nBackground job bg_3 has completed.\nBASH-JOB-OUTPUT\n</system-notice>",
+		details: { jobs: [{ jobId: "bg_3", type: "bash" }] },
+	},
+	{ type: "message", id: "d4", parentId: "d3", message: { role: "user", content: "summarize" } },
+] as unknown as SessionEntry[];
+
+describe("-sub archives subagent results", () => {
+	test("each delivery shrinks to one recoverable line; bash deliveries stay whole", async () => {
+		const { forkEntries, savedArtifacts } = await runProse("-sub", { entries: delegatedBranch, saveArtifactReturnsId: "5" });
+		const fork = forkEntries.join("\n");
+		expect(fork).not.toContain(subagentReport);
+		const stub = forkEntries.find(entry => entry.startsWith("[2 subagent results:"));
+		if (!stub) throw new Error(`no stub in fork:\n${fork}`);
+		expect(stub).toContain("SidebarAudit (opus, completed, 3m8s)");
+		expect(stub).toContain("FontAudit (astra, failed, 1m2s)");
+		expect(fork).toContain("BASH-JOB-OUTPUT");
+
+		// The recover link addresses exactly the archived report.
+		const link = /recover: artifact:\/\/5:(\d+)-(\d+)\]/.exec(stub);
+		if (!link) throw new Error(`no recover link: ${stub}`);
+		const archiveLines = savedArtifacts[0].content.split("\n");
+		const recovered = archiveLines.slice(Number(link[1]) - 1, Number(link[2])).join("\n");
+		expect(recovered).toContain(subagentReport);
+		expect(recovered).toContain("font stack unresolved");
+		expect(recovered).not.toContain("BASH-JOB-OUTPUT");
+	});
+
+	test("without -sub, subagent results stay whole", async () => {
+		const { forkEntries } = await runProse("", { entries: delegatedBranch });
+		expect(forkEntries.join("\n")).toContain(subagentReport);
+	});
+});
+
+describe("running background jobs", () => {
+	// newSession() cancels every job the session owns, so only the bare fork may ask.
+	const jobs: AsyncJobSnapshot = {
+		running: [{ id: "job_1", type: "task", status: "running", label: "SidebarAudit", startTime: Date.now() - 5 * 60_000 }],
+		recent: [],
+		delivery: { queued: 0, delivering: false },
+	};
+
+	test("bare /prose asks first and stays put when declined", async () => {
+		const { confirms, forkEntries } = await runProse("", { jobs, hasUI: true, confirm: false });
+		expect(confirms.length).toBe(1);
+		expect(confirms[0]).toContain("subagent: SidebarAudit (running 5m)");
+		expect(forkEntries).toEqual([]);
+	});
+
+	test("bare /prose forks once the kill is confirmed", async () => {
+		const { confirms, forkEntries } = await runProse("", { jobs, hasUI: true, confirm: true });
+		expect(confirms.length).toBe(1);
+		expect(forkEntries.length).toBeGreaterThan(0);
+	});
+
+	test("a finished result still awaiting delivery also counts as lost", async () => {
+		const pending: AsyncJobSnapshot = { running: [], recent: [], delivery: { queued: 2, delivering: false } };
+		const { confirms, forkEntries } = await runProse("", { jobs: pending, hasUI: true, confirm: false });
+		expect(confirms[0]).toContain("2 finished results not yet delivered");
+		expect(forkEntries).toEqual([]);
+	});
+
+	test("without a UI to ask, bare /prose refuses instead of killing", async () => {
+		const { notices, confirms, forkEntries } = await runProse("", { jobs, hasUI: false, confirm: true });
+		expect(confirms).toEqual([]);
+		expect(forkEntries).toEqual([]);
+		expect(notices.some(notice => notice.includes("/prose N"))).toBe(true);
+	});
+
+	test("in-place trims never ask: the session and its jobs stay alive", async () => {
+		const { confirms, branchCalls } = await runProse("1", { entries: pinBranch, jobs, hasUI: true, confirm: false });
+		expect(confirms).toEqual([]);
+		expect(branchCalls).toEqual(["p4"]);
+	});
+});
+
+describe("+think quote bar", () => {
+	test("the closer stays quoted when thinking ends in blank lines", () => {
+		const entries = [
+			{
+				type: "message",
+				id: "t1",
+				message: { role: "user", content: "go" },
+			},
+			{
+				type: "message",
+				id: "t2",
+				parentId: "t1",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "echo before" } },
+						{ type: "thinking", thinking: "first paragraph\n\nsecond paragraph\n\n" },
+						{ type: "toolCall", id: "c2", name: "bash", arguments: { command: "echo after" } },
+					],
+					stopReason: "toolUse",
+					usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+				},
+			},
+		] as unknown as SessionEntry[];
+		const items = proseOf(entries, parseFlags("+think").keep);
+		const assistant = items.find(item => item.kind === "message" && item.message.role === "assistant");
+		if (!assistant || assistant.kind !== "message") throw new Error("shape");
+		const text = assistant.message.content
+			.filter((part): part is { type: "text"; text: string } => part.type === "text")
+			.map(part => part.text)
+			.join("\n");
+		expect(text).toBe(
+			[
+				"> [ran bash echo before]",
+				"",
+				"> [thinking]",
+				"> first paragraph",
+				">",
+				"> second paragraph",
+				"> [/thinking]",
+				"",
+				"> [ran bash echo after]",
+			].join("\n"),
+		);
 	});
 });

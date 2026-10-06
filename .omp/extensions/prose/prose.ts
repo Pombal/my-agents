@@ -17,7 +17,8 @@
  *          stays a toolResult — arguments and output verbatim, uncapped
  *
  * Usage:
- *   /prose                    fork the entire conversation to a new session
+ *   /prose                    fork the conversation the host still emits (after
+ *                            the latest /clear or compaction) to a new session
  *   /prose N                 distill the last N user turns in place
  *   /prose ^N (or bare ^)    keep the Nth-from-last user turn ONWARD verbatim —
  *                            tool calls, results, reasoning untouched — and
@@ -38,6 +39,10 @@
  *                            (default: name — description + recovery pointer)
  *   /prose +think            also keep readable reasoning, delimited as
  *                            [thinking]…[/thinking] blocks
+ *   /prose -sub              background subagent results shrink to one
+ *                            [subagent result: …] line each, full text archived
+ *   /prose +compacted        bare fork only: also distill the history a /clear
+ *                            or compaction sealed (can outgrow the source)
  *
  * The distilled region opens with a `prose-note` entry that tells the future
  * reader what was removed, and closes with an end-marker restating the one
@@ -71,10 +76,11 @@ import type {
 	ToolResultMessage,
 } from "@oh-my-pi/pi-ai";
 import type { ExtensionAPI, ExtensionUIContext, ReadonlySessionManager, SessionEntry } from "@oh-my-pi/pi-coding-agent";
+import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-session-types";
 import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
 
 /** Ghost text after `/prose `, mirroring how builtins advertise their arguments. */
-const PROSE_HINT = "[N|^N|?|^?] [story] [±tools[=a,b]] [±skills] [+think]";
+const PROSE_HINT = "[N|^N|?|^?] [story] [±tools[=a,b]] [±skills] [-sub] [+think] [+compacted]";
 const PICKER_LIMIT = 30;
 
 /**
@@ -93,6 +99,8 @@ export type Keep = {
 	tools: ToolKeep;
 	skills: "full" | "brief" | "bare";
 	story: boolean;
+	/** `archive`: background subagent results become one-line stubs, full text in the archive. */
+	subagents: "full" | "archive";
 };
 
 export interface ArchiveSpan {
@@ -110,6 +118,45 @@ export interface ProseArchive {
 const levelFor = (keep: ToolKeep, name: string): ToolLevel => keep.byName.get(name) ?? keep.default;
 const levelsUsed = (keep: ToolKeep): Set<ToolLevel> => new Set([keep.default, ...keep.byName.values()]);
 type CustomContent = Extract<SessionEntry, { type: "custom_message" }>["content"];
+type CustomEntry = Extract<SessionEntry, { type: "custom_message" }>;
+
+/**
+ * A background-job delivery carrying at least one subagent report. Bash-only
+ * deliveries stay whole: they are command output, not delegated findings.
+ */
+function isSubagentResult(entry: CustomEntry): boolean {
+	if (entry.customType !== "async-result") return false;
+	const jobs = (entry.details as { jobs?: Array<{ type?: string }> } | undefined)?.jobs;
+	if (jobs?.some(job => job.type === "task")) return true;
+	return typeof entry.content === "string" && entry.content.includes("<task-result ");
+}
+
+/** Archive spans for whole entries share the map with tool-call ids; the prefix keeps the namespaces apart. */
+const entrySpanKey = (entryId: string) => `entry:${entryId}`;
+
+const SUBAGENT_NAMES_SHOWN = 8;
+
+/** `[subagent result: Name (agent, status, duration); recover: …]` — one line per delivery, however many reports it batched. */
+function subagentLine(entry: CustomEntry, span?: ArchiveSpan, artifactId?: string): string {
+	const text = typeof entry.content === "string" ? entry.content : "";
+	const jobs: string[] = [];
+	for (const match of text.matchAll(/<task-result ([^>]*)>/g)) {
+		const attr = (name: string) => new RegExp(`\\b${name}="([^"]*)"`).exec(match[1])?.[1];
+		const facts = [attr("agent"), attr("status"), attr("duration")].filter(Boolean).join(", ");
+		jobs.push(`${attr("id") ?? "subagent"}${facts ? ` (${facts})` : ""}`);
+	}
+	if (jobs.length === 0) {
+		const detailJobs = (entry.details as { jobs?: Array<{ jobId?: string; label?: string; type?: string }> } | undefined)?.jobs ?? [];
+		for (const job of detailJobs) if (job.type === "task") jobs.push(job.label ?? job.jobId ?? "subagent");
+	}
+	if (jobs.length === 0) jobs.push("subagent");
+	const shown = jobs.slice(0, SUBAGENT_NAMES_SHOWN).join(", ");
+	const more = jobs.length > SUBAGENT_NAMES_SHOWN ? `, +${jobs.length - SUBAGENT_NAMES_SHOWN} more` : "";
+	const head = jobs.length === 1 ? "subagent result" : `${jobs.length} subagent results`;
+	const recover = artifactId && span ? `; recover: artifact://${artifactId}:${span.startLine}-${span.endLine}` : "";
+	return `[${head}: ${shown}${more}${recover}]`;
+}
+
 export type ProseItem =
 	| { kind: "message"; message: Message }
 	| {
@@ -124,12 +171,57 @@ export type ProseItem =
 type Part = TextContent | ImageContent;
 /** Assistant copies may also keep native tool calls when `full` is set. */
 type AssistantPart = Part | ToolCall;
+type AssistantTextKind = "prose" | "trimmed" | "thinking";
+type AssistantSegment = {
+	part: AssistantPart;
+	textKind?: AssistantTextKind;
+};
 
 const asText = (text: string): TextContent => ({ type: "text", text });
 
 const pushText = (parts: AssistantPart[], text: string) => {
 	if (text.trim().length > 0) parts.push(asText(text));
 };
+
+const edgeNewlines = (left: string, right: string): number => {
+	let count = 0;
+	for (let i = left.length - 1; i >= 0 && left.charCodeAt(i) === 10; i--) count++;
+	for (let i = 0; i < right.length && right.charCodeAt(i) === 10; i++) count++;
+	return count;
+};
+
+/**
+ * Materialize classified assistant text without changing prose bytes. Adjacent
+ * bracketed traces stay one compact group. A thinking block, and every
+ * transition between that editorial group and verbatim prose, gets one empty
+ * line. A blank line ends a markdown blockquote, which is why thinking lines
+ * carry their own `> ` instead of continuing the trace quote.
+ */
+function appendAssistantSegments(
+	target: AssistantPart[],
+	segments: AssistantSegment[],
+	previousTextKind?: AssistantTextKind,
+): AssistantTextKind | undefined {
+	for (const segment of segments) {
+		const previous = target.at(-1);
+		if (
+			previous?.type === "text" &&
+			segment.part.type === "text" &&
+			previousTextKind &&
+			segment.textKind &&
+			(previousTextKind !== "prose" || segment.textKind !== "prose")
+		) {
+			const separated = previousTextKind === "thinking" || segment.textKind === "thinking" || previousTextKind !== segment.textKind;
+			const requiredNewlines = separated ? 2 : previousTextKind === "trimmed" ? 1 : 0;
+			const separator = "\n".repeat(Math.max(0, requiredNewlines - edgeNewlines(previous.text, segment.part.text)));
+			previous.text += separator + segment.part.text;
+		} else {
+			target.push(segment.part);
+		}
+		previousTextKind = segment.part.type === "text" ? segment.textKind : undefined;
+	}
+	return previousTextKind;
+}
 
 const targetText = (value: unknown): string => (value === undefined || value === null ? "" : String(value));
 
@@ -167,6 +259,11 @@ const SPEECH_CAP = 240;
  * "" (the only bracket without a kind label).
  */
 const TRACE_PREFIX = "ran ";
+
+/** Prefix every line so a blank line cannot end the blockquote early. */
+function quoted(text: string): string {
+	return text.split("\n").map(line => (line.length === 0 ? ">" : `> ${line}`)).join("\n");
+}
 
 function toolTarget(call: ToolCall): string {
 	const args = call.arguments ?? {};
@@ -272,7 +369,10 @@ function formatTracedItems(items: TracedItem[], artifactId?: string): string[] {
 				recover = `; recover: artifact://${artifactId}:${firstSpan.startLine}-${lastSpan.endLine}`;
 			}
 		}
-		lines.push(`[${TRACE_PREFIX}${base}${recover}]`);
+		// `> ` is the quote bar. A blank line ends a markdown blockquote, so the
+		// marker has to be on every line — lazy continuation from the previous
+		// one stops at the first blank.
+		lines.push(quoted(`[${TRACE_PREFIX}${base}${recover}]`));
 		i = end;
 	}
 	return lines;
@@ -428,6 +528,17 @@ export function buildProseArchive(
 				}
 			}
 		} else if (entry.type === "custom_message") {
+			if (keep.subagents === "archive" && isSubagentResult(entry)) {
+				// The stub carries no links, so prior artifact refs inside need no rebase.
+				itemCount++;
+				const startLine = lines.length + 1;
+				lines.push(`### [${itemCount}] subagent result`);
+				const resultText = typeof entry.content === "string" ? entry.content : JSON.stringify(entry.content, null, 2);
+				for (const l of resultText.split("\n")) lines.push(l);
+				spansByCallId.set(entrySpanKey(entry.id), { startLine, endLine: lines.length });
+				lines.push("");
+				continue;
+			}
 			if (typeof entry.content === "string") {
 				processTextForRebase(entry.content);
 			} else if (Array.isArray(entry.content)) {
@@ -497,13 +608,16 @@ function assistantParts(
 	spans?: Map<string, ArchiveSpan>,
 	artifactId?: string,
 	rebasedSpans?: Map<string, ArchiveSpan>,
-): { parts: AssistantPart[]; pendingResults: ToolResultMessage[] } {
-	const parts: AssistantPart[] = [];
+): { segments: AssistantSegment[]; pendingResults: ToolResultMessage[] } {
+	const segments: AssistantSegment[] = [];
 	const pendingResults: ToolResultMessage[] = [];
 	let tracedItems: TracedItem[] = [];
+	const pushAssistantText = (text: string, textKind: AssistantTextKind) => {
+		if (text.trim().length > 0) segments.push({ part: asText(text), textKind });
+	};
 	const flushTools = () => {
 		if (tracedItems.length > 0) {
-			pushText(parts, formatTracedItems(tracedItems, artifactId).join("\n"));
+			pushAssistantText(formatTracedItems(tracedItems, artifactId).join("\n"), "trimmed");
 			tracedItems = [];
 		}
 	};
@@ -519,7 +633,7 @@ function assistantParts(
 				// A native call is not a trace line, so it cannot join the run that
 				// `×N` collapsing folds. Flush first and the ordering survives.
 				flushTools();
-				parts.push(sanitizeToolCall(part));
+				segments.push({ part: sanitizeToolCall(part) });
 				pendingResults.push(resultFor(part, results.get(part.id)));
 			}
 			continue;
@@ -527,17 +641,18 @@ function assistantParts(
 		flushTools();
 		if (part.type === "text") {
 			const text = artifactId && rebasedSpans ? rebaseTextArtifactLinks(part.text, artifactId, rebasedSpans) : part.text;
-			pushText(parts, text);
-		} else if (part.type === "image") parts.push(part);
+			pushAssistantText(text, "prose");
+		} else if (part.type === "image") segments.push({ part });
 		else if (part.type === "thinking" && keep.thinking && part.thinking.trim().length > 0) {
 			// Delimited, not flattened: the reply must stay distinguishable from the
-			// monologue that produced it. Brackets = editorial voice; the text
-			// between them is byte-verbatim.
-			pushText(parts, `[thinking]\n${part.thinking}\n[/thinking]`);
+			// monologue. Own text kind so the join puts one empty line on each side,
+			// the same gap a trace group gets against prose. Every line is quoted
+			// because that empty line ends a blockquote.
+			pushAssistantText(quoted(`[thinking]\n${part.thinking.trim()}\n[/thinking]`), "thinking");
 		}
 	}
 	flushTools();
-	return { parts, pendingResults };
+	return { segments, pendingResults };
 }
 
 /**
@@ -732,14 +847,10 @@ export function proseOf(
 ): ProseItem[] {
 	const results = providedResults ?? resultsOf(entries);
 	const out: ProseItem[] = [];
+	const assistantTailKinds = new WeakMap<object, AssistantTextKind>();
 	const push = (message: Message, parts: AssistantPart[]) => {
 		if (parts.length === 0) return; // a turn that was purely dropped machinery vanishes
 		const previous = out.at(-1);
-		// Dropping the tool results between them leaves assistant messages back
-		// to back, which providers that require alternating roles reject. Fold
-		// each same-role run into one message — except toolResult, where each
-		// entry pairs with a distinct toolCallId and must stay its own turn. A
-		// custom injection naturally interrupts the run and keeps its place.
 		if (
 			previous?.kind === "message" &&
 			previous.message.role === message.role &&
@@ -749,6 +860,25 @@ export function proseOf(
 		} else {
 			out.push({ kind: "message", message });
 		}
+	};
+	const pushAssistant = (message: AssistantMessage, segments: AssistantSegment[]) => {
+		if (segments.length === 0) return;
+		const previous = out.at(-1);
+		// Dropping tool results leaves assistant turns adjacent. Materialize onto
+		// the prior copy so spacing also survives transitions across that seam.
+		if (previous?.kind === "message" && previous.message.role === "assistant") {
+			const tailKind = appendAssistantSegments(
+				previous.message.content as AssistantPart[],
+				segments,
+				assistantTailKinds.get(previous.message),
+			);
+			if (tailKind) assistantTailKinds.set(previous.message, tailKind);
+			else assistantTailKinds.delete(previous.message);
+			return;
+		}
+		const tailKind = appendAssistantSegments(message.content as AssistantPart[], segments);
+		out.push({ kind: "message", message });
+		if (tailKind) assistantTailKinds.set(message, tailKind);
 	};
 
 	for (const entry of entries) {
@@ -771,12 +901,12 @@ export function proseOf(
 				push({ ...message, content: parts, steering: undefined, providerPayload: undefined }, parts);
 			} else if (message.role === "assistant") {
 				if (message.retryRecovery?.status === "recovered") continue; // context rebuilds drop these too
-				const { parts, pendingResults } = assistantParts(message, keep, results, spans, artifactId, rebasedSpans);
-				const hasToolCalls = parts.some(part => part.type === "toolCall");
-				push(
+				const { segments, pendingResults } = assistantParts(message, keep, results, spans, artifactId, rebasedSpans);
+				const hasToolCalls = segments.some(segment => segment.part.type === "toolCall");
+				pushAssistant(
 					{
 						...message,
-						content: parts,
+						content: [],
 						// A turn that still holds tool calls must advertise toolUse;
 						// one whose calls were all traced/erased must not keep a stale
 						// toolUse stop that expects results this fork no longer emits.
@@ -788,7 +918,7 @@ export function proseOf(
 						duration: undefined,
 						ttft: undefined,
 					},
-					parts,
+					segments,
 				);
 				// Native results follow their assistant immediately — never folded
 				// into a neighbouring toolResult, and never deferred past the next
@@ -803,6 +933,19 @@ export function proseOf(
 			// leave stale "the conversation is live from here" markers stranded
 			// mid-transcript. Drop them; the handler appends a fresh pair.
 			if (entry.customType === "prose-note") continue;
+			if (keep.subagents === "archive" && isSubagentResult(entry)) {
+				out.push({
+					kind: "custom",
+					// Not `async-result`: the stub is a /prose artifact and renders like
+					// `skill-trimmed`, without the job-delivery chrome.
+					customType: "subagent-archived",
+					content: subagentLine(entry, spans?.get(entrySpanKey(entry.id)), artifactId),
+					display: entry.display,
+					details: entry.details,
+					attribution: entry.attribution,
+				});
+				continue;
+			}
 			const skillDetails =
 				entry.customType === "skill-prompt" && keep.skills !== "full"
 					? (entry.details as { name?: string; path?: string; args?: string } | undefined)
@@ -921,7 +1064,15 @@ export function storyFold(items: ProseItem[]): ProseItem[] {
 	return [{ kind: "message", message: { role: "user", content: parts, timestamp: Date.now() } }];
 }
 
-type ParsedFlags = { keep: Keep; turns?: number; pin?: number; picker?: "turns" | "pin"; unknown?: string };
+type ParsedFlags = {
+	keep: Keep;
+	turns?: number;
+	pin?: number;
+	picker?: "turns" | "pin";
+	/** Bare fork only: distill history sealed behind the latest /clear or compaction too. */
+	compacted?: boolean;
+	unknown?: string;
+};
 
 /**
  * `±tools` sets the level for every tool; `±tools=a,b` overrides those names
@@ -931,7 +1082,7 @@ type ParsedFlags = { keep: Keep; turns?: number; pin?: number; picker?: "turns" 
 const TOOLS_FLAG = /^([+-])tools?(?:=(.+))?$/;
 
 export function parseFlags(args: string): ParsedFlags {
-	const keep: Keep = { thinking: false, tools: { default: "trace", byName: new Map() }, skills: "brief", story: false };
+	const keep: Keep = { thinking: false, tools: { default: "trace", byName: new Map() }, skills: "brief", story: false, subagents: "full" };
 	const parsed: ParsedFlags = { keep };
 	for (const token of args.trim().split(/\s+/).filter(Boolean)) {
 		const tools = TOOLS_FLAG.exec(token);
@@ -940,6 +1091,8 @@ export function parseFlags(args: string): ParsedFlags {
 			if (tools[2] === undefined) keep.tools.default = level;
 			else for (const name of tools[2].split(",").filter(Boolean)) keep.tools.byName.set(name, level);
 		} else if (token === "+think" || token === "+thinking") keep.thinking = true;
+		else if (token === "-sub" || token === "-subagents") keep.subagents = "archive";
+		else if (token === "+compacted") parsed.compacted = true;
 		else if (token === "+skills") keep.skills = "full";
 		else if (token === "-skills") keep.skills = "bare";
 		else if (token === "story") keep.story = true;
@@ -1159,6 +1312,26 @@ function appendItems(sessionManager: WritableSession, items: ProseItem[]): void 
 /** Keep persisted and transient recovery hints on omp's documented flag. */
 const resumeCommand = (sessionId: string): string => `omp --resume ${sessionId}`;
 
+const JOB_KIND: Record<string, string> = { task: "subagent", bash: "background bash", eval: "background eval" };
+
+/**
+ * The bare fork goes through newSession(), which cancels every async job this
+ * session owns and drops finished results still queued for delivery
+ * (AgentSession#cancelOwnAsyncJobs). Describes that loss for a confirm dialog;
+ * undefined when nothing would be lost.
+ */
+function doomedJobsWarning(snapshot: AsyncJobSnapshot | null | undefined, now: number): string | undefined {
+	const running = snapshot?.running ?? [];
+	const queued = snapshot?.delivery.queued ?? 0;
+	if (running.length === 0 && queued === 0) return undefined;
+	const lines = running.map(job => {
+		const minutes = Math.floor((now - job.startTime) / 60_000);
+		return `• ${JOB_KIND[job.type] ?? job.type}: ${job.label} (running ${minutes < 1 ? "<1" : minutes}m)`;
+	});
+	if (queued > 0) lines.push(`• ${queued} finished result${queued === 1 ? "" : "s"} not yet delivered`);
+	return `Forking leaves this session, which kills its background work:\n${lines.join("\n")}\n\nThe fork won't get their results. Fork anyway?`;
+}
+
 /**
  * The framing entry that opens every distilled region. Traces of tool calls
  * sit inside assistant messages, which is exactly where a model could learn
@@ -1192,11 +1365,15 @@ function proseNote(keep: Keep, original: string, artifactId?: string): ProseItem
 	const story = keep.story
 		? " The entire exchange is folded into the single message that follows; bracketed markers [@user], [@assistant], and [@system …] label who actually spoke."
 		: "";
-	const archiveNote = artifactId ? `, with discarded tool outputs archived in artifact://${artifactId}` : "";
+	const sub = keep.subagents === "archive"
+		? ` Background subagent reports appear as one-line [subagent result: …${artifactId ? "; recover: artifact://…" : ""}] stubs${artifactId ? "; read the recover link when a report's details matter" : ""}.`
+		: "";
+	const archived = keep.subagents === "archive" ? "tool outputs and subagent reports" : "tool outputs";
+	const archiveNote = artifactId ? `, with discarded ${archived} archived in artifact://${artifactId}` : "";
 	return {
 		kind: "custom",
 		customType: "prose-note",
-		content: `[The conversation from this point on was distilled by /prose: provider bookkeeping and everything not kept below were removed — the prose itself is verbatim.${traces}${full}${think}${story} The unabridged original is ${original}${archiveNote}.]`,
+		content: `[The conversation from this point on was distilled by /prose: provider bookkeeping and everything not kept below were removed — the prose itself is verbatim.${traces}${full}${think}${story}${sub} The unabridged original is ${original}${archiveNote}.]`,
 		display: true,
 	};
 }
@@ -1257,7 +1434,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 	pi.on("session_switch", (_event, ctx) => adopt(ctx));
 
 	pi.registerCommand("prose", {
-		description: "[N|^N|?] [story ±tools[=a,b] ±skills +think] — fork; N distills recent turns in place; ^N keeps them and distills the rest",
+		description: "[N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — fork; N distills recent turns in place; ^N keeps them and distills the rest",
 		// Offered only once a flag is being typed. An empty argument deliberately
 		// yields nothing: an open dropdown suppresses the editor's inline hint
 		// (it prefers the selected item's own `hint`), and the hint is what
@@ -1300,6 +1477,12 @@ export default function proseExtension(pi: ExtensionAPI) {
 				{ value: "+skills", label: "+skills", description: "keep skill bodies verbatim" },
 				{ value: "-skills", label: "-skills", description: "skill invocations shrink to name + prompt" },
 				{ value: "+think", label: "+think", description: "keep readable reasoning in [thinking]…[/thinking]" },
+				{ value: "-sub", label: "-sub", description: "subagent results shrink to one line each, full text archived" },
+				{
+					value: "+compacted",
+					label: "+compacted",
+					description: "bare fork: also distill history sealed by /clear or compaction",
+				},
 				{
 					value: "story",
 					label: "story",
@@ -1317,7 +1500,13 @@ export default function proseExtension(pi: ExtensionAPI) {
 
 			const parsed = parseFlags(args);
 			if (parsed.unknown !== undefined) {
-				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes N, ^N, ?, ^?, story, ±tools[=a,b], ±skills, and +think.`, "warning");
+				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes N, ^N, ?, ^?, story, ±tools[=a,b], ±skills, -sub, +think, and +compacted.`, "warning");
+				return;
+			}
+			if (parsed.compacted && (parsed.turns !== undefined || parsed.pin !== undefined || parsed.picker)) {
+				// An in-place trim that reopened sealed history would put collapsed
+				// turns back into this session's context and grow it.
+				ctx.ui.notify("+compacted applies to the bare fork only; N and ^N trims never reopen sealed history.", "warning");
 				return;
 			}
 
@@ -1332,10 +1521,10 @@ export default function proseExtension(pi: ExtensionAPI) {
 			const floor = pinMode ? windowStart : trimFloor(entries);
 			const starts = allStarts.filter(index => index >= floor);
 			const sealed = starts.length < allStarts.length ? " reachable (history before the last /clear or compaction is sealed)" : " on this branch";
+			// Current hosts expose this on the command context; accepting it on
+			// ui as well keeps the guard honest for UI adapters that own it.
+			const hasUI = "hasUI" in ctx.ui ? Boolean(ctx.ui.hasUI) : ctx.hasUI;
 			if (parsed.picker) {
-				// Current hosts expose this on the command context; accepting it on
-				// ui as well keeps the guard honest for UI adapters that own it.
-				const hasUI = "hasUI" in ctx.ui ? Boolean(ctx.ui.hasUI) : ctx.hasUI;
 				if (!hasUI) {
 					ctx.ui.notify("No interactive UI — pass a number", "warning");
 					return;
@@ -1505,14 +1694,30 @@ export default function proseExtension(pi: ExtensionAPI) {
 				);
 				return;
 			}
-			if (parsed.keep.thinking && !hasReadableThinking(entries)) {
+			// Same window as the other forms unless +compacted: history behind a
+			// /clear or compaction is sealed, and distilling it re-emits what the
+			// host already dropped — the fork can outgrow its source.
+			const window = parsed.compacted ? entries : entries.slice(windowStart);
+			if (parsed.keep.thinking && !hasReadableThinking(window)) {
 				ctx.ui.notify("+think: this branch stored no readable reasoning (encrypted by the provider).", "warning");
 			}
 
-			const preliminaryItems = proseOf(entries, parsed.keep);
+			const preliminaryItems = proseOf(window, parsed.keep);
 			if (preliminaryItems.length === 0) {
 				ctx.ui.notify("Nothing to distill: no conversation on this branch.", "warning");
 				return;
+			}
+
+			// Only the bare form leaves this session; N and ^N rewrite it in place
+			// and background work keeps running.
+			const doomed = doomedJobsWarning(ctx.getAsyncJobSnapshot?.(), Date.now());
+			if (doomed !== undefined) {
+				if (!hasUI) {
+					ctx.ui.notify("Background jobs are still running and a fork would cancel them — wait for them, or use /prose N to trim in place.", "warning");
+					return;
+				}
+				// Cursor starts on No: a reflexive Enter must not kill the jobs.
+				if (!(await ctx.ui.confirm("Kill running background jobs?", doomed, { initialIndex: 1 }))) return;
 			}
 
 			// The header link is what keeps the original reachable, so it has to be
@@ -1526,7 +1731,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 			const sourceSm = ctx.sessionManager as unknown as SessionManagerWithArtifacts;
 			const sourceArtifactsDir = typeof sourceSm.getArtifactsDir === "function" ? sourceSm.getArtifactsDir() : null;
 
-			const archive = buildProseArchive(entries, parsed.keep, resultsOf(entries), sourceArtifactsDir);
+			const archive = buildProseArchive(window, parsed.keep, resultsOf(window), sourceArtifactsDir);
 			let messageCount = 0;
 
 			const { cancelled } = await ctx.newSession({
@@ -1548,7 +1753,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 						}
 					}
 
-					const items = proseOf(entries, parsed.keep, archive.spansByCallId, artifactId, archive.rebasedSpans);
+					const items = proseOf(window, parsed.keep, archive.spansByCallId, artifactId, archive.rebasedSpans);
 					messageCount = items.filter(item => item.kind === "message").length;
 					appendItems(sessionManager, [
 						proseNote(parsed.keep, `the parent session (${resumeCommand(sourceId)})`, artifactId),
@@ -1578,6 +1783,8 @@ export default function proseExtension(pi: ExtensionAPI) {
 				...toolFlags("none", "-"),
 				parsed.keep.skills === "full" && "+skills",
 				parsed.keep.skills === "bare" && "-skills",
+				parsed.keep.subagents === "archive" && "-sub",
+				parsed.compacted && "+compacted",
 			]
 				.filter(Boolean)
 				.join(" ");
