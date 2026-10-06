@@ -49,14 +49,19 @@ for m in "${models[@]:1}"; do
   labels+=("${branch}-${m}${tab_desc:+-$tab_desc}")
 done
 
-# 4. launch every agent with the exact OMP executable and PATH selected by the caller
+# 4. launch every agent with the exact OMP executable, PATH, and OMP profile selected by the caller
+#    (a herdr pane inherits herdr's env, not ours; without these omp falls back to the default profile)
+printf -v pane_env 'export PATH=%q' "$PATH"
+for v in OMP_PROFILE PI_CODING_AGENT_DIR; do
+  [[ -z ${!v:-} ]] || printf -v pane_env '%s %s=%q' "$pane_env" "$v" "${!v}"
+done
 for i in "${!panes[@]}"; do
   m=${models[$i]:-}
   args=("$omp_bin")
   [[ -z $m ]] || args+=(--model "$m")
   args+=("@$brief")
   printf -v pane_command ' %q' "${args[@]}"
-  herdr pane run "${panes[$i]}" "export PATH=$pane_path;$pane_command"
+  herdr pane run "${panes[$i]}" "$pane_env;$pane_command"
 done
 
 # 5. verify each pane has a live omp with cwd inside the worktree
