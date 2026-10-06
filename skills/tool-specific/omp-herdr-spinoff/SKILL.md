@@ -25,7 +25,9 @@ Hand the tangent off without working on it yourself.
 
    It fetches origin, resolves the base (existing branch → its head; else `origin/main`), cuts the worktree as its own workspace labelled `<slug>`, names the tabs `<slug>-<model>[-<desc>]`, launches one omp per `-m` on the brief, and verifies each pane has a live omp inside the worktree. Pass `-r` when the work belongs to a different repo than the session's cwd (e.g. master sits in nilo-wayfinder, work is in `~/workspace/nilo`).
 
-   Multi-agent: repeat `-m` (e.g. `-m sol -m opus`) for an adversarial review — one workspace, one checkout, one tab per model, all on the same brief. Shared checkout suits read-mostly work; give each model its own output file in the brief ("Sol writes `review-sol.md`, Opus writes `review-opus.md`"). Two *implementers* want two spinoffs, not two tabs.
+   Always suffix every `-m` with `:high` or `:xhigh` (e.g. `-m opus:high`); a bare model name inherits `defaultThinkingLevel`, which can resolve to low.
+
+   Multi-agent: repeat `-m` (e.g. `-m sol:xhigh -m opus:high`) for an adversarial review — one workspace, one checkout, one tab per model, all on the same brief. Shared checkout suits read-mostly work; give each model its own output file in the brief ("Sol writes `review-sol.md`, Opus writes `review-opus.md`"). Two *implementers* want two spinoffs, not two tabs.
 
 4. **Confirm real work.** Script success means omp is alive; now `herdr pane read <pane>` must show skill loads, file reads, progress. A welcome screen or auth error is a failed launch, not a launch.
 
