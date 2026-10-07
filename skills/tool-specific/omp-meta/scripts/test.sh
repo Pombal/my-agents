@@ -331,6 +331,17 @@ touch -d 2026-03-03T00:00:00Z "$fork_b_path"
 touch -d 2026-03-04T00:00:00Z "$orphan_path"
 touch -d 2026-03-05T00:00:00Z "$solo_path"
 
+# A parent recorded at a path it has since moved away from is found by id.
+moved_id=019b0000-0000-7000-8000-000000000006
+moved_path="$lineage_proj/2026-03-06T00-00-00-000Z_$moved_id.jsonl"
+write_lineage_session "$moved_path" "$moved_id" "$tmp/elsewhere/2026-03-02T00-00-00-000Z_$fork_a_id.jsonl" MOVED
+touch -d 2026-03-06T00:00:00Z "$moved_path"
+moved_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks)
+[[ $moved_list == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id"$'\n'* ]]
+moved_root=$(cd "$tmp" && OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks -n 1)
+[[ $moved_root == *$'\t'"$moved_id"$'\t'*$'\t'"$root_id" ]]
+rm -f "$moved_path"
+
 lineage_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list)
 [[ $(printf '%s\n' "$lineage_list" | wc -l) -eq 3 ]]
 [[ $lineage_list == *$'\t'"$solo_id"$'\t'*$'\t-'$'\n'* ]]

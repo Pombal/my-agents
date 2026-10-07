@@ -426,16 +426,20 @@ session_id_of() {
 }
 
 # A parentSession value is a path in newer sessions and a bare id in older
-# ones; an id is looked up under the sessions roots and kept as is when no
-# file matches.
+# ones. A path that no longer exists, because the session moved to another
+# profile or folder, and a bare id are both looked up by id under the
+# sessions roots; the value is kept as is when no file matches.
 parent_session_path() {
-  local ref=$1 root match
-  if [[ $ref == */* ]]; then
+  local ref=$1 id root match
+  if [[ $ref == */* && -f $ref ]]; then
     printf '%s' "$ref"
     return
   fi
+  id=${ref##*/}
+  id=${id%.jsonl}
+  [[ $ref != */* ]] || id=${id#*_}
   for root in "${sessions_roots[@]}"; do
-    for match in "$root"/*/*_"$ref".jsonl; do
+    for match in "$root"/*/*_"$id".jsonl; do
       if [[ -f $match ]]; then
         printf '%s' "$match"
         return
@@ -542,7 +546,7 @@ lineage_root_loaded() {
       REPLY=${REPLY#*_}
       return
     fi
-    if [[ $ref == */* ]]; then
+    if [[ $ref == */* && -n ${parent_ref[$ref]+set} ]]; then
       parent=$ref
     else
       [[ -n ${parent_path_cache[$ref]+set} ]] \

@@ -67,7 +67,7 @@ Fenced blocks automatically use enough backticks to contain their content safely
 
 ## Lineage
 
-`/fork` and `/prose` write a new session file whose header names its parent in `parentSession` — as a path in newer sessions, as a bare id in older ones. Following those links to the oldest ancestor gives every fork of one conversation the same root; a parent that no longer exists still names the root. A parent given as an id is looked up under the sessions roots.
+`/fork` and `/prose` write a new session file whose header names its parent in `parentSession` — as a path in newer sessions, as a bare id in older ones. Following those links to the oldest ancestor gives every fork of one conversation the same root. A parent given as an id, or recorded at a path it has since moved away from (another profile or folder), is looked up by id under the sessions roots; a parent found nowhere still names the root.
 
 `list` and `search` show one row per root by default: the newest session of the lineage, with the root's id in the lineage column, or `-` when the session is itself a root. `--all-forks` shows every session instead, each with its own lineage value.
 
