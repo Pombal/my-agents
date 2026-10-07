@@ -210,23 +210,30 @@ async function collect(
     });
 
   // A fork opens with a copy of its parent's history. Every session renders
-  // with --own, without that copy; afterwards the oldest picked session of
-  // each lineage renders whole again, so the history it built on appears
-  // exactly once.
-  const picked: Session[] = [];
+  // with --own, without that copy, and the oldest picked session of each
+  // lineage renders whole, so the history it built on appears exactly once.
+  // The two-message bar applies to what a session contributes: a fork that
+  // added little still makes it when its copy is its lineage's only record
+  // in the recap, and is dropped once an older session of its lineage is in.
+  const picked: (Session & { tentative?: boolean })[] = [];
   for (let i = 0; i < listed.length && picked.length < max; i += RENDER_CONCURRENCY) {
     const batch = listed.slice(i, i + RENDER_CONCURRENCY);
     const rendered = await Promise.all(
-      batch.map((s) => render(s.path, scratch, ["--own", ...windowArgs(scope)])),
+      batch.map(async (s) => {
+        const own = await render(s.path, scratch, ["--own", ...windowArgs(scope)]);
+        if (own.length >= 2 || s.lineage === "-") return { blocks: own, tentative: false };
+        return { blocks: await render(s.path, scratch, windowArgs(scope)), tentative: true };
+      }),
     );
     batch.forEach((session, index) => {
-      if (picked.length >= max || rendered[index].length < 2) return;
+      if (picked.length >= max || rendered[index].blocks.length < 2) return;
       picked.push({
         ...session,
         started: startedAt(session.path),
-        blocks: rendered[index],
+        blocks: rendered[index].blocks,
         inherited: 0,
         omitted: 0,
+        tentative: rendered[index].tentative,
       });
     });
   }
@@ -234,17 +241,22 @@ async function collect(
   const lineageOf = (s: Listed) =>
     s.lineage !== "-" ? s.lineage : basename(s.path, ".jsonl").replace(/^[^_]*_/, "");
   const seen = new Set<string>();
-  const firsts = picked.filter((s) => {
-    const key = lineageOf(s);
-    if (seen.has(key)) return false;
+  const firsts = new Set<Session>();
+  for (const session of picked) {
+    const key = lineageOf(session);
+    if (seen.has(key)) continue;
     seen.add(key);
-    return s.lineage !== "-";
-  });
-  const whole = await Promise.all(firsts.map((s) => render(s.path, scratch, windowArgs(scope))));
-  firsts.forEach((session, index) => {
+    firsts.add(session);
+  }
+  const kept = picked.filter((s) => !s.tentative || firsts.has(s));
+  const rerender = kept.filter((s) => firsts.has(s) && s.lineage !== "-" && !s.tentative);
+  const whole = await Promise.all(
+    rerender.map((s) => render(s.path, scratch, windowArgs(scope))),
+  );
+  rerender.forEach((session, index) => {
     if (whole[index].length >= session.blocks.length) session.blocks = whole[index];
   });
-  return picked;
+  return kept.map(({ tentative, ...session }) => session);
 }
 
 function repeatMarker(chars: number): string {
