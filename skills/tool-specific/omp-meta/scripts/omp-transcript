@@ -6,16 +6,25 @@ script_dir=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pw
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids] [-m <n>]
+  omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids]
+                                    [-m <n> | --around <message-id> [-C <n>]]
+                                    [--since <when>] [--until <when>]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
-  omp-transcript list [--cwd <dir>] [-n <count>]
-  omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [-n <count>]
-                                       [--reasoning] [--with-tools]
-                                       [--no-snippet] [--width <chars>]
+  omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
+                      [--all-forks] [-n <count>]
+  omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [--under <dir>]...
+                        [--since <when>] [--until <when>] [--all-forks] [-n <count>]
+                        [--reasoning] [--with-tools] [--hits [<n>]]
+                        [--no-snippet] [--width <chars>]
 
 Every mode also accepts --profile <name|default|all>, choosing which OMP
 profile's sessions are scanned. Default: $OMP_SESSIONS_DIR when set,
-otherwise ~/.omp/agent/sessions.
+otherwise all.
+
+<when> is anything GNU date -d accepts (today, yesterday, 2026-10-06,
+"last monday", "2026-10-06 14:00") or a shorthand like 2h, 3d, 1w. A spec
+without a time of day means the start of that day, local time. The window
+is half-open: since <= t < until.
 EOF
   exit "${1:-2}"
 }
@@ -42,6 +51,15 @@ search_regex=false
 search_snippet=true
 search_count=20
 search_width=140
+search_hits=0
+since_spec=
+until_spec=
+since_epoch=
+until_epoch=
+under_dirs=()
+all_forks=false
+around_id=
+around_context=3
 profile=
 
 profile_args=()
@@ -66,9 +84,12 @@ set -- ${profile_args[@]+"${profile_args[@]}"}
 
 omp_home=${HOME:-}/.omp
 sessions_roots=()
+if [[ -z $profile ]]; then
+  if [[ ${OMP_SESSIONS_DIR+set} == set ]]; then profile=env; else profile=all; fi
+fi
 case $profile in
-  '')
-    sessions_roots=("${OMP_SESSIONS_DIR-$omp_home/agent/sessions}")
+  env)
+    sessions_roots=("$OMP_SESSIONS_DIR")
     ;;
   default)
     sessions_roots=("$omp_home/agent/sessions")
@@ -118,6 +139,25 @@ case ${1:-} in
           filter_cwd=$2
           shift 2
           ;;
+        --under)
+          (($# >= 2)) || usage
+          under_dirs+=("$2")
+          shift 2
+          ;;
+        --since)
+          (($# >= 2)) || usage
+          since_spec=$2
+          shift 2
+          ;;
+        --until)
+          (($# >= 2)) || usage
+          until_spec=$2
+          shift 2
+          ;;
+        --all-forks)
+          all_forks=true
+          shift
+          ;;
         -n)
           (($# >= 2)) || usage
           list_count=$2
@@ -126,7 +166,7 @@ case ${1:-} in
         *) usage ;;
       esac
     done
-    [[ $list_count =~ ^[1-9][0-9]{0,17}$ ]] || usage
+    [[ $list_count =~ ^(0|[1-9][0-9]{0,17})$ ]] || usage
     ;;
   search)
     mode=search
@@ -149,10 +189,38 @@ case ${1:-} in
           search_snippet=false
           shift
           ;;
+        --hits)
+          if (($# >= 2)) && [[ $2 =~ ^[1-9][0-9]{0,3}$ ]]; then
+            search_hits=$2
+            shift 2
+          else
+            search_hits=5
+            shift
+          fi
+          ;;
         --cwd)
           (($# >= 2)) || usage
           filter_cwd=$2
           shift 2
+          ;;
+        --under)
+          (($# >= 2)) || usage
+          under_dirs+=("$2")
+          shift 2
+          ;;
+        --since)
+          (($# >= 2)) || usage
+          since_spec=$2
+          shift 2
+          ;;
+        --until)
+          (($# >= 2)) || usage
+          until_spec=$2
+          shift 2
+          ;;
+        --all-forks)
+          all_forks=true
+          shift
           ;;
         -n)
           (($# >= 2)) || usage
@@ -209,6 +277,28 @@ case ${1:-} in
           message_count=$2
           shift 2
           ;;
+        --around)
+          (($# >= 2)) || usage
+          around_id=$2
+          ids=true
+          shift 2
+          ;;
+        -C|--context)
+          (($# >= 2)) || usage
+          [[ $2 =~ ^(0|[1-9][0-9]{0,3})$ ]] || usage
+          around_context=$2
+          shift 2
+          ;;
+        --since)
+          (($# >= 2)) || usage
+          since_spec=$2
+          shift 2
+          ;;
+        --until)
+          (($# >= 2)) || usage
+          until_spec=$2
+          shift 2
+          ;;
         -*)
           usage
           ;;
@@ -220,10 +310,155 @@ case ${1:-} in
       esac
     done
     [[ -n $session ]] || usage
+    [[ -z $around_id || -z $message_count ]] || usage
     ;;
 esac
 
 command -v jq >/dev/null || fatal 'jq is required'
+
+# Epoch seconds for a --since/--until spec. Day-granularity specs (today,
+# yesterday, 2026-10-06, "last monday", "3 days ago") mean local midnight of
+# that day; anything naming a time of day, and the Nm/Nh/Nd/Nw shorthand, is
+# taken as is.
+parse_when() {
+  local spec=$1 epoch
+  if [[ $spec =~ ^([0-9]+)([mhdw])$ ]]; then
+    case ${BASH_REMATCH[2]} in
+      m) spec="${BASH_REMATCH[1]} minutes ago" ;;
+      h) spec="${BASH_REMATCH[1]} hours ago" ;;
+      d) spec="${BASH_REMATCH[1]} days ago" ;;
+      w) spec="${BASH_REMATCH[1]} weeks ago" ;;
+    esac
+    date -d "$spec" +%s 2>/dev/null
+    return
+  fi
+  epoch=$(date -d "$spec" +%s 2>/dev/null) || return 1
+  if [[ $spec != *:* && $spec != *[Tt][0-9][0-9]* && $spec != @* ]] \
+     && ! [[ $spec =~ (hour|min|sec|now|noon|midnight) ]]; then
+    epoch=$(date -d "$(date -d "@$epoch" +%F)" +%s 2>/dev/null) || return 1
+  fi
+  printf '%s' "$epoch"
+}
+
+if [[ -n $since_spec ]]; then
+  since_epoch=$(parse_when "$since_spec") || fatal "cannot parse time: $since_spec"
+fi
+if [[ -n $until_spec ]]; then
+  until_epoch=$(parse_when "$until_spec") || fatal "cannot parse time: $until_spec"
+fi
+if [[ -n $since_epoch && -n $until_epoch ]] && ((since_epoch >= until_epoch)); then
+  fatal "empty window: --since $since_spec is not before --until $until_spec"
+fi
+
+# Window bounds as the tool prints them, and as a filename prefix: a session
+# file is named after its start time, so a lexical compare of the first 19
+# characters stands in for parsing it.
+window_label() {
+  local parts=()
+  [[ -z $since_epoch ]] || parts+=("since $(date -ud "@$since_epoch" +%FT%TZ)")
+  [[ -z $until_epoch ]] || parts+=("until $(date -ud "@$until_epoch" +%FT%TZ)")
+  local IFS=' '
+  printf '%s' "${parts[*]}"
+}
+until_name=
+[[ -z $until_epoch ]] || until_name=$(date -ud "@$until_epoch" +%Y-%m-%dT%H-%M-%S)
+
+# True when a session file started before --until. Files not named after
+# their start time fall back to the mtime passed in.
+started_before_until() {
+  local path=$1 mtime=$2 name
+  [[ -n $until_epoch ]] || return 0
+  name=${path##*/}
+  if [[ $name =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2} ]]; then
+    [[ ${name:0:19} < $until_name ]]
+  else
+    ((mtime < until_epoch))
+  fi
+}
+
+# --cwd is an exact match; every --under matches the directory itself and
+# anything below it. Both apply when both are given.
+wanted_cwd=
+under_resolved=()
+resolve_cwd_filters() {
+  local dir
+  if [[ -n $filter_cwd ]]; then
+    wanted_cwd=$(realpath -- "$filter_cwd" 2>/dev/null) || fatal "cwd not found: $filter_cwd"
+  fi
+  for dir in ${under_dirs[@]+"${under_dirs[@]}"}; do
+    under_resolved+=("$(realpath -m -- "$dir")")
+  done
+}
+
+cwd_matches() {
+  local cwd=$1 dir
+  if [[ -n $wanted_cwd && $cwd != "$wanted_cwd" ]]; then return 1; fi
+  ((${#under_resolved[@]})) || return 0
+  for dir in "${under_resolved[@]}"; do
+    [[ $cwd == "$dir" || $cwd == "$dir"/* ]] && return 0
+  done
+  return 1
+}
+
+session_id_of() {
+  local name=${1##*/}
+  name=${name%.jsonl}
+  printf '%s' "${name#*_}"
+}
+
+# A parentSession value is a path in newer sessions and a bare id in older
+# ones; an id is looked up under the sessions roots and kept as is when no
+# file matches.
+parent_session_path() {
+  local ref=$1 root match
+  if [[ $ref == */* ]]; then
+    printf '%s' "$ref"
+    return
+  fi
+  for root in "${sessions_roots[@]}"; do
+    for match in "$root"/*/*_"$ref".jsonl; do
+      if [[ -f $match ]]; then
+        printf '%s' "$match"
+        return
+      fi
+    done
+  done
+  printf '%s' "$ref"
+}
+
+# Follows parentSession links to the oldest ancestor and prints that
+# session's id; a parent that no longer exists still names the root. Every
+# fork of one conversation therefore shares a root, which is what lets list
+# and search show a lineage once.
+declare -A lineage_cache=()
+lineage_root() {
+  local path=$1 current root= parent chain=() steps=0
+  current=$(realpath -m -- "$path")
+  while :; do
+    if [[ -n ${lineage_cache[$current]+set} ]]; then
+      root=${lineage_cache[$current]}
+      break
+    fi
+    chain+=("$current")
+    parent=$(head -c 65536 -- "$current" 2>/dev/null \
+      | grep -o -m1 '"parentSession":"[^"]*"' | cut -d'"' -f4) || true
+    [[ -z $parent ]] || parent=$(parent_session_path "$parent")
+    if [[ -z $parent || ! -f $parent ]] || ((++steps > 200)); then
+      root=$(session_id_of "${parent:-$current}")
+      break
+    fi
+    current=$(realpath -m -- "$parent")
+  done
+  for current in "${chain[@]}"; do lineage_cache[$current]=$root; done
+  printf '%s' "$root"
+}
+
+# The lineage column: the root session's id for a fork, "-" otherwise.
+lineage_label() {
+  local path=$1 root
+  root=$(lineage_root "$path")
+  if [[ $root == "$(session_id_of "$path")" ]]; then printf -- '-'; else printf '%s' "$root"; fi
+}
 
 tmpdir=
 cleanup() {
@@ -250,36 +485,49 @@ collect_roots() {
   ((${#roots[@]})) || fatal "sessions root not found: ${sessions_roots[0]}"
 }
 
+# Session files newest first as "<mtime seconds>\t<path>\0", skipping files
+# last written before --since.
+find_session_files() {
+  local roots=("$@") find_args=()
+  [[ -z $since_epoch ]] || find_args+=(-newermt "@$since_epoch")
+  find "${roots[@]}" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' \
+    ${find_args[@]+"${find_args[@]}"} -printf '%T@\t%p\0' \
+    | LC_ALL=C sort -z -t "$(printf '\t')" -k1,1gr \
+    | while IFS= read -r -d '' entry; do
+        mtime=${entry%%$'\t'*}
+        printf '%s\t%s\0' "${mtime%%.*}" "${entry#*$'\t'}"
+      done
+}
+
+# Splits one TSV row into the caller's `cols` array. `read` would fold the
+# consecutive tabs of an empty field, so this walks the tabs by hand.
+split_row() {
+  local s=$1
+  cols=()
+  while [[ $s == *$'\t'* ]]; do
+    cols+=("${s%%$'\t'*}")
+    s=${s#*$'\t'}
+  done
+  cols+=("$s")
+}
+
 list_sessions() {
   local roots=()
-  local wanted_cwd=
-  local candidates sorted path metadata mtime mtime_detail entry rest header timestamp
+  local sorted path mtime entry header timestamp cwd root lineage
   local matched=0
+  declare -A seen_roots=()
 
   collect_roots
-  if [[ -n $filter_cwd ]]; then
-    wanted_cwd=$(realpath -- "$filter_cwd" 2>/dev/null) || fatal "cwd not found: $filter_cwd"
-  fi
+  resolve_cwd_filters
 
   make_tmpdir
-  candidates=$tmpdir/candidates
   sorted=$tmpdir/candidates-sorted
-  : > "$candidates"
-
-  while IFS= read -r -d '' path; do
-    metadata=$(stat -c $'%Y\t%y' -- "$path") || continue
-    mtime=${metadata%%$'\t'*}
-    mtime_detail=${metadata#*$'\t'}
-    printf '%020d\t%s\t%s\0' "$mtime" "$mtime_detail" "$path" >> "$candidates"
-  done < <(find "${roots[@]}" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' -print0)
-
-  LC_ALL=C sort -z -r -- "$candidates" > "$sorted"
+  find_session_files "${roots[@]}" > "$sorted"
 
   while IFS= read -r -d '' entry; do
     mtime=${entry%%$'\t'*}
-    mtime=$((10#$mtime))
-    rest=${entry#*$'\t'}
-    path=${rest#*$'\t'}
+    path=${entry#*$'\t'}
+    started_before_until "$path" "$mtime" || continue
 
     header=$(jq -cn '
       [limit(5; inputs)] as $records
@@ -297,19 +545,27 @@ list_sessions() {
         end
     ' "$path" 2>/dev/null) || continue
     [[ -n $header ]] || continue
-    if [[ -n $wanted_cwd ]]; then
-      [[ $(jq -r '.cwd // empty' <<<"$header") == "$wanted_cwd" ]] || continue
+    if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
+      cwd=$(jq -r '.cwd // empty' <<<"$header")
+      cwd_matches "$cwd" || continue
     fi
+    if ! $all_forks; then
+      root=$(lineage_root "$path")
+      [[ -z ${seen_roots[$root]+set} ]] || continue
+      seen_roots[$root]=1
+    fi
+    lineage=$(lineage_label "$path")
 
-    timestamp=$(jq -nr --argjson epoch "$mtime" '$epoch | strftime("%Y-%m-%dT%H:%M:%SZ")')
+    timestamp=$(date -ud "@$mtime" +%Y-%m-%dT%H:%M:%SZ)
     jq -r \
       --arg timestamp "$timestamp" \
       --arg path "$path" \
-      '[ $timestamp, (.id // ""), (if .title == null then "-" else .title end), (.cwd // ""), $path ] | @tsv' \
+      --arg lineage "$lineage" \
+      '[ $timestamp, (.id // ""), (if .title == null then "-" else .title end), (.cwd // ""), $path, $lineage ] | @tsv' \
       <<<"$header"
 
     ((matched += 1))
-    if ((matched >= list_count)); then break; fi
+    if ((list_count > 0 && matched >= list_count)); then break; fi
   done < "$sorted"
 }
 
@@ -383,9 +639,24 @@ def snippet($re):
     + ($clean[$start:$end] | gsub(" {2,}"; " ") | sub("^ +"; "") | sub(" +$"; ""))
     + (if $end < ($clean | length) then "…" else "" end);
 
+# A record's timestamp as epoch seconds, or null.
+def record_epoch:
+  (.timestamp? // null)
+  | if type == "string" then (sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch null)
+    else null
+    end;
+
+# Without a window every record counts. With one, only records that carry a
+# timestamp inside it do, so titles and session headers stop matching.
+def in_window($t):
+  ($since == null and $until == null)
+  or ($t != null
+      and ($since == null or $t >= $since)
+      and ($until == null or $t < $until));
+
 (if $is_regex then $pattern else ($pattern | re_escape) end) as $re
 | reduce (inputs | select(type == "object")) as $record
-    ({ id: null, cwd: null, title: null, hits: 0, best: null, best_rank: 99 };
+    ({ id: null, cwd: null, title: null, hits: 0, best: null, best_rank: 99, hit_list: [] };
       (if $record.type == "session" then
          (if ($record.id | type) == "string" then .id = $record.id else . end)
          | (if ($record.cwd | type) == "string" then .cwd = $record.cwd else . end)
@@ -396,29 +667,41 @@ def snippet($re):
            .title = $record.title
          else .
          end)
-      | reduce ($record
-                | visible
-                | .[]
-                | select((.text | type) == "string"
-                         and .text != ""
-                         and (.text | test($re; "i")))) as $item
-          (.;
-            .hits += 1
-            | rank($item.role) as $item_rank
-            | if $item_rank < .best_rank then
-                .best_rank = $item_rank
-                | .best = ($item | snippet($re))
-              else .
-              end))
-| select(.hits > 0 and ($wanted_cwd == "" or (.cwd // "") == $wanted_cwd))
+      | if in_window($record | record_epoch) | not then .
+        else
+          reduce ($record
+                  | visible
+                  | .[]
+                  | select((.text | type) == "string"
+                           and .text != ""
+                           and (.text | test($re; "i")))) as $item
+            (.;
+              .hits += 1
+              | rank($item.role) as $item_rank
+              | (if $item_rank < .best_rank then
+                   .best_rank = $item_rank
+                   | .best = ($item | snippet($re))
+                 else .
+                 end)
+              | if $hits_max > 0 and (.hit_list | length) < $hits_max then
+                  .hit_list += [{
+                    id: (($record.id // "") | tostring),
+                    ts: (($record.timestamp // "") | tostring | sub("\\.[0-9]+Z$"; "Z")),
+                    line: ($item | snippet($re))
+                  }]
+                else .
+                end)
+        end)
+| select(.hits > 0)
 | ([ ($mtime | strftime("%Y-%m-%dT%H:%M:%SZ")),
      (.id // ($path | sub("^.*_"; "") | sub("\\.jsonl$"; ""))),
      (.hits | tostring),
      (.title // "-"),
      (.cwd // ""),
      $path ]
-   + (if $with_snippet then [(.best // "")] else [] end))
-| @tsv
+   + (if $with_snippet then [(.best // "")] else [] end)
+   | @tsv)
+  + ([.hit_list[] | "\n\t\(.id)\t\(.ts)\t\(.line)"] | join(""))
 JQ
 
   cat > "$tmpdir/search-one" <<'WORKER'
@@ -437,8 +720,10 @@ scan() {
     --argjson with_tools "$OMPT_WITH_TOOLS" \
     --argjson with_snippet "$OMPT_SNIPPET" \
     --argjson width "$OMPT_WIDTH" \
+    --argjson hits_max "$OMPT_HITS" \
+    --argjson since "${OMPT_SINCE:-null}" \
+    --argjson until "${OMPT_UNTIL:-null}" \
     --argjson mtime "$mtime" \
-    --arg wanted_cwd "$OMPT_CWD" \
     --arg path "$path" \
     -f "$OMPT_PROGRAM" \
     "$1"
@@ -455,14 +740,14 @@ WORKER
 }
 
 search_sessions() {
-  local roots=() wanted_cwd= grep_bin prefilter_mode prefilter_pattern jobs
-  local all_files candidates rows_dir rows sorted entry
+  local roots=() grep_bin prefilter_mode prefilter_pattern jobs
+  local all_files candidates rows_dir rows sorted entry row first rest path root
+  local cols=()
   local total=0 shown=0
+  declare -A seen_roots=()
 
   collect_roots
-  if [[ -n $filter_cwd ]]; then
-    wanted_cwd=$(realpath -- "$filter_cwd" 2>/dev/null) || fatal "cwd not found: $filter_cwd"
-  fi
+  resolve_cwd_filters
   grep_bin=$(resolve_grep) || fatal 'GNU grep is required by search'
 
   if $search_regex; then
@@ -489,7 +774,18 @@ search_sessions() {
   mkdir -p -- "$rows_dir"
   write_search_helpers
 
-  find "${roots[@]}" -mindepth 2 -maxdepth 2 -type f -name '*.jsonl' -print0 > "$all_files"
+  # The window and cwd filters cut the file list before any content is read:
+  # mtime via find, start time via the file name, cwd via the header.
+  : > "$all_files"
+  while IFS= read -r -d '' entry; do
+    path=${entry#*$'\t'}
+    started_before_until "$path" "${entry%%$'\t'*}" || continue
+    if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
+      cwd_matches "$(head -c 65536 -- "$path" 2>/dev/null \
+        | grep -o -m1 '"cwd":"[^"]*"' | cut -d'"' -f4 || true)" || continue
+    fi
+    printf '%s\0' "$path" >> "$all_files"
+  done < <(find_session_files "${roots[@]}")
 
   # Cheap raw-bytes pass first: parsing every session costs minutes, and the
   # text worth searching is a low single-digit percentage of the bytes.
@@ -508,7 +804,9 @@ search_sessions() {
   export OMPT_WITH_TOOLS=$with_tools
   export OMPT_SNIPPET=$search_snippet
   export OMPT_WIDTH=$search_width
-  export OMPT_CWD=$wanted_cwd
+  export OMPT_HITS=$search_hits
+  export OMPT_SINCE=$since_epoch
+  export OMPT_UNTIL=$until_epoch
   export OMPT_ROWS=$rows_dir
   xargs -0 -r -P "$jobs" -n 1 -- "$tmpdir/search-one" < "$candidates" || true
 
@@ -516,10 +814,24 @@ search_sessions() {
   find "$rows_dir" -type f -exec cat -- {} + >> "$rows"
   LC_ALL=C sort -z -r -- "$rows" > "$sorted"
 
+  # Each entry is one row, followed by its hit lines when --hits is on. The
+  # lineage column goes in after the path, so the snippet stays last.
   while IFS= read -r -d '' entry; do
+    row=${entry#*$'\t'}
+    first=${row%%$'\n'*}
+    rest=${row#"$first"}
+    split_row "$first"
+    path=${cols[5]}
+    if ! $all_forks; then
+      root=$(lineage_root "$path")
+      [[ -z ${seen_roots[$root]+set} ]] || continue
+      seen_roots[$root]=1
+    fi
     ((total += 1))
     if ((search_count == 0 || shown < search_count)); then
-      printf '%s\n' "${entry#*$'\t'}"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$(lineage_label "$path")"
+      if $search_snippet; then printf '\t%s' "${cols[6]-}"; fi
+      printf '%s\n' "$rest"
       ((shown += 1))
     fi
   done < "$sorted"
@@ -546,7 +858,14 @@ sidecar_dir=${session%.jsonl}
 make_tmpdir
 branch_file=$tmpdir/branch.json
 
-if ! jq -sc '
+if [[ -n $around_id ]] && ! grep -qF -- "\"id\":\"$around_id\"" "$session"; then
+  fatal "message not found: $around_id"
+fi
+
+# The active branch: the last record's ancestry. With --around, the branch
+# through that message instead: its ancestry plus its latest descendant's,
+# so a hit on a rewound branch still reads in its own context.
+if ! jq -sc --arg around "$around_id" '
   def ancestors($index):
     . as $record
     | $record,
@@ -555,20 +874,31 @@ if ! jq -sc '
        else empty
        end);
 
-  def active_branch:
+  def branch:
     . as $records
     | (reduce $records[] as $record ({};
         if (($record.id? // null) != null)
         then .[$record.id] = $record
         else .
         end)) as $index
-    | ([$records[] | select((.id? // null) != null and has("parentId"))] | last) as $leaf
+    | (if $around == "" then
+         [$records[] | select((.id? // null) != null and has("parentId"))] | last
+       else
+         (reduce $records[] as $record ({($around): true};
+            if (($record.id? // null) != null)
+               and (($record.parentId? // null) != null)
+               and (.[$record.parentId] == true)
+            then .[$record.id] = true
+            else .
+            end)) as $under
+         | [$records[] | select((.id? // null) != null and $under[.id] == true)] | last
+       end) as $leaf
     | if $leaf == null
       then error("session contains no conversation branch")
       else [$leaf | ancestors($index)] | reverse
       end;
 
-  active_branch
+  branch
 ' "$session" > "$branch_file"; then
   fatal 'could not read the active conversation branch'
 fi
@@ -714,7 +1044,24 @@ jq -c \
   --arg session "$session" \
   --argjson count "$slice_count" \
   --argjson with_tools "$with_tools" \
-  --argjson reasoning "$reasoning" '
+  --argjson reasoning "$reasoning" \
+  --argjson since "${since_epoch:-null}" \
+  --argjson until "${until_epoch:-null}" \
+  --arg around "$around_id" \
+  --argjson context "$around_context" '
+  def record_epoch:
+    (.timestamp? // null)
+    | if type == "string" then (sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch null)
+      else null
+      end;
+
+  def in_window:
+    ($since == null and $until == null)
+    or (record_epoch as $t
+        | $t != null
+          and ($since == null or $t >= $since)
+          and ($until == null or $t < $until));
+
   def text_content($record):
     $record.message.content as $content
     | if ($content | type) == "string" then $content
@@ -804,14 +1151,27 @@ jq -c \
     else []
     end;
 
-  [.[] as $record
-    | {record: $record, sections: render_sections($record)}
+  # Positions index the whole branch, so --around can centre on a record
+  # even when that record renders nothing under the current flags.
+  . as $branch
+  | (if $around == "" then null
+     else first($branch | to_entries[] | select((.value.id? // null) == $around) | .key) // null
+     end) as $target
+  | [$branch | to_entries[]
+    | .key as $pos
+    | .value as $record
+    | select($record | in_window)
+    | {record: $record, pos: $pos, sections: render_sections($record)}
     | select(.sections | length > 0)] as $messages
   | {
       total: ($messages | length),
       messages: (
         $messages
-        | if $count == null then .
+        | if $target != null then
+            ([.[] | select(.pos < $target)] | if $context == 0 then [] else .[-$context:] end)
+            + [.[] | select(.pos == $target)]
+            + ([.[] | select(.pos > $target)] | .[:$context])
+          elif $count == null then .
           elif $count < 0 then .[$count:]
           else .[:$count]
           end
@@ -847,7 +1207,10 @@ jq -rj \
   --arg session "$session" \
   --argjson count "$slice_count" \
   --argjson hydrate "$hydrate" \
-  --argjson ids "$ids" '
+  --argjson ids "$ids" \
+  --arg window "$(window_label)" \
+  --arg around "$around_id" \
+  --argjson context "$around_context" '
   def fence($body):
     ((([$body | scan("`+") | length] | max) // 0) + 1) as $length
     | "`" * (if $length < 3 then 3 else $length end);
@@ -871,7 +1234,9 @@ jq -rj \
       end)
   else .
   end
-  | (if $count == null then ""
+  | (if $around != "" then
+       "- **Around:** `\($around)`, up to \($context) messages each side; \(.messages | length) of \(.total) shown\n"
+     elif $count == null then ""
      else
        ($count | if . < 0 then . * -1 else . end) as $wanted
        | ([$wanted, .total] | min) as $shown
@@ -879,7 +1244,9 @@ jq -rj \
      end) as $messages_header
   | "# OMP transcript\n\n"
     + "- **Source:** `\($session)`\n"
-    + "- **Branch:** active branch only\n"
+    + (if $around == "" then "- **Branch:** active branch only\n"
+       else "- **Branch:** the branch through `\($around)`\n" end)
+    + (if $window == "" then "" else "- **Window:** \($window)\n" end)
     + $messages_header
     + "\n"
     + ([.messages[]

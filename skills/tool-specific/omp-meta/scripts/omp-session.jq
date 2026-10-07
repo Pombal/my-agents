@@ -1,4 +1,4 @@
-# Shared record-to-text helpers for omp-transcript search and @omp-find.
+# Record-to-text helpers for omp-transcript search.
 # Callers must define $reasoning and $with_tools.
 
 def re_escape:

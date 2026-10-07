@@ -29,16 +29,23 @@ const REPEAT_MIN_CHARS = 500;
 const CHUNK_SHARE = 0.55;
 const BLOCK_START =
   /^<(?:user|developer|assistant|reasoning|bash-execution|file-mention|custom-message|compaction-summary|branch-summary|tool-call|tool-result) id="([^"]+)"/gm;
-const USAGE = `${COMMAND} — summarize every OMP session recorded in a folder
+const USAGE = `${COMMAND} — summarize OMP sessions by folder or time window
 
 Usage:
   ${COMMAND} [dir] [options]
 
-Renders the newest sessions whose cwd is exactly [dir] (default: the current
-directory), drops what forks inherited from their parents and long paragraphs
-that repeat verbatim, then has an OMP model summarize the result with OMP's own
-compaction prompts. Transcripts larger than one request are summarized in
-order, each request updating the previous summary.
+Renders the newest sessions in scope, drops what forks inherited from their
+parents and long paragraphs that repeat verbatim, then has an OMP model
+summarize the result with OMP's own compaction prompts. Transcripts larger
+than one request are summarized in order, each request updating the previous
+summary.
+
+The scope is the sessions whose cwd is exactly [dir]; --under adds whole
+trees, and --since/--until keep only the messages inside a time window. A
+window with no folder covers every folder. Without any of these, [dir] is
+the current directory.
+  ${COMMAND} --since today
+  ${COMMAND} --under ~/workspace/nilo --under ~/.herdr/worktrees/nilo --since 1w
 
 Without --model on a terminal, it asks for the model, thinking level, and
 optional guidance, and afterwards offers to open OMP in [dir] with the recap
@@ -46,6 +53,9 @@ already in the new session's context, so your first message follows it
 without an agent turn in between. Otherwise the recap is printed to stdout.
 
 Options:
+  --under <dir>          Sessions started in <dir> or below (repeatable)
+  --since <when>         Messages from <when> on: today, yesterday, 3d, 2026-10-06
+  --until <when>         Messages before <when>
   --model <role|model>   Summarizer, e.g. @astra:xhigh (default)
   --thinking <level>     ${THINKING_LEVELS.join(", ")}
   --guidance <text>      Extra focus for the summary
@@ -57,6 +67,7 @@ Options:
   --dump                 Print the deduplicated transcript and exit
   -h, --help`;
 
+type Scope = { cwd?: string; under: string[]; since?: string; until?: string };
 type Listed = { mtime: string; id: string; title: string; path: string };
 type Block = { id: string; text: string; tokens: number };
 type Session = Listed & {
@@ -128,15 +139,38 @@ function parseBlocks(rendered: string): Block[] {
   });
 }
 
-async function render(path: string, scratch: string): Promise<Block[]> {
-  const first = await exec(["omp-transcript", path, "--ids"]);
+function windowArgs(scope: Scope): string[] {
+  return [
+    ...(scope.since ? ["--since", scope.since] : []),
+    ...(scope.until ? ["--until", scope.until] : []),
+  ];
+}
+
+function scopeArgs(scope: Scope): string[] {
+  return [
+    ...(scope.cwd ? ["--cwd", scope.cwd] : []),
+    ...scope.under.flatMap((dir) => ["--under", dir]),
+    ...windowArgs(scope),
+  ];
+}
+
+function describeScope(scope: Scope): string {
+  const where = [...(scope.cwd ? [scope.cwd] : []), ...scope.under.map((dir) => `${dir}/…`)];
+  const parts = [where.length ? where.join(", ") : "every folder"];
+  if (scope.since) parts.push(`since ${scope.since}`);
+  if (scope.until) parts.push(`until ${scope.until}`);
+  return parts.join(", ");
+}
+
+async function render(path: string, scratch: string, window: string[]): Promise<Block[]> {
+  const first = await exec(["omp-transcript", path, "--ids", ...window]);
   if (first.ok) return parseBlocks(first.stdout);
   // A session being appended to right now can end mid-line.
   const lines = readFileSync(path, "utf8").replace(/\n$/, "").split("\n");
   lines.pop();
   const copy = join(scratch, basename(path));
   writeFileSync(copy, `${lines.join("\n")}\n`);
-  const second = await exec(["omp-transcript", copy, "--ids"]);
+  const second = await exec(["omp-transcript", copy, "--ids", ...window]);
   return second.ok ? parseBlocks(second.stdout) : [];
 }
 
@@ -148,9 +182,10 @@ function startedAt(path: string): string {
 }
 
 // Newest sessions first until `max` have at least two rendered blocks; the
-// result is oldest first.
+// result is oldest first. Every fork is listed: dedupe() drops what a fork
+// inherited, so an abandoned fork still contributes its own messages.
 async function collect(
-  dir: string,
+  scope: Scope,
   profile: string,
   max: number,
   scratch: string,
@@ -160,10 +195,10 @@ async function collect(
     "list",
     "--profile",
     profile,
-    "--cwd",
-    dir,
+    "--all-forks",
     "-n",
-    "1000000",
+    "0",
+    ...scopeArgs(scope),
   ]);
   if (!listing.ok) fail(listing.stderr.trim() || "omp-transcript list failed");
   const listed: Listed[] = listing.stdout
@@ -177,7 +212,9 @@ async function collect(
   const picked: Session[] = [];
   for (let i = 0; i < listed.length && picked.length < max; i += RENDER_CONCURRENCY) {
     const batch = listed.slice(i, i + RENDER_CONCURRENCY);
-    const rendered = await Promise.all(batch.map((s) => render(s.path, scratch)));
+    const rendered = await Promise.all(
+      batch.map((s) => render(s.path, scratch, windowArgs(scope))),
+    );
     batch.forEach((session, index) => {
       if (picked.length >= max || rendered[index].length < 2) return;
       picked.push({
@@ -389,6 +426,9 @@ async function main(): Promise<void> {
       "max-sessions": { type: "string", default: "30" },
       "max-tokens": { type: "string", default: "500000" },
       "summary-tokens": { type: "string", default: "16000" },
+      under: { type: "string", multiple: true },
+      since: { type: "string" },
+      until: { type: "string" },
       profile: { type: "string", default: "all" },
       output: { type: "string", short: "o" },
       dump: { type: "boolean", default: false },
@@ -406,12 +446,18 @@ async function main(): Promise<void> {
   const maxSessions = positiveInt("max-sessions", values["max-sessions"]);
   const maxTokens = positiveInt("max-tokens", values["max-tokens"]);
   const summaryTokens = positiveInt("summary-tokens", values["summary-tokens"]);
-  let dir: string;
-  try {
-    dir = realpathSync(resolve(positionals[0] ?? process.cwd()));
-  } catch {
-    fail(`no such directory: ${positionals[0]}`);
+  const under = (values.under ?? []).map((dir) => resolve(dir));
+  const narrowed = under.length > 0 || values.since !== undefined || values.until !== undefined;
+  let cwd: string | undefined;
+  if (positionals[0] !== undefined || !narrowed) {
+    try {
+      cwd = realpathSync(resolve(positionals[0] ?? process.cwd()));
+    } catch {
+      fail(`no such directory: ${positionals[0]}`);
+    }
   }
+  const scope: Scope = { cwd, under, since: values.since, until: values.until };
+  const scopeLabel = describeScope(scope);
 
   const interactive =
     !values.dump &&
@@ -442,10 +488,10 @@ async function main(): Promise<void> {
   process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
   if (interactive) prompt.intro(COMMAND);
-  spin.start(`Reading sessions in ${dir}`);
-  const collected = await collect(dir, values.profile, maxSessions, scratch);
+  spin.start(`Reading sessions: ${scopeLabel}`);
+  const collected = await collect(scope, values.profile, maxSessions, scratch);
   if (collected.length === 0) {
-    spin.error(`No sessions with a conversation in ${dir}`);
+    spin.error(`No sessions with a conversation in scope: ${scopeLabel}`);
     process.exit(1);
   }
   const rawTokens = collected.reduce(
@@ -534,7 +580,7 @@ async function main(): Promise<void> {
   if (interactive) {
     prompt.note(
       [
-        `Folder     ${dir}`,
+        `Scope      ${scopeLabel}`,
         `Sessions   ${sessions.length} · ~${formatTokens(tokens)} tokens`,
         `Model      ${label} · ${formatTokens(window)} window`,
         `Requests   ${chunks.length}${chunks.length > 1 ? " (each updates the previous summary)" : ""}`,
@@ -563,7 +609,11 @@ async function main(): Promise<void> {
     join(PROMPTS, "summarization-system.md"),
   ];
   const focus = [
-    `The conversation holds OMP sessions recorded in ${dir}, oldest first, one <session> element each; a session split across requests continues with part="N".`,
+    `The conversation holds OMP sessions in scope "${scopeLabel}", oldest first, one <session> element each; a session split across requests continues with part="N".${
+      scope.since || scope.until
+        ? " Only the messages inside the time window are included, so a session may start mid-conversation."
+        : ""
+    }`,
     `Length: up to about ${summaryTokens} tokens.`,
     guidance,
   ]
@@ -595,13 +645,13 @@ async function main(): Promise<void> {
         s.title || "untitled"
       }${s.omitted ? " (earlier part cut by the token cap)" : ""}`,
   );
-  const recap = `# Session recap: ${dir}\n\n${summary}\n\n## Sources\n\n${sources.join("\n")}\n`;
+  const recap = `# Session recap: ${scopeLabel}\n\n${summary}\n\n## Sources\n\n${sources.join("\n")}\n`;
   const output = resolve(
     values.output ??
       join(
         process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
         "omp-session-recap",
-        dir.replaceAll("/", "-").replace(/^-/, ""),
+        scopeLabel.replace(/[^\w.-]+/g, "-").replace(/^-+|-+$/g, ""),
         `${new Date().toISOString().replaceAll(":", "-").replace(/\.\d+Z$/, "Z")}.md`,
       ),
   );
@@ -614,14 +664,18 @@ async function main(): Promise<void> {
     return;
   }
   prompt.log.success(`Saved to ${output}`);
-  const open = guard(
-    await prompt.confirm({
-      message: `Open OMP in ${dir} with this recap in context?`,
-      active: "Open",
-      inactive: "Just print it",
-    }),
-  );
-  if (!open) {
+  // Opening OMP needs one folder to open it in.
+  const dir = under.length === 0 ? cwd : undefined;
+  const open =
+    dir !== undefined &&
+    guard(
+      await prompt.confirm({
+        message: `Open OMP in ${dir} with this recap in context?`,
+        active: "Open",
+        inactive: "Just print it",
+      }),
+    );
+  if (!open || dir === undefined) {
     prompt.outro("Done");
     process.stdout.write(recap);
     return;

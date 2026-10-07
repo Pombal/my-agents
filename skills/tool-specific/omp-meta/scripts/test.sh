@@ -236,21 +236,120 @@ touch -d 2024-01-03T00:00:03Z "$session_b_new"
 touch -d 2023-12-31T00:00:00Z "$session_b_new_format"
 
 list_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 2)
-printf -v expected_list '%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s' \
+printf -v expected_list '%s\t%s\t%s\t%s\t%s\t-\n%s\t%s\t%s\t%s\t%s\t-' \
   2024-01-03T00:00:03Z session-b-new "Beta new" "$cwd_b" "$session_b_new" \
   2024-01-02T00:00:02Z session-a-new "Alpha new" "$cwd_a" "$session_a_new"
 [[ $list_output == "$expected_list" ]]
 
 filtered_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --cwd "$cwd_a")
-printf -v expected_filtered '%s\t%s\t%s\t%s\t%s\n%s\t%s\t%s\t%s\t%s' \
+printf -v expected_filtered '%s\t%s\t%s\t%s\t%s\t-\n%s\t%s\t%s\t%s\t%s\t-' \
   2024-01-02T00:00:02Z session-a-new "Alpha new" "$cwd_a" "$session_a_new" \
   2024-01-01T00:00:01Z session-a-old "Alpha old" "$cwd_a" "$session_a_old"
 [[ $filtered_output == "$expected_filtered" ]]
 
 new_format_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 4)
-printf -v expected_new_format_row '%s\t%s\t%s\t%s\t%s' \
+printf -v expected_new_format_row '%s\t%s\t%s\t%s\t%s\t-' \
   2023-12-31T00:00:00Z session-b-new-format "Beta title record" "$cwd_b" "$session_b_new_format"
 [[ $new_format_output == *$'\n'"$expected_new_format_row" ]]
+
+# -n 0 lists everything; --under matches a directory and its subdirectories.
+all_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list -n 0)
+[[ $all_output == "$new_format_output" ]]
+mkdir -p "$cwd_a/sub"
+cwd_a_sub=$(realpath "$cwd_a/sub")
+session_a_sub="$project_a/a-sub.jsonl"
+jq -cn \
+  --arg id session-a-sub --arg cwd "$cwd_a_sub" --arg title "Alpha sub" \
+  '{type:"session", id:$id, cwd:$cwd, title:$title}' >"$session_a_sub"
+touch -d 2024-01-01T12:00:00Z "$session_a_sub"
+under_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --under "$cwd_a")
+[[ $under_output == *$'\tsession-a-new\t'* && $under_output == *$'\tsession-a-sub\t'* ]]
+[[ $under_output == *$'\tsession-a-old\t'* && $under_output != *session-b* ]]
+exact_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --cwd "$cwd_a")
+[[ $exact_output != *session-a-sub* ]]
+both_under=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --under "$cwd_a/sub" --under "$cwd_b")
+[[ $both_under == *session-a-sub* && $both_under == *session-b-new* && $both_under != *session-a-new* ]]
+rm -f "$session_a_sub"
+
+# --since/--until pick sessions by activity: last write at or after --since,
+# start (file name, else mtime) before --until. A date means its midnight.
+since_output=$(TZ=UTC OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --since 2024-01-02)
+[[ $since_output == *$'\tsession-b-new\t'* && $since_output == *$'\tsession-a-new\t'* ]]
+[[ $since_output != *session-a-old* && $since_output != *session-b-new-format* ]]
+until_output=$(TZ=UTC OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --until 2024-01-02)
+[[ $until_output == *session-a-old* && $until_output == *session-b-new-format* ]]
+[[ $until_output != *session-a-new* && $until_output != *$'\tsession-b-new\t'* ]]
+window_output=$(TZ=UTC OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --since 2024-01-01 --until 2024-01-03)
+[[ $window_output == *session-a-old* && $window_output == *session-a-new* ]]
+[[ $window_output != *$'\tsession-b-new\t'* && $window_output != *session-b-new-format* ]]
+shorthand_output=$(OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --since 1h)
+[[ -z $shorthand_output ]]
+set +e
+OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --since nonsense \
+  >"$tmp/badwhen.stdout" 2>"$tmp/badwhen.stderr"
+badwhen_status=$?
+OMP_SESSIONS_DIR="$sessions_root" omp-transcript list --since 2024-01-03 --until 2024-01-02 \
+  >"$tmp/emptywin.stdout" 2>"$tmp/emptywin.stderr"
+emptywin_status=$?
+set -e
+[[ $badwhen_status -eq 1 && $(<"$tmp/badwhen.stderr") == "omp-transcript: cannot parse time: nonsense" ]]
+[[ $emptywin_status -eq 1 && $(<"$tmp/emptywin.stderr") == *"empty window"* ]]
+
+# Forks collapse onto their lineage: one row per root, newest first, with the
+# root id in the lineage column; a parent given as a bare id or a path, or
+# missing altogether, still names the root. --all-forks shows every session.
+lineage_root_dir="$tmp/lineage root"
+lineage_proj="$lineage_root_dir/proj"
+mkdir -p "$lineage_proj"
+root_id=019b0000-0000-7000-8000-000000000001
+fork_a_id=019b0000-0000-7000-8000-000000000002
+fork_b_id=019b0000-0000-7000-8000-000000000003
+orphan_id=019b0000-0000-7000-8000-000000000004
+gone_id=019b0000-0000-7000-8000-00000000dead
+solo_id=019b0000-0000-7000-8000-000000000005
+root_path="$lineage_proj/2026-03-01T00-00-00-000Z_$root_id.jsonl"
+fork_a_path="$lineage_proj/2026-03-02T00-00-00-000Z_$fork_a_id.jsonl"
+fork_b_path="$lineage_proj/2026-03-03T00-00-00-000Z_$fork_b_id.jsonl"
+orphan_path="$lineage_proj/2026-03-04T00-00-00-000Z_$orphan_id.jsonl"
+solo_path="$lineage_proj/2026-03-05T00-00-00-000Z_$solo_id.jsonl"
+write_lineage_session() {
+  local path=$1 sid=$2 parent=$3 marker=$4
+  jq -cn --arg id "$sid" --arg parent "$parent" --arg title "L $marker" \
+    '{type:"session", id:$id, cwd:"/tmp/lineage", title:$title}
+     + (if $parent == "" then {} else {parentSession: $parent} end)' >"$path"
+  jq -cn --arg text "LINEAGE_NEEDLE $marker" \
+    '{type:"message",id:"u1",parentId:null,timestamp:"2026-03-06T00:00:00.000Z",message:{role:"user",content:[{type:"text",text:$text}]}}' >>"$path"
+}
+write_lineage_session "$root_path" "$root_id" "" ROOT
+write_lineage_session "$fork_a_path" "$fork_a_id" "$root_id" FORK_A
+write_lineage_session "$fork_b_path" "$fork_b_id" "$fork_a_path" FORK_B
+write_lineage_session "$orphan_path" "$orphan_id" "$lineage_proj/2026-02-01T00-00-00-000Z_$gone_id.jsonl" ORPHAN
+write_lineage_session "$solo_path" "$solo_id" "" SOLO
+touch -d 2026-03-01T00:00:00Z "$root_path"
+touch -d 2026-03-02T00:00:00Z "$fork_a_path"
+touch -d 2026-03-03T00:00:00Z "$fork_b_path"
+touch -d 2026-03-04T00:00:00Z "$orphan_path"
+touch -d 2026-03-05T00:00:00Z "$solo_path"
+
+lineage_list=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list)
+[[ $(printf '%s\n' "$lineage_list" | wc -l) -eq 3 ]]
+[[ $lineage_list == *$'\t'"$solo_id"$'\t'*$'\t-'$'\n'* ]]
+[[ $lineage_list == *$'\t'"$orphan_id"$'\t'*$'\t'"$gone_id"$'\n'* ]]
+[[ $lineage_list == *$'\t'"$fork_b_id"$'\t'*$'\t'"$root_id" ]]
+[[ $lineage_list != *"$fork_a_id"* && $lineage_list != *$'\t'"$root_id"$'\t'* ]]
+lineage_all=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript list --all-forks)
+[[ $(printf '%s\n' "$lineage_all" | wc -l) -eq 5 ]]
+[[ $lineage_all == *$'\t'"$fork_a_id"$'\t'*$'\t'"$root_id"$'\n'* ]]
+[[ $lineage_all == *$'\t'"$root_id"$'\t'*$'\t-' ]]
+lineage_search=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet)
+[[ $(printf '%s\n' "$lineage_search" | wc -l) -eq 3 ]]
+[[ $lineage_search == *$'\t'"$fork_b_id"$'\t1\tL FORK_B\t/tmp/lineage\t'"$fork_b_path"$'\t'"$root_id" ]]
+[[ $lineage_search != *FORK_A* && $lineage_search != *"L ROOT"* ]]
+OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet -n 1 \
+  >"$tmp/lineage-n1.stdout" 2>"$tmp/lineage-n1.stderr"
+[[ $(<"$tmp/lineage-n1.stderr") == "omp-transcript: 3 sessions matched, showing 1 (raise with -n, 0 for all)" ]]
+lineage_search_all=$(OMP_SESSIONS_DIR="$lineage_root_dir" omp-transcript search LINEAGE_NEEDLE --no-snippet --all-forks)
+[[ $(printf '%s\n' "$lineage_search_all" | wc -l) -eq 5 ]]
 
 
 # 10. Message slicing counts renderable records, keeps an assistant record's
@@ -506,13 +605,13 @@ search_user_status=$?
 set -e
 [[ $search_user_status -eq 0 ]]
 [[ $(<"$tmp/search-user.stderr") != *"session not found"* ]]
-[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"* ]]
-[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-othercwd\t1\tOther cwd\t'"$search_other"$'\t'"$other_cwd_path"* ]]
+[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\t-'* ]]
+[[ $(<"$tmp/search-user.stdout") == *$'\tsearch-othercwd\t1\tOther cwd\t'"$search_other"$'\t'"$other_cwd_path"$'\t-'* ]]
 [[ $(<"$tmp/search-user.stdout") != *search-think* ]]
 
 # Newest first, hit counts, default snippet prefers a user match.
 search_user_snip=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search unique_user_needle -n 1)
-[[ $search_user_snip == 2026-01-10T00:00:00Z$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\tuser: UNIQUE_USER_NEEDLE one' ]]
+[[ $search_user_snip == 2026-01-10T00:00:00Z$'\tsearch-user\t2\tUser session\t'"$search_cwd"$'\t'"$user_path"$'\t-\tuser: UNIQUE_USER_NEEDLE one' ]]
 OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER_NEEDLE -n 1 --no-snippet \
   >"$tmp/search-n1.stdout" 2>"$tmp/search-n1.stderr"
 [[ $(<"$tmp/search-n1.stderr") == "omp-transcript: 2 sessions matched, showing 1 (raise with -n, 0 for all)" ]]
@@ -546,7 +645,9 @@ search_abandon=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search ABANDONED
 search_trunc=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search TRUNCATED_NEEDLE --no-snippet)
 [[ $search_trunc == *$'\tsearch-trunc\t1\tTrunc session\t'* ]]
 search_fallback=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search FALLBACK_NEEDLE --no-snippet)
-[[ $search_fallback == *$'\tfallback-id\t1\t-\t\t'"$noid_path" ]]
+[[ $search_fallback == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-' ]]
+search_fallback_snip=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search FALLBACK_NEEDLE)
+[[ $search_fallback_snip == *$'\tfallback-id\t1\t-\t\t'"$noid_path"$'\t-\tuser: FALLBACK_NEEDLE' ]]
 
 # Literal vs regex, dash patterns, invalid regex, empty haystack.
 search_dot_lit=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search 'foo.bar' --no-snippet)
@@ -590,6 +691,11 @@ profile_nilo=$(HOME="$profile_home" omp-transcript search NILO_ONLY --profile ni
 profile_all=$(HOME="$profile_home" omp-transcript search SHARED_TOKEN --profile all --no-snippet)
 [[ $profile_all == *$'\tprofile-nilo\t'* ]]
 [[ $profile_all == *$'\tprofile-default\t'* ]]
+# Without --profile and without OMP_SESSIONS_DIR, every profile is scanned.
+profile_unset=$(env -u OMP_SESSIONS_DIR HOME="$profile_home" omp-transcript search SHARED_TOKEN --no-snippet)
+[[ $profile_unset == "$profile_all" ]]
+profile_unset_list=$(env -u OMP_SESSIONS_DIR HOME="$profile_home" omp-transcript list)
+[[ $profile_unset_list == *$'\tprofile-nilo\t'* && $profile_unset_list == *$'\tprofile-default\t'* ]]
 set +e
 HOME="$profile_home" omp-transcript search SHARED_TOKEN --profile missing \
   >"$tmp/search-prof.stdout" 2>"$tmp/search-prof.stderr"
@@ -603,4 +709,82 @@ search_width=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER
 [[ $search_width == *$'\tuser: UNIQUE_USE…' ]]
 [[ $(printf '%s\n' "$search_width" | wc -l) -eq 1 ]]
 
-printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, and search\n'
+# 15. --hits lists matching messages under the row with id, timestamp, and
+# role-prefixed snippet; --since/--until keep only hits inside the window,
+# and session files written before --since are not scanned at all.
+hits_root="$tmp/hits-root"
+hits_proj="$hits_root/proj"
+mkdir -p "$hits_proj"
+hits_path="$hits_proj/2026-04-01T00-00-00-000Z_hits-session.jsonl"
+jq -cn --arg id hits-session '{type:"session",id:$id,cwd:"/tmp/hits",title:"HITS_NEEDLE title",timestamp:"2026-04-01T00:00:00.000Z"}' >"$hits_path"
+jq -cn '{type:"message",id:"h1",parentId:null,timestamp:"2026-04-01T10:00:00.000Z",message:{role:"user",content:[{type:"text",text:"HITS_NEEDLE first"}]}}' >>"$hits_path"
+jq -cn '{type:"message",id:"h2",parentId:"h1",timestamp:"2026-04-02T10:00:00.000Z",message:{role:"assistant",content:[{type:"text",text:"HITS_NEEDLE second"}]}}' >>"$hits_path"
+jq -cn '{type:"message",id:"h3",parentId:"h2",timestamp:"2026-04-03T10:00:00.000Z",message:{role:"user",content:[{type:"text",text:"HITS_NEEDLE third"}]}}' >>"$hits_path"
+touch -d 2026-04-03T10:00:00Z "$hits_path"
+
+hits_out=$(OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits)
+printf -v expected_hits '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\t%s\n\t%s\n\t%s\n\t%s' \
+  2026-04-03T10:00:00Z hits-session 4 "HITS_NEEDLE title" /tmp/hits "$hits_path" - "user: HITS_NEEDLE first" \
+  $'hits-session\t2026-04-01T00:00:00Z\ttitle: HITS_NEEDLE title' \
+  $'h1\t2026-04-01T10:00:00Z\tuser: HITS_NEEDLE first' \
+  $'h2\t2026-04-02T10:00:00Z\tassistant: HITS_NEEDLE second' \
+  $'h3\t2026-04-03T10:00:00Z\tuser: HITS_NEEDLE third'
+[[ $hits_out == "$expected_hits" ]]
+hits_two=$(OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits 2 --no-snippet)
+[[ $(printf '%s\n' "$hits_two" | wc -l) -eq 3 ]]
+[[ $hits_two == *$'\n\th1\t'* && $hits_two != *$'\th2\t'* ]]
+hits_window=$(TZ=UTC OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits --since 2026-04-02 --until 2026-04-03)
+[[ $hits_window == *$'\thits-session\t1\t'* ]]
+[[ $hits_window == *$'\th2\t'* && $hits_window != *$'\th1\t'* && $hits_window != *$'\th3\t'* && $hits_window != *title:* ]]
+hits_future=$(TZ=UTC OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --since 2026-04-04)
+[[ -z $hits_future ]]
+hits_before=$(TZ=UTC OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --until 2026-04-01)
+[[ -z $hits_before ]]
+
+# 16. Render --since/--until keep the branch records inside the window and
+# say so in the header; --around renders the branch through a message, with
+# ids on, even when that message is on a rewound branch.
+window_render=$(TZ=UTC omp-transcript "$hits_path" --since 2026-04-02 --until 2026-04-03)
+[[ $window_render == *$'- **Window:** since 2026-04-02T00:00:00Z until 2026-04-03T00:00:00Z\n'* ]]
+[[ $window_render == *"HITS_NEEDLE second"* ]]
+[[ $window_render != *"HITS_NEEDLE first"* && $window_render != *"HITS_NEEDLE third"* ]]
+window_since=$(TZ=UTC omp-transcript "$hits_path" --since 2026-04-03 -m -1)
+[[ $window_since == *$'- **Window:** since 2026-04-03T00:00:00Z\n- **Messages:** last 1 of 1\n'* ]]
+[[ $window_since == *"HITS_NEEDLE third"* ]]
+
+around_session="$tmp/around.jsonl"
+cat >"$around_session" <<'EOF'
+{"type":"message","id":"r1","parentId":null,"message":{"role":"user","content":[{"type":"text","text":"AROUND ONE"}]}}
+{"type":"message","id":"r2","parentId":"r1","message":{"role":"assistant","content":[{"type":"text","text":"AROUND TWO"}]}}
+{"type":"message","id":"old-3","parentId":"r2","message":{"role":"user","content":[{"type":"text","text":"OLD THREE"}]}}
+{"type":"message","id":"old-4","parentId":"old-3","message":{"role":"assistant","content":[{"type":"toolCall","name":"read","arguments":{"path":"x"}}]}}
+{"type":"message","id":"old-5","parentId":"old-4","message":{"role":"toolResult","toolName":"read","isError":false,"content":[{"type":"text","text":"OLD RESULT"}]}}
+{"type":"message","id":"old-6","parentId":"old-5","message":{"role":"assistant","content":[{"type":"text","text":"OLD SIX"}]}}
+{"type":"message","id":"new-3","parentId":"r2","message":{"role":"user","content":[{"type":"text","text":"NEW THREE"}]}}
+{"type":"message","id":"new-4","parentId":"new-3","message":{"role":"assistant","content":[{"type":"text","text":"NEW FOUR"}]}}
+{"type":"message","id":"new-5","parentId":"new-4","message":{"role":"user","content":[{"type":"text","text":"NEW FIVE"}]}}
+{"type":"message","id":"new-6","parentId":"new-5","message":{"role":"assistant","content":[{"type":"text","text":"NEW SIX"}]}}
+EOF
+around_new=$(omp-transcript "$around_session" --around new-4 -C 1)
+[[ $around_new == *$'- **Branch:** the branch through `new-4`\n- **Around:** `new-4`, up to 1 messages each side; 3 of 6 shown\n'* ]]
+[[ $around_new == *$'<user id="new-3">\nNEW THREE\n</user>\n\n<assistant id="new-4">\nNEW FOUR\n</assistant>\n\n<user id="new-5">\nNEW FIVE\n</user>' ]]
+[[ $around_new != *"AROUND TWO"* && $around_new != *"NEW SIX"* ]]
+around_old=$(omp-transcript "$around_session" --around old-3)
+[[ $around_old == *"AROUND ONE"* && $around_old == *"OLD THREE"* && $around_old == *"OLD SIX"* ]]
+[[ $around_old != *"NEW THREE"* ]]
+# A record that renders nothing under the current flags still centres the slice.
+around_hidden=$(omp-transcript "$around_session" --around old-5 -C 1)
+[[ $around_hidden == *"OLD THREE"* && $around_hidden == *"OLD SIX"* && $around_hidden != *"AROUND TWO"* ]]
+[[ $around_hidden == *"; 2 of 4 shown"* ]]
+around_zero=$(omp-transcript "$around_session" --around new-5 -C 0)
+[[ $around_zero == *"NEW FIVE"* && $around_zero != *"NEW FOUR"* && $around_zero != *"NEW SIX"* ]]
+set +e
+omp-transcript "$around_session" --around nope >"$tmp/around-nope.stdout" 2>"$tmp/around-nope.stderr"
+around_nope_status=$?
+omp-transcript "$around_session" --around new-4 -m 2 >"$tmp/around-m.stdout" 2>"$tmp/around-m.stderr"
+around_m_status=$?
+set -e
+[[ $around_nope_status -eq 1 && $(<"$tmp/around-nope.stderr") == "omp-transcript: message not found: nope" ]]
+[[ $around_m_status -eq 2 ]]
+
+printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, search, windows, lineage, hits, and around\n'
