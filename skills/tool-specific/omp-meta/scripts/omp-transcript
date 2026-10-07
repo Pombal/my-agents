@@ -8,12 +8,13 @@ usage() {
 Usage:
   omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids]
                                     [-m <n> | --around <message-id> [-C <n>]]
-                                    [--since <when>] [--until <when>]
+                                    [--since <when>] [--until <when>] [--inherited] [--own]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
                       [--all-forks] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [--under <dir>]...
-                        [--since <when>] [--until <when>] [--all-forks] [-n <count>]
+                        [--since <when>] [--until <when>] [--inherited] [--all-forks]
+                        [-n <count>]
                         [--reasoning] [--with-tools] [--hits [<n>]]
                         [--no-snippet] [--width <chars>]
 
@@ -25,6 +26,10 @@ otherwise all.
 "last monday", "2026-10-06 14:00") or a shorthand like 2h, 3d, 1w. A spec
 without a time of day means the start of that day, local time. The window
 is half-open: since <= t < until.
+
+A fork starts by copying its parent's history, stamped with the fork's own
+creation time. Windows leave that copy out unless --inherited is given;
+--own leaves it out of a render even without a window.
 EOF
   exit "${1:-2}"
 }
@@ -58,6 +63,8 @@ since_epoch=
 until_epoch=
 under_dirs=()
 all_forks=false
+inherited=false
+own=false
 around_id=
 around_context=3
 profile=
@@ -222,6 +229,10 @@ case ${1:-} in
           all_forks=true
           shift
           ;;
+        --inherited)
+          inherited=true
+          shift
+          ;;
         -n)
           (($# >= 2)) || usage
           search_count=$2
@@ -282,6 +293,14 @@ case ${1:-} in
           around_id=$2
           ids=true
           shift 2
+          ;;
+        --inherited)
+          inherited=true
+          shift
+          ;;
+        --own)
+          own=true
+          shift
           ;;
         -C|--context)
           (($# >= 2)) || usage
@@ -460,6 +479,91 @@ lineage_label() {
   if [[ $root == "$(session_id_of "$path")" ]]; then printf -- '-'; else printf '%s' "$root"; fi
 }
 
+# Header rows for the NUL-separated session files on stdin, one per file
+# whose first five lines hold a session header. Fields are joined by \x1f,
+# each escaped as @tsv would:
+#   <path> <id> <title or "-"> <cwd> <parentSession>
+# Only those five lines are read, every file through one head and one jq,
+# so thousands of sessions cost well under a second.
+read_headers() {
+  xargs -0 -r head -v -n 5 -- 2>/dev/null | jq -nrR '
+    def field: if type == "string" then . elif . == null then "" else tojson end;
+    def row:
+      .records as $records
+      | (first($records[] | select(.type == "session")) // null) as $session
+      | if $session == null then empty
+        else
+          [ .path,
+            ($session.id // ""),
+            ([$session.title, ($records[] | select(.type == "title") | .title)]
+             | map(select(type == "string" and length > 0))
+             | first // "-"),
+            ($session.cwd // ""),
+            ($session.parentSession // "") ]
+          | map([field] | @tsv)
+          | join("\u001f")
+        end;
+    foreach ((inputs | select(length > 0)), "==> <==") as $line (
+      { path: null, records: [], done: null };
+      if ($line | startswith("==> ")) and ($line | endswith(" <==")) then
+        .done = (if .path == null then null else { path, records } end)
+        | .path = $line[4:-4]
+        | .records = []
+      else
+        .done = null
+        | .records += [$line | (try fromjson catch null) | select(type == "object")]
+      end;
+      .done | select(. != null) | row)'
+}
+
+# Loads read_headers output into header_row and parent_ref, both by path.
+declare -A header_row=() parent_ref=()
+load_headers() {
+  local row path
+  while IFS= read -r row; do
+    path=${row%%$'\x1f'*}
+    header_row[$path]=$row
+    parent_ref[$path]=${row##*$'\x1f'}
+  done < "$1"
+}
+
+# lineage_root for a session whose header is loaded, without leaving the
+# shell for every step: sets REPLY to the root id. Same walk, same answers;
+# a parent outside the loaded headers, which --since or --profile can cause,
+# is handed to lineage_root to follow on disk.
+declare -A parent_path_cache=()
+lineage_root_loaded() {
+  local path=$1 ref parent steps=0
+  while :; do
+    ref=${parent_ref[$path]-}
+    if [[ -z $ref ]]; then
+      REPLY=${path##*/}
+      REPLY=${REPLY%.jsonl}
+      REPLY=${REPLY#*_}
+      return
+    fi
+    if [[ $ref == */* ]]; then
+      parent=$ref
+    else
+      [[ -n ${parent_path_cache[$ref]+set} ]] \
+        || parent_path_cache[$ref]=$(parent_session_path "$ref")
+      parent=${parent_path_cache[$ref]}
+    fi
+    if [[ -n ${parent_ref[$parent]+set} ]] && ((++steps <= 200)); then
+      path=$parent
+      continue
+    fi
+    if [[ -f $parent ]]; then
+      REPLY=$(lineage_root "$parent")
+    else
+      REPLY=${parent##*/}
+      REPLY=${REPLY%.jsonl}
+      REPLY=${REPLY#*_}
+    fi
+    return
+  done
+}
+
 tmpdir=
 cleanup() {
   if [[ -n $tmpdir && -d $tmpdir ]]; then
@@ -512,61 +616,60 @@ split_row() {
 }
 
 list_sessions() {
-  local roots=()
-  local sorted path mtime entry header timestamp cwd root lineage
+  local roots=() order=() fields=()
+  local entry mtime path row id root lineage timestamp
   local matched=0
-  declare -A seen_roots=()
+  declare -A seen_roots=() mtime_of=()
 
   collect_roots
   resolve_cwd_filters
-
-  make_tmpdir
-  sorted=$tmpdir/candidates-sorted
-  find_session_files "${roots[@]}" > "$sorted"
 
   while IFS= read -r -d '' entry; do
     mtime=${entry%%$'\t'*}
     path=${entry#*$'\t'}
     started_before_until "$path" "$mtime" || continue
+    order+=("$path")
+    mtime_of[$path]=$mtime
+  done < <(find_session_files "${roots[@]}")
+  ((${#order[@]})) || return 0
 
-    header=$(jq -cn '
-      [limit(5; inputs)] as $records
-      | first($records[] | select(type == "object" and .type == "session")) as $session
-      | if $session == null then
-          empty
-        else
-          $session + {
-            title: (
-              [$session.title, ($records[] | select(type == "object" and .type == "title") | .title)]
-              | map(select(type == "string" and length > 0))
-              | first // "-"
-            )
-          }
-        end
-    ' "$path" 2>/dev/null) || continue
-    [[ -n $header ]] || continue
-    if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
-      cwd=$(jq -r '.cwd // empty' <<<"$header")
-      cwd_matches "$cwd" || continue
+  # Headers are read a chunk at a time, so a short list stops early; -n 0
+  # reads them all at once, which keeps every parent in memory.
+  local chunk=${#order[@]} start=0 index
+  ((list_count == 0 || chunk <= 256)) || chunk=256
+  make_tmpdir
+
+  for ((index = 0; index < ${#order[@]}; index++)); do
+    if ((index == start)); then
+      printf '%s\0' "${order[@]:start:chunk}" | read_headers > "$tmpdir/headers"
+      load_headers "$tmpdir/headers"
+      ((start += chunk))
     fi
+    path=${order[index]}
+    row=${header_row[$path]-}
+    [[ -n $row ]] || continue
+    IFS=$'\x1f' read -r -a fields <<<"$row"
+    if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
+      cwd_matches "${fields[3]-}" || continue
+    fi
+    id=${path##*/}
+    id=${id%.jsonl}
+    id=${id#*_}
+    lineage_root_loaded "$path"
+    root=$REPLY
     if ! $all_forks; then
-      root=$(lineage_root "$path")
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
     fi
-    lineage=$(lineage_label "$path")
+    if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
 
-    timestamp=$(date -ud "@$mtime" +%Y-%m-%dT%H:%M:%SZ)
-    jq -r \
-      --arg timestamp "$timestamp" \
-      --arg path "$path" \
-      --arg lineage "$lineage" \
-      '[ $timestamp, (.id // ""), (if .title == null then "-" else .title end), (.cwd // ""), $path, $lineage ] | @tsv' \
-      <<<"$header"
+    TZ=UTC printf -v timestamp '%(%Y-%m-%dT%H:%M:%SZ)T' "${mtime_of[$path]}"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$timestamp" "${fields[1]-}" "${fields[2]-}" "${fields[3]-}" "$path" "$lineage"
 
     ((matched += 1))
     if ((list_count > 0 && matched >= list_count)); then break; fi
-  done < "$sorted"
+  done
 }
 
 # Accepts a path, or a session id / id prefix resolved under the sessions roots.
@@ -624,7 +727,7 @@ resolve_grep() {
 }
 
 write_search_helpers() {
-  cat -- "$script_dir/omp-session.jq" > "$tmpdir/search.jq"
+  cat -- "$script_dir/omp-session.jq" "$script_dir/omp-fork.jq" > "$tmpdir/search.jq"
   cat >> "$tmpdir/search.jq" <<'JQ'
 
 # Control characters become single spaces, so match offsets stay valid.
@@ -647,27 +750,56 @@ def record_epoch:
     end;
 
 # Without a window every record counts. With one, only records that carry a
-# timestamp inside it do, so titles and session headers stop matching.
-def in_window($t):
+# timestamp inside it do, so titles and session headers stop matching, and a
+# fork's copy of its parent's history counts only with --inherited.
+def in_window($t; $copied):
   ($since == null and $until == null)
   or ($t != null
       and ($since == null or $t >= $since)
-      and ($until == null or $t < $until));
+      and ($until == null or $t < $until)
+      and ($inherited or ($copied | not)));
+
+# Keeps the best $hits_max hits: user before developer, title, assistant, and
+# the rest, then earliest first. A snippet is only built for a hit that makes
+# the cut.
+def keep_hit($item; $item_rank; $record; $re):
+  if $hits_max == 0 then .
+  else
+    (.hit_list | length) as $count
+    | (if $count < $hits_max then true
+       else (.hit_list | max_by([.rank, .n]) | .rank) > $item_rank
+       end) as $keep
+    | if $keep | not then .
+      else
+        .hit_list = ((.hit_list
+                      + [{
+                          rank: $item_rank,
+                          n: .hits,
+                          id: (($record.id // "") | tostring),
+                          ts: (($record.timestamp // "") | tostring | sub("\\.[0-9]+Z$"; "Z")),
+                          line: ($item | snippet($re))
+                        }])
+                     | sort_by([.rank, .n])
+                     | .[:$hits_max])
+      end
+  end;
 
 (if $is_regex then $pattern else ($pattern | re_escape) end) as $re
 | reduce (inputs | select(type == "object")) as $record
-    ({ id: null, cwd: null, title: null, hits: 0, best: null, best_rank: 99, hit_list: [] };
+    ({ id: null, cwd: null, title: null, hits: 0, best: null, best_rank: 99, hit_list: [],
+       run: { open: false, copied: false } };
       (if $record.type == "session" then
          (if ($record.id | type) == "string" then .id = $record.id else . end)
          | (if ($record.cwd | type) == "string" then .cwd = $record.cwd else . end)
-       else .
+         | .run = ($record | fork_start)
+       else .run |= fork_step($record)
        end)
       | (if (["session", "title", "title_change"] | index($record.type // "")) != null
             and ($record.title | type) == "string" and $record.title != "" then
            .title = $record.title
          else .
          end)
-      | if in_window($record | record_epoch) | not then .
+      | if in_window($record | record_epoch; .run.copied) | not then .
         else
           reduce ($record
                   | visible
@@ -683,14 +815,7 @@ def in_window($t):
                    | .best = ($item | snippet($re))
                  else .
                  end)
-              | if $hits_max > 0 and (.hit_list | length) < $hits_max then
-                  .hit_list += [{
-                    id: (($record.id // "") | tostring),
-                    ts: (($record.timestamp // "") | tostring | sub("\\.[0-9]+Z$"; "Z")),
-                    line: ($item | snippet($re))
-                  }]
-                else .
-                end)
+              | keep_hit($item; $item_rank; $record; $re))
         end)
 | select(.hits > 0)
 | ([ ($mtime | strftime("%Y-%m-%dT%H:%M:%SZ")),
@@ -721,6 +846,7 @@ scan() {
     --argjson with_snippet "$OMPT_SNIPPET" \
     --argjson width "$OMPT_WIDTH" \
     --argjson hits_max "$OMPT_HITS" \
+    --argjson inherited "$OMPT_INHERITED" \
     --argjson since "${OMPT_SINCE:-null}" \
     --argjson until "${OMPT_UNTIL:-null}" \
     --argjson mtime "$mtime" \
@@ -741,8 +867,8 @@ WORKER
 
 search_sessions() {
   local roots=() grep_bin prefilter_mode prefilter_pattern jobs
-  local all_files candidates rows_dir rows sorted entry row first rest path root
-  local cols=()
+  local all_files candidates rows_dir rows sorted entry row first rest path root id lineage
+  local cols=() fields=()
   local total=0 shown=0
   declare -A seen_roots=()
 
@@ -780,12 +906,20 @@ search_sessions() {
   while IFS= read -r -d '' entry; do
     path=${entry#*$'\t'}
     started_before_until "$path" "${entry%%$'\t'*}" || continue
-    if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
-      cwd_matches "$(head -c 65536 -- "$path" 2>/dev/null \
-        | grep -o -m1 '"cwd":"[^"]*"' | cut -d'"' -f4 || true)" || continue
-    fi
     printf '%s\0' "$path" >> "$all_files"
   done < <(find_session_files "${roots[@]}")
+  read_headers < "$all_files" > "$tmpdir/headers"
+  load_headers "$tmpdir/headers"
+  if [[ -n $wanted_cwd ]] || ((${#under_resolved[@]})); then
+    : > "$tmpdir/in-cwd"
+    while IFS= read -r -d '' path; do
+      row=${header_row[$path]-}
+      IFS=$'\x1f' read -r -a fields <<<"$row"
+      cwd_matches "${fields[3]-}" || continue
+      printf '%s\0' "$path" >> "$tmpdir/in-cwd"
+    done < "$all_files"
+    mv -- "$tmpdir/in-cwd" "$all_files"
+  fi
 
   # Cheap raw-bytes pass first: parsing every session costs minutes, and the
   # text worth searching is a low single-digit percentage of the bytes.
@@ -805,6 +939,7 @@ search_sessions() {
   export OMPT_SNIPPET=$search_snippet
   export OMPT_WIDTH=$search_width
   export OMPT_HITS=$search_hits
+  export OMPT_INHERITED=$inherited
   export OMPT_SINCE=$since_epoch
   export OMPT_UNTIL=$until_epoch
   export OMPT_ROWS=$rows_dir
@@ -822,14 +957,23 @@ search_sessions() {
     rest=${row#"$first"}
     split_row "$first"
     path=${cols[5]}
-    if ! $all_forks; then
+    id=${path##*/}
+    id=${id%.jsonl}
+    id=${id#*_}
+    if [[ -n ${parent_ref[$path]+set} ]]; then
+      lineage_root_loaded "$path"
+      root=$REPLY
+    else
       root=$(lineage_root "$path")
+    fi
+    if ! $all_forks; then
       [[ -z ${seen_roots[$root]+set} ]] || continue
       seen_roots[$root]=1
     fi
+    if [[ $root == "$id" ]]; then lineage=-; else lineage=$root; fi
     ((total += 1))
     if ((search_count == 0 || shown < search_count)); then
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$(lineage_label "$path")"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "${cols[@]:0:6}" "$lineage"
       if $search_snippet; then printf '\t%s' "${cols[6]-}"; fi
       printf '%s\n' "$rest"
       ((shown += 1))
@@ -864,8 +1008,9 @@ fi
 
 # The active branch: the last record's ancestry. With --around, the branch
 # through that message instead: its ancestry plus its latest descendant's,
-# so a hit on a rewound branch still reads in its own context.
-if ! jq -sc --arg around "$around_id" '
+# so a hit on a rewound branch still reads in its own context. Records a fork
+# copied from its parent are marked _omp_copied.
+if ! jq -sc --arg around "$around_id" "$(<"$script_dir/omp-fork.jq")"'
   def ancestors($index):
     . as $record
     | $record,
@@ -898,7 +1043,9 @@ if ! jq -sc --arg around "$around_id" '
       else [$leaf | ancestors($index)] | reverse
       end;
 
-  branch
+  fork_copy_ids as $copied
+  | branch
+  | map(if $copied[.id? // ""] == true then . + {_omp_copied: true} else . end)
 ' "$session" > "$branch_file"; then
   fatal 'could not read the active conversation branch'
 fi
@@ -1047,6 +1194,8 @@ jq -c \
   --argjson reasoning "$reasoning" \
   --argjson since "${since_epoch:-null}" \
   --argjson until "${until_epoch:-null}" \
+  --argjson inherited "$inherited" \
+  --argjson own "$own" \
   --arg around "$around_id" \
   --argjson context "$around_context" '
   def record_epoch:
@@ -1055,12 +1204,18 @@ jq -c \
       else null
       end;
 
+  # The copy a fork made of its parent history is left out by --own, and by any
+  # window unless --inherited.
   def in_window:
-    ($since == null and $until == null)
-    or (record_epoch as $t
-        | $t != null
-          and ($since == null or $t >= $since)
-          and ($until == null or $t < $until));
+    if ._omp_copied == true and $own then false
+    elif $since == null and $until == null then true
+    else
+      record_epoch as $t
+      | $t != null
+        and ($since == null or $t >= $since)
+        and ($until == null or $t < $until)
+        and ($inherited or ._omp_copied != true)
+    end;
 
   def text_content($record):
     $record.message.content as $content

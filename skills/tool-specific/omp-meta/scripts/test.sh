@@ -710,7 +710,8 @@ search_width=$(OMP_SESSIONS_DIR="$search_root" omp-transcript search UNIQUE_USER
 [[ $(printf '%s\n' "$search_width" | wc -l) -eq 1 ]]
 
 # 15. --hits lists matching messages under the row with id, timestamp, and
-# role-prefixed snippet; --since/--until keep only hits inside the window,
+# role-prefixed snippet, user hits first, then developer, title, assistant,
+# each group earliest first; --since/--until keep only hits inside the window,
 # and session files written before --since are not scanned at all.
 hits_root="$tmp/hits-root"
 hits_proj="$hits_root/proj"
@@ -725,14 +726,14 @@ touch -d 2026-04-03T10:00:00Z "$hits_path"
 hits_out=$(OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits)
 printf -v expected_hits '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n\t%s\n\t%s\n\t%s\n\t%s' \
   2026-04-03T10:00:00Z hits-session 4 "HITS_NEEDLE title" /tmp/hits "$hits_path" - "user: HITS_NEEDLE first" \
-  $'hits-session\t2026-04-01T00:00:00Z\ttitle: HITS_NEEDLE title' \
   $'h1\t2026-04-01T10:00:00Z\tuser: HITS_NEEDLE first' \
-  $'h2\t2026-04-02T10:00:00Z\tassistant: HITS_NEEDLE second' \
-  $'h3\t2026-04-03T10:00:00Z\tuser: HITS_NEEDLE third'
+  $'h3\t2026-04-03T10:00:00Z\tuser: HITS_NEEDLE third' \
+  $'hits-session\t2026-04-01T00:00:00Z\ttitle: HITS_NEEDLE title' \
+  $'h2\t2026-04-02T10:00:00Z\tassistant: HITS_NEEDLE second'
 [[ $hits_out == "$expected_hits" ]]
 hits_two=$(OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits 2 --no-snippet)
 [[ $(printf '%s\n' "$hits_two" | wc -l) -eq 3 ]]
-[[ $hits_two == *$'\n\th1\t'* && $hits_two != *$'\th2\t'* ]]
+[[ $hits_two == *$'\n\th1\t'*$'\n\th3\t'* && $hits_two != *$'\th2\t'* && $hits_two != *title:* ]]
 hits_window=$(TZ=UTC OMP_SESSIONS_DIR="$hits_root" omp-transcript search HITS_NEEDLE --hits --since 2026-04-02 --until 2026-04-03)
 [[ $hits_window == *$'\thits-session\t1\t'* ]]
 [[ $hits_window == *$'\th2\t'* && $hits_window != *$'\th1\t'* && $hits_window != *$'\th3\t'* && $hits_window != *title:* ]]
@@ -787,4 +788,51 @@ set -e
 [[ $around_nope_status -eq 1 && $(<"$tmp/around-nope.stderr") == "omp-transcript: message not found: nope" ]]
 [[ $around_m_status -eq 2 ]]
 
-printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, search, windows, lineage, hits, and around\n'
+# 17. A fork's copy of its parent's history — the burst of records stamped
+# within a second of each other right after the fork's header — stays out of
+# every window unless --inherited; --own drops it from a plain render too.
+# What the fork said after the pause counts as usual.
+fork_root="$tmp/fork-root"
+fork_proj="$fork_root/proj"
+mkdir -p "$fork_proj"
+fork_parent="$fork_proj/2026-05-01T09-00-00-000Z_fork-parent.jsonl"
+fork_child="$fork_proj/2026-05-02T12-00-00-000Z_fork-child.jsonl"
+{
+  printf '%s\n' '{"type":"session","id":"fork-parent","cwd":"/tmp/fork","timestamp":"2026-05-01T09:00:00.000Z"}'
+  printf '%s\n' '{"type":"message","id":"p1","parentId":null,"timestamp":"2026-05-01T09:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":"FORK_NEEDLE old question"}]}}'
+  printf '%s\n' '{"type":"message","id":"p2","parentId":"p1","timestamp":"2026-05-01T09:02:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}]}}'
+} >"$fork_parent"
+{
+  printf '%s\n' '{"type":"title","title":"Forked"}'
+  printf '{"type":"session","id":"fork-child","cwd":"/tmp/fork","timestamp":"2026-05-02T12:00:00.000Z","parentSession":"%s"}\n' "$fork_parent"
+  printf '%s\n' '{"type":"model_change","id":"c0","parentId":null,"timestamp":"2026-05-02T12:00:00.004Z"}'
+  printf '%s\n' '{"type":"message","id":"c1","parentId":"c0","timestamp":"2026-05-02T12:00:00.010Z","message":{"role":"user","content":[{"type":"text","text":"FORK_NEEDLE old question"}]}}'
+  printf '%s\n' '{"type":"message","id":"c2","parentId":"c1","timestamp":"2026-05-02T12:00:00.020Z","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}]}}'
+  printf '%s\n' '{"type":"message","id":"c3","parentId":"c2","timestamp":"2026-05-02T12:00:30.000Z","message":{"role":"user","content":[{"type":"text","text":"FORK_NEEDLE new question"}]}}'
+  printf '%s\n' '{"type":"message","id":"c4","parentId":"c3","timestamp":"2026-05-02T12:00:31.000Z","message":{"role":"assistant","content":[{"type":"text","text":"new answer"}]}}'
+} >"$fork_child"
+touch -d 2026-05-01T09:02:00Z "$fork_parent"
+touch -d 2026-05-02T12:00:31Z "$fork_child"
+
+fork_window=$(TZ=UTC omp-transcript "$fork_child" --since 2026-05-02)
+[[ $fork_window == *"new question"* && $fork_window == *"new answer"* ]]
+[[ $fork_window != *"old question"* && $fork_window != *"old answer"* ]]
+fork_inherited=$(TZ=UTC omp-transcript "$fork_child" --since 2026-05-02 --inherited)
+[[ $fork_inherited == *"old question"* && $fork_inherited == *"new answer"* ]]
+fork_plain=$(omp-transcript "$fork_child")
+[[ $fork_plain == *"old question"* && $fork_plain == *"new answer"* ]]
+fork_own=$(omp-transcript "$fork_child" --own)
+[[ $fork_own == *"new question"* && $fork_own != *"old question"* && $fork_own != *"old answer"* ]]
+# The parent is not a fork, so --own changes nothing there.
+[[ $(omp-transcript "$fork_parent" --own) == "$(omp-transcript "$fork_parent")" ]]
+
+fork_search=$(TZ=UTC OMP_SESSIONS_DIR="$fork_root" omp-transcript search FORK_NEEDLE --since 2026-05-02 --hits)
+[[ $fork_search == *$'\tfork-child\t1\t'* ]]
+[[ $fork_search == *$'\n\tc3\t'* && $fork_search != *$'\tc1\t'* ]]
+fork_search_inherited=$(TZ=UTC OMP_SESSIONS_DIR="$fork_root" omp-transcript search FORK_NEEDLE --since 2026-05-02 --hits --inherited)
+[[ $fork_search_inherited == *$'\tfork-child\t2\t'* && $fork_search_inherited == *$'\tc1\t'* ]]
+# Without a window the whole fork is searched, and it stands for its lineage.
+fork_search_all=$(OMP_SESSIONS_DIR="$fork_root" omp-transcript search FORK_NEEDLE --no-snippet)
+[[ $fork_search_all == *$'\tfork-child\t2\t'*$'\tfork-parent' && $fork_search_all != *$'\tfork-parent\t'* ]]
+
+printf 'PASS: render, hydration, slicing, dynamic fences, list mode, id resolution, search, windows, lineage, hits, around, and fork copies\n'

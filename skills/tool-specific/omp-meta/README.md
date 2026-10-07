@@ -8,12 +8,13 @@ A small Bash + `jq` tool that turns OMP JSONL sessions into compact, self-hydrat
 Usage:
   omp-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids]
                                     [-m <n> | --around <message-id> [-C <n>]]
-                                    [--since <when>] [--until <when>]
+                                    [--since <when>] [--until <when>] [--inherited] [--own]
   omp-transcript result --session <session.jsonl|id> --message-id <id>
   omp-transcript list [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
                       [--all-forks] [-n <count>]
   omp-transcript search [--] <pattern> [--regex] [--cwd <dir>] [--under <dir>]...
-                        [--since <when>] [--until <when>] [--all-forks] [-n <count>]
+                        [--since <when>] [--until <when>] [--inherited] [--all-forks]
+                        [-n <count>]
                         [--reasoning] [--with-tools] [--hits [<n>]]
                         [--no-snippet] [--width <chars>]
 ```
@@ -32,7 +33,15 @@ The window means different things per mode, each the natural one:
 - `search`: the same session filter, and then only hits whose record timestamp falls in the window count. Records without a timestamp, such as the title record, stop matching.
 - render: only the branch records whose timestamp falls in the window, with a `- **Window:**` header line. `-m` slices what remains.
 
-A fork re-stamps the records it inherits with its own creation time, so a window can include older history through a fork made inside it.
+In `search` and render, a window also leaves out a fork's copy of its parent's history (next section); `--inherited` puts it back.
+
+## Fork copies
+
+A fork (`/fork`, `/prose`) opens by copying its parent's history into its own file. OMP gives every copied record a new id and stamps it with the fork's creation time, so neither ids nor timestamps distinguish the copy from what the fork said itself. What does distinguish it is how it is written: in one burst right after the session header, each record within a second of the one before (p95 about 130 ms for the whole copy), then a pause of seconds while the user types. That run of records, starting at a fork's header, is the copy; `omp-fork.jq` holds the rule.
+
+- In a window, the copy never counts: it happened before the fork, whatever its timestamps say. `--inherited` counts it like any other record.
+- Render `--own` leaves the copy out even without a window, for reading only what a fork added.
+- Without a window and without `--own`, render and `search` treat the copy like the rest of the session, as before.
 
 ## Render
 
@@ -42,7 +51,7 @@ Pass `--with-tools` for a cheap index of that tool traffic: `<tool-call>` blocks
 
 Pass `--reasoning` to include `<reasoning>` blocks. Expect roughly double the bytes, and a higher message count: an assistant turn that only thought before calling a tool renders nothing by default, so it occupies no slice slot until this flag brings it back.
 
-Pass `--ids` to put each record's entry id on its opening tag, e.g. `<user id="baa91f06">`. `/fork` copies entries with their ids unchanged, so a block id seen in two sessions marks content the fork inherited from its parent. Every block rendered from one record — an assistant turn's reasoning, text, and tool calls — carries that record's id.
+Pass `--ids` to put each record's entry id on its opening tag, e.g. `<user id="baa91f06">`. Every block rendered from one record — an assistant turn's reasoning, text, and tool calls — carries that record's id. Older OMP versions kept ids when forking, so in old sessions a block id seen in two sessions marks inherited content; current forks re-id their copy (see Fork copies).
 
 Use `-m <n>` or `--messages <n>` to slice renderable messages: `-5` keeps the last five and `5` keeps the first five, clamped like Python slices. A message is one branch record, so an assistant turn's reasoning, text, and tool calls count once — and a record that renders nothing under the current flags, such as a tool-call-only assistant turn by default, counts not at all.
 
@@ -65,6 +74,8 @@ Fenced blocks automatically use enough backticks to contain their content safely
 ## List
 
 `list` scans the sessions roots and prints sessions newest first by mtime. `--cwd <dir>` is resolved with `realpath` and must exactly match the session header's `cwd`. `--under <dir>` matches that directory and everything below it, and may repeat; with both, both apply. `-n <count>` defaults to 10, and `-n 0` prints every row. `--since` and `--until` select by activity as described above; with `--since`, files last written earlier are never opened, which is what makes `list --since today` instant on thousands of sessions.
+
+Only the first five lines of each file are read, all files through one `head` and one `jq`, and lineage is walked in memory over those headers. A short list reads headers 256 files at a time and stops once it has its rows; `-n 0` reads them all at once. `list -n 0` over about 3,800 sessions takes under two seconds.
 
 Output is TSV with no header:
 
@@ -90,7 +101,7 @@ Output is TSV with no header:
 
 `<hits>` counts matching messages. `<snippet>` is the match in context, prefixed with the role it came from, preferring the earliest user match and falling back to developer, title, assistant, then anything else; `--width <chars>` sizes it (default 140) and `--no-snippet` drops the column. Control characters inside a snippet become spaces, so a row is always one line.
 
-`--hits [<n>]` adds, under each row, one line per matching message in file order, up to `n` (default 5) — a leading tab, then `<message id>	<record timestamp>	<role>: <snippet>`. Those ids are what `--around` takes.
+`--hits [<n>]` adds, under each row, up to `n` (default 5) matching messages, best first: user before developer, title, assistant, and the rest, each group earliest first. Each is a line with a leading tab, then `<message id>	<record timestamp>	<role>: <snippet>`. Those ids are what `--around` takes.
 
 Two passes run under the hood: GNU grep over raw bytes to pick candidate files, then `jq` over those candidates to confirm the match in visible text and build the row. In literal mode the prefilter uses the pattern's longest run of printable ASCII excluding `"` and `\`, which is the most that survives JSON encoding intact; in regex mode it uses the pattern itself, so a regex written against escape sequences may miss. `OMP_GREP` overrides the grep binary.
 

@@ -34,8 +34,8 @@ const USAGE = `${COMMAND} — summarize OMP sessions by folder or time window
 Usage:
   ${COMMAND} [dir] [options]
 
-Renders the newest sessions in scope, drops what forks inherited from their
-parents and long paragraphs that repeat verbatim, then has an OMP model
+Renders the newest sessions in scope, keeps what forks copied from their
+parents once and long paragraphs that repeat verbatim, then has an OMP model
 summarize the result with OMP's own compaction prompts. Transcripts larger
 than one request are summarized in order, each request updating the previous
 summary.
@@ -68,7 +68,7 @@ Options:
   -h, --help`;
 
 type Scope = { cwd?: string; under: string[]; since?: string; until?: string };
-type Listed = { mtime: string; id: string; title: string; path: string };
+type Listed = { mtime: string; id: string; title: string; path: string; lineage: string };
 type Block = { id: string; text: string; tokens: number };
 type Session = Listed & {
   started: string;
@@ -162,15 +162,15 @@ function describeScope(scope: Scope): string {
   return parts.join(", ");
 }
 
-async function render(path: string, scratch: string, window: string[]): Promise<Block[]> {
-  const first = await exec(["omp-transcript", path, "--ids", ...window]);
+async function render(path: string, scratch: string, args: string[]): Promise<Block[]> {
+  const first = await exec(["omp-transcript", path, "--ids", ...args]);
   if (first.ok) return parseBlocks(first.stdout);
   // A session being appended to right now can end mid-line.
   const lines = readFileSync(path, "utf8").replace(/\n$/, "").split("\n");
   lines.pop();
   const copy = join(scratch, basename(path));
   writeFileSync(copy, `${lines.join("\n")}\n`);
-  const second = await exec(["omp-transcript", copy, "--ids", ...window]);
+  const second = await exec(["omp-transcript", copy, "--ids", ...args]);
   return second.ok ? parseBlocks(second.stdout) : [];
 }
 
@@ -205,15 +205,19 @@ async function collect(
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [mtime, id, title, , path] = line.split("\t");
-      return { mtime, id, title: title === "-" ? "" : title, path };
+      const [mtime, id, title, , path, lineage = "-"] = line.split("\t");
+      return { mtime, id, title: title === "-" ? "" : title, path, lineage };
     });
 
+  // A fork opens with a copy of its parent's history. Every session renders
+  // with --own, without that copy; afterwards the oldest picked session of
+  // each lineage renders whole again, so the history it built on appears
+  // exactly once.
   const picked: Session[] = [];
   for (let i = 0; i < listed.length && picked.length < max; i += RENDER_CONCURRENCY) {
     const batch = listed.slice(i, i + RENDER_CONCURRENCY);
     const rendered = await Promise.all(
-      batch.map((s) => render(s.path, scratch, windowArgs(scope))),
+      batch.map((s) => render(s.path, scratch, ["--own", ...windowArgs(scope)])),
     );
     batch.forEach((session, index) => {
       if (picked.length >= max || rendered[index].length < 2) return;
@@ -226,7 +230,21 @@ async function collect(
       });
     });
   }
-  return picked.reverse();
+  picked.reverse();
+  const lineageOf = (s: Listed) =>
+    s.lineage !== "-" ? s.lineage : basename(s.path, ".jsonl").replace(/^[^_]*_/, "");
+  const seen = new Set<string>();
+  const firsts = picked.filter((s) => {
+    const key = lineageOf(s);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return s.lineage !== "-";
+  });
+  const whole = await Promise.all(firsts.map((s) => render(s.path, scratch, windowArgs(scope))));
+  firsts.forEach((session, index) => {
+    if (whole[index].length >= session.blocks.length) session.blocks = whole[index];
+  });
+  return picked;
 }
 
 function repeatMarker(chars: number): string {
@@ -259,7 +277,9 @@ function trimRepeats(text: string, seen: Set<string>): string {
   return `${text.slice(0, open + 1)}${kept.join("\n\n")}${text.slice(end)}`;
 }
 
-// Oldest first: a fork's copy of its parent's entries goes, the parent's stays.
+// Oldest first: a block id seen in an earlier session goes. Forks from before
+// OMP re-identified copied entries kept their ids; newer forks are already
+// rendered without their copy (see collect).
 function dedupe(sessions: Session[]): { inherited: number; repeated: number } {
   const seenIds = new Set<string>();
   const seenParagraphs = new Set<string>();

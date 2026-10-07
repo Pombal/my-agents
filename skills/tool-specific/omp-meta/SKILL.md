@@ -17,6 +17,8 @@ Sessions are stored per OMP profile. Every profile is scanned by default; `--pro
 
 `--since <when>` / `--until <when>` work in every mode: `today`, `yesterday`, `3d`, `1w`, `2026-10-06`, `"last monday"`, `"2026-10-06 14:00"`, read in local time. A date means its midnight; the window is half-open. `list` and `search` keep sessions with activity in the window (and `search` only counts hits inside it); render keeps only the messages inside it. Output times are UTC.
 
+A fork opens with a copy of its parent's history, stamped with the fork's own time. Windows leave that copy out, so a fork made today doesn't drag old history into `--since today`; `--inherited` puts it back. Render `--own` drops the copy even without a window — what the fork itself added.
+
 ## Find the session
 
 Only remember what was said? Search content:
@@ -26,7 +28,7 @@ omp-transcript search <pattern> [--hits] [--since <when>] [--under <dir>] [-n <c
 # e.g. omp-transcript search 'puppet terminology' --hits --since 2w
 ```
 
-TSV, newest first: `mtime  id  hits  title  cwd  path  lineage  snippet`. Default n=20, `-n 0` prints every match. The pattern is a case-insensitive literal; `--regex` reads it as a regex instead. `--hits [n]` lists up to n matching messages under each row as `\t<message id>\t<time>\t<role>: <snippet>` — the ids feed `--around`.
+TSV, newest first: `mtime  id  hits  title  cwd  path  lineage  snippet`. Default n=20, `-n 0` prints every match. The pattern is a case-insensitive literal; `--regex` reads it as a regex instead. `--hits [n]` lists up to n matching messages under each row, user messages first, as `\t<message id>\t<time>\t<role>: <snippet>` — the ids feed `--around`.
 
 Searched by default: user and assistant messages, titles, shell commands the user ran, @-mentioned paths, and conversation summaries. `--reasoning` adds thinking and `--with-tools` adds tool calls and results — both widen the haystack, and the snippet names which one matched.
 

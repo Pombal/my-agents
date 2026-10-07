@@ -15,11 +15,11 @@ Times in its output are UTC. `--since`/`--until` are read in local time and take
 omp-transcript list -n 10                        # newest first: time, id, title, cwd, path, lineage
 omp-transcript list --since today                # sessions active today, every folder
 omp-transcript list --under ~/workspace/nilo --under ~/.herdr/worktrees/nilo --since 1w
-omp-transcript search "pattern" --hits           # matching sessions, each with up to 5 hits: message id, time, snippet
+omp-transcript search "pattern" --hits           # matching sessions, each with up to 5 hits (user first): message id, time, snippet
 omp-transcript search "pattern" --since 2d --reasoning --with-tools   # narrow when, widen what
 ```
 
-Forks of one conversation appear once, as the newest fork, with the root session's id in the lineage column (`-` for a root); `--all-forks` lists every one. `--cwd` is an exact folder, `--under` includes subfolders; both repeatable with `--under`. An id prefix works in place of a full id or path.
+Forks of one conversation appear once, as the newest fork, with the root session's id in the lineage column (`-` for a root); `--all-forks` lists every one. `--cwd` is an exact folder; `--under` includes subfolders and repeats. An id prefix works in place of a full id or path.
 
 ## Read it
 
@@ -28,6 +28,7 @@ omp-transcript <id> > /tmp/omp-<id>.md           # whole conversation, tool resu
 omp-transcript <id> -m -3                         # last 3 messages; -m 3 = first 3
 omp-transcript <id> --since today                 # only today's part of a long-running session
 omp-transcript <id> --around <message-id> -C 3    # a search hit with 3 messages each side, ids shown
+omp-transcript <id> --own                         # a fork without the history it copied from its parent
 ```
 
 Add `--reasoning` for the agent's thinking, `--with-tools` for tool calls. When an omitted result matters, run the `omp-transcript result ...` command printed in its place. Hydrate only what you need.
@@ -42,5 +43,5 @@ Add `--reasoning` for the agent's thinking, `--with-tools` for tool calls. When 
 
 ## Caveats
 
-- A fork re-stamps the messages it inherits with the fork's own time, so a window may include older history through a fork made inside it. `/prose` forks are the common case.
+- A fork opens with a copy of its parent's history. Time windows leave that copy out, so `--since today` shows only what was said today; add `--inherited` to count it. Without a window, a fork reads whole unless you pass `--own`.
 - Only the sessions themselves are searched. A subagent's transcript in a session's sidecar is not, but the parent session records the task it was given and the result it returned.
