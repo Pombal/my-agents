@@ -44,4 +44,5 @@ Add `--reasoning` for the agent's thinking, `--with-tools` for tool calls. When 
 ## Caveats
 
 - A fork opens with a copy of its parent's history. Time windows leave that copy out, so `--since today` shows only what was said today; add `--inherited` to count it. Without a window, a fork reads whole unless you pass `--own`.
+- A session started in its own worktree (`worktree.onStart`, or `/wt` mid-session) has its cwd under `~/.omp/wt/`, so `--under ~/workspace/<repo>` misses it; add `--under ~/.omp/wt`. Its work lands on a `wt/*` branch of the repo.
 - Only the sessions themselves are searched. A subagent's transcript in a session's sidecar is not, but the parent session records the task it was given and the result it returned.
