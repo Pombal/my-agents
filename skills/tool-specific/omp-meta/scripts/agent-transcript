@@ -1,0 +1,1077 @@
+#!/usr/bin/env bun
+// Clean transcripts of Claude Code and Codex sessions, in omp-transcript's
+// format. T3 Code thread ids resolve to the provider session behind them; an
+// OMP session is handed to omp-transcript with the arguments unchanged.
+
+import { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
+
+const HOME = homedir();
+const CLAUDE_PROJECTS = join(process.env.CLAUDE_CONFIG_DIR ?? join(HOME, ".claude"), "projects");
+const CODEX_HOME = process.env.CODEX_HOME ?? join(HOME, ".codex");
+const CODEX_ROOTS = [join(CODEX_HOME, "sessions"), join(CODEX_HOME, "archived_sessions")];
+const T3_DB = join(HOME, ".t3/userdata/statev2.sqlite");
+const SCRIPT_DIR = dirname(realpathSync(Bun.main));
+
+const USAGE = `Usage:
+  agent-transcript <session.jsonl|id> [--with-tools|--hydrate] [--reasoning] [--ids]
+                                      [-m <n> | --around <message-id> [-C <n>]]
+                                      [--since <when>] [--until <when>]
+  agent-transcript result --session <session.jsonl|id> --message-id <id>
+  agent-transcript list [--source claude|codex] [--cwd <dir>] [--under <dir>]...
+                        [--since <when>] [--until <when>] [-n <count>]
+  agent-transcript search [--] <pattern> [--regex] [--source claude|codex]
+                          [--cwd <dir>] [--under <dir>]... [--since <when>] [--until <when>]
+                          [-n <count>] [--reasoning] [--with-tools] [--hits [<n>]]
+                          [--no-snippet] [--width <chars>]
+
+<id> is a Claude Code session id, a Claude Code subagent id, a Codex thread id,
+a T3 Code thread id, or an OMP session id; any 4+ character prefix works. An
+OMP session is rendered by omp-transcript, which also takes --own, --inherited
+and --profile. list and search cover Claude Code and Codex; OMP sessions are
+listed and searched by omp-transcript.
+
+<when> is anything GNU date -d accepts (today, yesterday, 2026-10-06,
+"last monday", "2026-10-06 14:00") or a shorthand like 2h, 3d, 1w. A spec
+without a time of day means the start of that day, local time. The window
+is half-open: since <= t < until.
+`;
+
+type Source = "claude" | "codex" | "omp";
+type T3Ref = { threadId: string; title: string };
+type Target = { source: Source; path: string; t3?: T3Ref };
+type Part =
+  | { type: "text" | "reasoning"; text: string }
+  | { type: "tool-call"; name: string; input: unknown };
+type Entry = {
+  id: string;
+  aliases: string[];
+  ts: number | null;
+  kind: "user" | "assistant" | "tool-result" | "custom" | "compaction";
+  text?: string;
+  customType?: string;
+  hidden?: boolean;
+  parts?: Part[];
+  msgId?: string;
+  tool?: string;
+  callId?: string;
+  isError?: boolean;
+  body?: string;
+  subagent?: string;
+};
+
+function fatal(message: string): never {
+  process.stderr.write(`agent-transcript: ${message}\n`);
+  process.exit(1);
+}
+
+function usage(code = 2): never {
+  process.stderr.write(USAGE);
+  process.exit(code);
+}
+
+// A reader that stops early, such as head, is not an error.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") process.exit(0);
+  throw error;
+});
+
+// ---------------------------------------------------------------- arguments
+
+const argv = Bun.argv.slice(2);
+if (argv[0] === "--help" || argv[0] === "-h") usage(0);
+if (argv.length === 0) usage();
+
+const VALUE_FLAGS = new Set([
+  "-m", "--messages", "--around", "-C", "--context", "--since", "--until", "--profile",
+  "--session", "--message-id", "--source", "--cwd", "--under", "-n", "--width",
+]);
+const BOOL_FLAGS = new Set([
+  "--with-tools", "--hydrate", "--reasoning", "--ids", "--own", "--inherited", "--regex", "--no-snippet",
+]);
+const OMP_ONLY = new Set(["--own", "--inherited", "--profile"]);
+
+const mode = ["list", "search", "result"].includes(argv[0]) ? argv[0] : "render";
+const opts: Record<string, string | boolean> = {};
+const under: string[] = [];
+const positional: string[] = [];
+let hitsMax = 0;
+{
+  const args = mode === "render" ? argv : argv.slice(1);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") {
+      positional.push(...args.slice(i + 1));
+      break;
+    }
+    if (arg === "--hits" && mode === "search") {
+      if (/^[1-9][0-9]{0,3}$/.test(args[i + 1] ?? "")) hitsMax = Number(args[++i]);
+      else hitsMax = 5;
+    } else if (VALUE_FLAGS.has(arg)) {
+      if (i + 1 >= args.length) usage();
+      if (arg === "--under") under.push(args[++i]);
+      else opts[arg] = args[++i];
+    } else if (BOOL_FLAGS.has(arg)) {
+      opts[arg] = true;
+    } else if (arg.startsWith("-") && arg !== "-") {
+      usage();
+    } else {
+      positional.push(arg);
+    }
+  }
+}
+
+const withTools = opts["--with-tools"] === true || opts["--hydrate"] === true;
+const hydrate = opts["--hydrate"] === true;
+const reasoning = opts["--reasoning"] === true;
+const around = (opts["--around"] as string | undefined) ?? "";
+const showIds = opts["--ids"] === true || around !== "";
+const messageCountSpec = (opts["-m"] ?? opts["--messages"]) as string | undefined;
+const contextSpec = (opts["-C"] ?? opts["--context"]) as string | undefined;
+
+// ---------------------------------------------------------------- time
+
+function parseWhen(spec: string): number {
+  const short = /^([0-9]+)([mhdw])$/.exec(spec);
+  const units: Record<string, string> = { m: "minutes", h: "hours", d: "days", w: "weeks" };
+  const date = (args: string[]) => {
+    const out = spawnSync("date", args, { encoding: "utf8" });
+    if (out.status !== 0) fatal(`cannot parse time: ${spec}`);
+    return out.stdout.trim();
+  };
+  let epoch = Number(date(["-d", short ? `${short[1]} ${units[short[2]]} ago` : spec, "+%s"]));
+  const dayGranular =
+    !short &&
+    !spec.includes(":") &&
+    !/[Tt][0-9][0-9]/.test(spec) &&
+    !spec.startsWith("@") &&
+    !/(hour|min|sec|now|noon|midnight)/.test(spec);
+  if (dayGranular) epoch = Number(date(["-d", date(["-d", `@${epoch}`, "+%F"]), "+%s"]));
+  return epoch;
+}
+
+const since = typeof opts["--since"] === "string" ? parseWhen(opts["--since"]) : null;
+const until = typeof opts["--until"] === "string" ? parseWhen(opts["--until"]) : null;
+if (since !== null && until !== null && since >= until) {
+  fatal(`empty window: --since ${opts["--since"]} is not before --until ${opts["--until"]}`);
+}
+
+const isoSeconds = (epoch: number) => new Date(epoch * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+const toEpoch = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms / 1000;
+};
+const inWindow = (ts: number | null) =>
+  (since === null && until === null) ||
+  (ts !== null && (since === null || ts >= since) && (until === null || ts < until));
+
+function windowLabel() {
+  const parts: string[] = [];
+  if (since !== null) parts.push(`since ${isoSeconds(since)}`);
+  if (until !== null) parts.push(`until ${isoSeconds(until)}`);
+  return parts.join(" ");
+}
+
+// ---------------------------------------------------------------- files
+
+function parseLines(text: string, dropLast: boolean) {
+  const lines = text.split("\n");
+  if (dropLast) lines.pop();
+  const records: any[] = [];
+  for (const line of lines) {
+    if (!line) continue;
+    try {
+      const record = JSON.parse(line);
+      if (record && typeof record === "object") records.push(record);
+    } catch {}
+  }
+  return records;
+}
+
+// The first `count` lines, read in chunks so a huge first line still parses.
+function readHeadRecords(path: string, count: number, cap = 4 << 20) {
+  const fd = openSync(path, "r");
+  try {
+    const chunk = Buffer.alloc(65536);
+    const parts: Buffer[] = [];
+    let total = 0;
+    let newlines = 0;
+    let eof = false;
+    while (newlines < count && total < cap) {
+      const read = readSync(fd, chunk, 0, chunk.length, total);
+      if (read === 0) {
+        eof = true;
+        break;
+      }
+      const piece = Buffer.from(chunk.subarray(0, read));
+      parts.push(piece);
+      total += read;
+      for (const byte of piece) if (byte === 10) newlines++;
+    }
+    return parseLines(Buffer.concat(parts).toString("utf8"), !eof);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function readTailRecords(path: string, bytes: number) {
+  const size = statSync(path).size;
+  const start = Math.max(0, size - bytes);
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.alloc(size - start);
+    readSync(fd, buffer, 0, buffer.length, start);
+    let text = buffer.toString("utf8");
+    if (start > 0) text = text.slice(text.indexOf("\n") + 1);
+    return parseLines(text, false);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// Whole file; a line still being written is skipped.
+function readRecords(path: string) {
+  return parseLines(readFileSync(path, "utf8"), false);
+}
+
+function listDir(dir: string) {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+function claudeSessionFiles() {
+  const files: string[] = [];
+  for (const project of listDir(CLAUDE_PROJECTS)) {
+    if (!project.isDirectory()) continue;
+    for (const file of listDir(join(CLAUDE_PROJECTS, project.name))) {
+      if (file.isFile() && file.name.endsWith(".jsonl")) files.push(join(CLAUDE_PROJECTS, project.name, file.name));
+    }
+  }
+  return files;
+}
+
+function claudeSubagentFiles() {
+  const files: string[] = [];
+  for (const project of listDir(CLAUDE_PROJECTS)) {
+    if (!project.isDirectory()) continue;
+    for (const session of listDir(join(CLAUDE_PROJECTS, project.name))) {
+      if (!session.isDirectory()) continue;
+      const dir = join(CLAUDE_PROJECTS, project.name, session.name, "subagents");
+      for (const file of listDir(dir)) {
+        if (file.isFile() && file.name.endsWith(".jsonl")) files.push(join(dir, file.name));
+      }
+    }
+  }
+  return files;
+}
+
+function codexSessionFiles() {
+  const files: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    for (const entry of listDir(dir)) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory() && depth < 4) walk(path, depth + 1);
+      else if (entry.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) files.push(path);
+    }
+  };
+  for (const root of CODEX_ROOTS) walk(root, 0);
+  return files;
+}
+
+// rollout-<YYYY-MM-DDTHH-MM-SS>-<thread id>.jsonl
+const codexIdOf = (path: string) => basename(path, ".jsonl").replace(/^rollout-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-/, "");
+
+function ompSessionFiles(prefix: string) {
+  const roots = process.env.OMP_SESSIONS_DIR
+    ? [process.env.OMP_SESSIONS_DIR]
+    : [
+        join(HOME, ".omp/agent/sessions"),
+        ...listDir(join(HOME, ".omp/profiles"))
+          .filter((profile) => profile.isDirectory())
+          .map((profile) => join(HOME, ".omp/profiles", profile.name, "agent/sessions")),
+      ];
+  const files: string[] = [];
+  for (const root of roots) {
+    for (const dir of listDir(root)) {
+      if (!dir.isDirectory()) continue;
+      for (const file of listDir(join(root, dir.name))) {
+        if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
+        const id = file.name.slice(file.name.indexOf("_") + 1, -".jsonl".length);
+        if (id.startsWith(prefix)) files.push(join(root, dir.name, file.name));
+      }
+    }
+  }
+  return files;
+}
+
+function sniffSource(path: string): Source {
+  const head = readHeadRecords(path, 8);
+  if (head.some((record) => record.type === "session_meta")) return "codex";
+  if (head[0]?.type === "session") return "omp";
+  if (head.some((record) => "sessionId" in record || "parentUuid" in record)) return "claude";
+  fatal(`not a Claude Code, Codex or OMP session: ${path}`);
+}
+
+// ---------------------------------------------------------------- T3 Code
+
+let t3Db: Database | null | undefined;
+function t3() {
+  if (t3Db === undefined) {
+    try {
+      t3Db = existsSync(T3_DB) ? new Database(T3_DB, { readonly: true }) : null;
+    } catch {
+      t3Db = null;
+    }
+  }
+  return t3Db;
+}
+
+type T3Row = { thread_id: string; title: string; native: string | null; driver: string | null };
+const T3_QUERY = `
+  select pt.thread_id, t.title, pt.driver,
+         json_extract(pt.payload_json, '$.nativeThreadRef.nativeId') as native
+  from orchestration_v2_projection_provider_threads pt
+  join orchestration_v2_projection_threads t on t.thread_id = pt.thread_id`;
+
+// The provider thread a T3 thread runs on now, for every thread matching the prefix.
+function t3Threads(prefix: string) {
+  const db = t3();
+  if (!db) return [];
+  try {
+    const rows = db
+      .query(`${T3_QUERY} where pt.thread_id like ?1
+              order by pt.thread_id, (pt.provider_thread_id = t.active_provider_thread_id) desc,
+                       pt.last_run_ordinal desc`)
+      .all(`${prefix}%`) as T3Row[];
+    const seen = new Set<string>();
+    return rows.filter((row) => !seen.has(row.thread_id) && seen.add(row.thread_id));
+  } catch {
+    return [];
+  }
+}
+
+// Native session id -> the T3 thread that owns it.
+let t3ByNative: Map<string, T3Ref> | undefined;
+function t3Owner(native: string) {
+  if (!t3ByNative) {
+    t3ByNative = new Map();
+    try {
+      for (const row of (t3()?.query(T3_QUERY).all() ?? []) as T3Row[]) {
+        if (row.native) t3ByNative.set(row.native, { threadId: row.thread_id, title: row.title });
+      }
+    } catch {}
+  }
+  return t3ByNative.get(native);
+}
+
+// ---------------------------------------------------------------- resolve
+
+function resolveTarget(arg: string): Target {
+  if (existsSync(arg) && statSync(arg).isFile()) {
+    const path = realpathSync(arg);
+    return { source: sniffSource(path), path };
+  }
+  if (!/^[0-9a-zA-Z][0-9a-zA-Z-]{3,}$/.test(arg)) fatal(`session not found: ${arg}`);
+  const id = arg.replace(/^agent-/, "");
+  const found = new Map<string, Target>();
+  const add = (target: Target) => {
+    if (!found.has(target.path) || target.t3) found.set(target.path, target);
+  };
+
+  const claude = claudeSessionFiles();
+  const codex = codexSessionFiles();
+  for (const path of claude) if (basename(path).startsWith(id)) add({ source: "claude", path });
+  for (const path of claudeSubagentFiles()) if (basename(path).startsWith(`agent-${id}`)) add({ source: "claude", path });
+  for (const path of codex) if (codexIdOf(path).startsWith(id)) add({ source: "codex", path });
+  for (const path of ompSessionFiles(id)) add({ source: "omp", path });
+  for (const row of t3Threads(id)) {
+    const t3Ref = { threadId: row.thread_id, title: row.title };
+    const native = row.native ?? "";
+    const claudePath = row.driver !== "codex" ? claude.find((path) => basename(path, ".jsonl") === native) : undefined;
+    const codexPath = row.driver !== "claudeAgent" ? codex.find((path) => codexIdOf(path) === native) : undefined;
+    if (claudePath) add({ source: "claude", path: claudePath, t3: t3Ref });
+    else if (codexPath) add({ source: "codex", path: codexPath, t3: t3Ref });
+    else if (found.size === 0) {
+      fatal(`T3 thread ${row.thread_id} runs on ${row.driver ?? "an unknown provider"} session ${native || "(none)"}, whose file was not found`);
+    }
+  }
+
+  const matches = [...found.values()];
+  if (matches.length === 0) fatal(`no session with id: ${arg}`);
+  if (matches.length > 1) {
+    process.stderr.write(`agent-transcript: ambiguous session id: ${arg} (${matches.length} matches)\n`);
+    for (const match of matches.slice(0, 20)) {
+      process.stderr.write(`  ${match.source}\t${match.path}${match.t3 ? `\t(T3 thread ${match.t3.threadId})` : ""}\n`);
+    }
+    if (matches.length > 20) process.stderr.write(`  … ${matches.length - 20} more; use a longer prefix\n`);
+    process.exit(1);
+  }
+  const target = matches[0];
+  if (!target.t3 && target.source !== "omp") {
+    const native = target.source === "codex" ? codexIdOf(target.path) : basename(target.path, ".jsonl");
+    target.t3 = t3Owner(native);
+  }
+  return target;
+}
+
+function forwardToOmp(args: string[]): never {
+  const result = spawnSync(join(SCRIPT_DIR, "omp-transcript"), args, { stdio: "inherit" });
+  process.exit(result.status ?? 1);
+}
+
+// ---------------------------------------------------------------- normalize
+
+const imageMarker = "[image]";
+
+function contentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block: any) => {
+      if (typeof block === "string") return block;
+      if (["text", "input_text", "output_text"].includes(block?.type)) return block.text ?? "";
+      if (block?.type === "image" || block?.type === "input_image") return imageMarker;
+      if (block?.type === "tool_result") return contentText(block.content);
+      return "";
+    })
+    .filter((text: string) => text !== "")
+    .join("\n");
+}
+
+// Text wrapped in one harness tag, as Claude Code records command output,
+// shell escapes and subagent notifications.
+const CLAUDE_HARNESS_TAGS = new Set([
+  "local-command-stdout", "local-command-stderr", "bash-input", "bash-stdout", "bash-stderr",
+  "task-notification", "system-reminder", "user-memory-input",
+]);
+
+function claudeUserEntry(record: any, text: string, base: Pick<Entry, "id" | "aliases" | "ts">): Entry | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  if (record.isMeta === true) {
+    if (trimmed.startsWith("<local-command-caveat>")) return null;
+    return { ...base, kind: "custom", customType: "meta", hidden: true, text: trimmed };
+  }
+  const command = /<command-name>([\s\S]*?)<\/command-name>/.exec(trimmed);
+  if (command) {
+    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(trimmed)?.[1].trim() ?? "";
+    return { ...base, kind: "user", text: args ? `${command[1].trim()} ${args}` : command[1].trim() };
+  }
+  const tag = /^<([a-z-]+)>/.exec(trimmed)?.[1];
+  if (tag && CLAUDE_HARNESS_TAGS.has(tag)) {
+    const inner = trimmed.endsWith(`</${tag}>`) && trimmed.indexOf(`<${tag}>`, 1) === -1
+      ? trimmed.slice(tag.length + 2, -(tag.length + 3)).trim()
+      : trimmed;
+    if (inner === "") return null;
+    return { ...base, kind: "custom", customType: tag, hidden: tag === "system-reminder", text: inner };
+  }
+  return { ...base, kind: "user", text: trimmed };
+}
+
+function claudeEntries(records: any[], path: string): Entry[] {
+  const toolNames = new Map<string, string>();
+  for (const record of records) {
+    if (record.type !== "assistant" || !Array.isArray(record.message?.content)) continue;
+    for (const block of record.message.content) {
+      if (block?.id && block.name) toolNames.set(block.id, block.name);
+    }
+  }
+  const sidecar = basename(path).startsWith("agent-")
+    ? null
+    : join(dirname(path), basename(path, ".jsonl"), "subagents");
+
+  const entries: Entry[] = [];
+  for (const record of records) {
+    const uuid = typeof record.uuid === "string" ? record.uuid : "";
+    const base = { id: uuid, aliases: [] as string[], ts: toEpoch(record.timestamp) };
+    const content = record.message?.content;
+
+    if (record.type === "assistant") {
+      const blocks = Array.isArray(content) ? content : [{ type: "text", text: contentText(content) }];
+      const parts: Part[] = [];
+      for (const block of blocks) {
+        if (block?.type === "text" && block.text) parts.push({ type: "text", text: block.text });
+        else if (block?.type === "thinking" && block.thinking) parts.push({ type: "reasoning", text: block.thinking });
+        else if (block?.type === "tool_use" || block?.type === "server_tool_use") {
+          parts.push({ type: "tool-call", name: block.name ?? "unknown", input: block.input ?? {} });
+        }
+      }
+      // Claude Code writes one record per content block of a message.
+      const msgId = record.message?.id;
+      const last = entries[entries.length - 1];
+      if (last?.kind === "assistant" && msgId && last.msgId === msgId) {
+        last.parts!.push(...parts);
+        if (uuid) last.aliases.push(uuid);
+      } else {
+        entries.push({ ...base, kind: "assistant", parts, msgId });
+      }
+      continue;
+    }
+
+    if (record.type !== "user") continue;
+    if (record.isCompactSummary === true) {
+      entries.push({ ...base, kind: "compaction", text: contentText(content).trim() });
+      continue;
+    }
+    const blocks = Array.isArray(content) ? content : null;
+    const results = blocks?.filter((block: any) => block?.type === "tool_result") ?? [];
+    if (results.length > 0) {
+      results.forEach((block: any, index: number) => {
+        const agentId = record.toolUseResult?.agentId;
+        const subagent = sidecar && typeof agentId === "string" ? join(sidecar, `agent-${agentId}.jsonl`) : undefined;
+        entries.push({
+          id: index === 0 && uuid ? uuid : block.tool_use_id,
+          aliases: [block.tool_use_id],
+          ts: base.ts,
+          kind: "tool-result",
+          tool: toolNames.get(block.tool_use_id) ?? "unknown",
+          callId: block.tool_use_id,
+          isError: block.is_error === true,
+          body: contentText(block.content),
+          subagent: subagent && existsSync(subagent) ? subagent : undefined,
+        });
+      });
+      continue;
+    }
+    const entry = claudeUserEntry(record, contentText(content), base);
+    if (entry) entries.push(entry);
+  }
+  return entries;
+}
+
+// The conversation through `throughId`, or through the last record when none
+// is given: that record's parent chain. A compaction boundary has no parent;
+// it continues at its logicalParentUuid, or, when that record was never
+// written, at the record written just before the boundary. A fork opens with
+// such a boundary after the history it copied, so the copy reads too.
+function claudeBranch(records: any[], throughId: string): any[] {
+  const onBranch = (record: any) =>
+    typeof record.uuid === "string" && ["user", "assistant", "system", "attachment"].includes(record.type);
+  const byId = new Map<string, any>();
+  const parent = new Map<string, string | null>();
+  let previous: string | null = null;
+  for (const record of records) {
+    if (!onBranch(record)) continue;
+    byId.set(record.uuid, record);
+    parent.set(record.uuid, record.parentUuid ?? null);
+  }
+  for (const record of records) {
+    if (!onBranch(record)) continue;
+    if (record.parentUuid == null && record.subtype === "compact_boundary") {
+      parent.set(record.uuid, byId.has(record.logicalParentUuid) ? record.logicalParentUuid : previous);
+    }
+    previous = record.uuid;
+  }
+  let leaf: any;
+  if (throughId === "") {
+    leaf = records.findLast(onBranch);
+  } else {
+    const under = new Set([throughId]);
+    for (const record of records) {
+      if (onBranch(record) && under.has(parent.get(record.uuid) ?? "")) under.add(record.uuid);
+    }
+    leaf = records.findLast((record) => onBranch(record) && under.has(record.uuid));
+  }
+  const chain: any[] = [];
+  const seen = new Set<string>();
+  for (let record = leaf; record && !seen.has(record.uuid); record = byId.get(parent.get(record.uuid) ?? "")) {
+    seen.add(record.uuid);
+    chain.push(record);
+  }
+  if (chain.length === 0) fatal("session contains no conversation branch");
+  return chain.reverse();
+}
+
+// Context Codex injects as user turns, keyed by how the text opens.
+function codexInjectedType(text: string): string | null {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith("# AGENTS.md instructions")) return "agents-md";
+  if (trimmed.startsWith("# In app browser")) return "in-app-browser";
+  if (trimmed.startsWith("# Files mentioned by the user")) return "files-mentioned";
+  const tag = /^<([a-z_]+)[\s>]/.exec(trimmed)?.[1];
+  if (tag && ["environment_context", "user_instructions", "recommended_plugins", "skill", "INSTRUCTIONS"].includes(tag)) {
+    return tag.replaceAll("_", "-");
+  }
+  return null;
+}
+
+function codexOutput(output: unknown): string {
+  if (typeof output === "string") {
+    if (output.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(output);
+        if (typeof parsed?.output === "string") return parsed.output;
+      } catch {}
+    }
+    return output;
+  }
+  if (Array.isArray(output)) return contentText(output);
+  if (output && typeof output === "object") {
+    const value = (output as any).output ?? (output as any).content;
+    return typeof value === "string" ? value : contentText(value) || JSON.stringify(output);
+  }
+  return "";
+}
+
+function codexEntries(records: any[]): Entry[] {
+  const callNames = new Map<string, string>();
+  for (const { payload } of records) {
+    if (payload?.call_id && /_call$/.test(payload.type ?? "")) callNames.set(payload.call_id, payload.name ?? payload.type);
+  }
+  const entries: Entry[] = [];
+  // Reasoning, assistant text and tool calls between two other items read as
+  // one assistant message.
+  const assistantPart = (base: Pick<Entry, "id" | "aliases" | "ts">, part: Part) => {
+    const last = entries[entries.length - 1];
+    if (last?.kind === "assistant") {
+      last.parts!.push(part);
+      last.aliases.push(base.id);
+    } else {
+      entries.push({ ...base, kind: "assistant", parts: [part] });
+    }
+  };
+
+  records.forEach((record, index) => {
+    const base = { id: `L${index + 1}`, aliases: [] as string[], ts: toEpoch(record.timestamp) };
+    const payload = record.payload ?? {};
+    if (record.type === "compacted") {
+      entries.push({ ...base, kind: "compaction", text: typeof payload.message === "string" ? payload.message.trim() : "" });
+      return;
+    }
+    if (record.type !== "response_item") return;
+    const type: string = payload.type ?? "";
+
+    if (type === "message") {
+      if (payload.role === "assistant") {
+        const text = contentText(payload.content).trim();
+        if (text) assistantPart(base, { type: "text", text });
+        return;
+      }
+      if (payload.role !== "user") {
+        const text = contentText(payload.content).trim();
+        if (text) entries.push({ ...base, kind: "custom", customType: payload.role ?? "developer", hidden: true, text });
+        return;
+      }
+      const userText: string[] = [];
+      for (const block of Array.isArray(payload.content) ? payload.content : []) {
+        if (block?.type === "input_image") {
+          userText.push(imageMarker);
+          continue;
+        }
+        const text: string = block?.text ?? "";
+        if (!text.trim() || /^<\/?image[\s>]/.test(text.trim())) continue;
+        if (text.trimStart().startsWith("<turn_aborted>")) {
+          entries.push({ ...base, kind: "custom", customType: "turn-aborted", text: text.trim() });
+          continue;
+        }
+        const injected = codexInjectedType(text);
+        if (injected) entries.push({ ...base, kind: "custom", customType: injected, hidden: true, text: text.trim() });
+        else userText.push(text.trim());
+      }
+      if (userText.length > 0) entries.push({ ...base, kind: "user", text: userText.join("\n\n") });
+      return;
+    }
+    if (type === "reasoning") {
+      const text = [
+        ...(Array.isArray(payload.summary) ? payload.summary : []),
+        ...(Array.isArray(payload.content) ? payload.content : []),
+      ]
+        .map((block: any) => block?.text ?? "")
+        .filter(Boolean)
+        .join("\n\n");
+      if (text) assistantPart(base, { type: "reasoning", text });
+      return;
+    }
+    if (type === "agent_message") {
+      const text = contentText(payload.content).trim();
+      if (text) entries.push({ ...base, kind: "custom", customType: `agent-message from ${payload.author ?? "?"}`, text });
+      return;
+    }
+    if (type.endsWith("_call")) {
+      let input = payload.arguments ?? payload.input ?? payload.action ?? payload.query ?? {};
+      if (typeof input === "string" && payload.arguments !== undefined) {
+        try {
+          input = JSON.parse(input);
+        } catch {}
+      }
+      assistantPart(base, { type: "tool-call", name: payload.name ?? type.replace(/_call$/, ""), input });
+      return;
+    }
+    if (type.endsWith("_output")) {
+      const callId = payload.call_id ?? "";
+      entries.push({
+        ...base,
+        aliases: callId ? [callId] : [],
+        kind: "tool-result",
+        tool: callNames.get(callId) ?? type.replace(/_call_output$|_output$/, ""),
+        callId,
+        body: codexOutput(payload.output),
+      });
+    }
+  });
+  return entries;
+}
+
+// ---------------------------------------------------------------- metadata
+
+type Meta = { id: string; title: string; cwd: string; start: number | null; parent: string };
+
+let codexTitles: Map<string, string> | undefined;
+function codexTitle(id: string) {
+  if (!codexTitles) {
+    codexTitles = new Map();
+    const index = join(CODEX_HOME, "session_index.jsonl");
+    if (existsSync(index)) {
+      for (const row of readRecords(index)) if (row.id && row.thread_name) codexTitles.set(row.id, row.thread_name);
+    }
+  }
+  return codexTitles.get(id);
+}
+
+const oneLine = (text: string, width = 80) => {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > width ? `${flat.slice(0, width - 1)}…` : flat;
+};
+
+function claudeTitle(records: any[]) {
+  const last = (type: string, key: string) =>
+    records.findLast((record) => record.type === type && typeof record[key] === "string" && record[key])?.[key];
+  return last("custom-title", "customTitle") ?? last("ai-title", "aiTitle") ?? last("agent-name", "agentName");
+}
+
+// From the head and tail of the file, so a listing never reads a whole session.
+function sessionMeta(source: Source, path: string, full?: any[]): Meta {
+  const head = full ?? readHeadRecords(path, 40);
+  if (source === "codex") {
+    const meta = head.find((record) => record.type === "session_meta")?.payload ?? {};
+    const id = meta.id ?? codexIdOf(path);
+    const spawn = meta.source?.subagent?.thread_spawn;
+    const firstUser = head
+      .flatMap((record) => (record.type === "response_item" && record.payload?.role === "user" ? [record.payload] : []))
+      .map((payload) => contentText(payload.content))
+      .find((text) => text.trim() && !codexInjectedType(text) && !text.trimStart().startsWith("<"));
+    const title = codexTitle(id) ?? (spawn ? `${spawn.agent_nickname ?? "subagent"} ${spawn.agent_path ?? ""}`.trim() : undefined);
+    return {
+      id,
+      title: title ?? (firstUser ? oneLine(firstUser) : "-"),
+      cwd: meta.cwd ?? "",
+      start: toEpoch(meta.timestamp) ?? toEpoch(head[0]?.timestamp),
+      parent: spawn?.parent_thread_id ?? "-",
+    };
+  }
+  const tail = full ? [] : readTailRecords(path, 256 << 10);
+  const firstUser = head.find((record) =>
+    record.type === "user" && !record.isMeta && typeof record.message?.content === "string" && !record.message.content.startsWith("<"));
+  return {
+    id: basename(path, ".jsonl").replace(/^agent-/, ""),
+    title: claudeTitle([...head, ...tail]) ?? (firstUser ? oneLine(firstUser.message.content) : "-"),
+    cwd: head.find((record) => typeof record.cwd === "string")?.cwd ?? "",
+    start: toEpoch(head.find((record) => typeof record.timestamp === "string")?.timestamp),
+    parent: head.find((record) => record.forkedFrom?.sessionId)?.forkedFrom.sessionId ?? "-",
+  };
+}
+
+// ---------------------------------------------------------------- render
+
+const fence = (body: string) => "`".repeat(Math.max(3, Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length)) + 1));
+const tagged = (tag: string, attributes: string, body: string) => `<${tag}${attributes}>\n${body}\n</${tag}>\n\n`;
+const fenced = (tag: string, attributes: string, body: string, info: string) => {
+  const marks = fence(body);
+  return `<${tag}${attributes}>\n${marks}${info}\n${body}\n${marks}\n</${tag}>\n\n`;
+};
+const attr = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+const sh = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");
+
+function renderSections(entry: Entry, sessionPath: string): string[] {
+  switch (entry.kind) {
+    case "user":
+      return [tagged("user", "", entry.text!)];
+    case "compaction":
+      return [entry.text ? tagged("compaction-summary", "", entry.text) : "<compaction />\n\n"];
+    case "custom":
+      if (entry.hidden && !withTools) return [];
+      return [tagged("custom-message", ` type="${attr(entry.customType!)}"`, entry.text!)];
+    case "assistant":
+      return entry.parts!.flatMap((part) => {
+        if (part.type === "reasoning") return reasoning ? [tagged("reasoning", "", part.text)] : [];
+        if (part.type === "text") return [tagged("assistant", "", part.text)];
+        if (!withTools) return [];
+        const body = typeof part.input === "string" ? part.input : JSON.stringify(part.input);
+        return [fenced("tool-call", ` name="${attr(part.name)}"`, body, typeof part.input === "string" ? "" : "json")];
+      });
+    case "tool-result": {
+      if (!withTools) return [];
+      const body = entry.body ?? "";
+      const attributes =
+        ` tool="${attr(entry.tool!)}"` +
+        (entry.isError === undefined ? "" : ` status="${entry.isError ? "error" : "successful"}"`) +
+        ` bytes="${utf8Bytes(body)}"` +
+        (entry.subagent ? ` subagent="${attr(entry.subagent)}"` : "");
+      if (hydrate) return [fenced("tool-result", attributes, body, "")];
+      const command = `agent-transcript result --session ${sh(sessionPath)} --message-id ${sh(entry.callId || entry.id)}`;
+      return [fenced("tool-result", attributes, command, "bash")];
+    }
+  }
+}
+
+function render(target: Target) {
+  const records = readRecords(target.path);
+  const meta = sessionMeta(target.source, target.path, records);
+  let all: Entry[];
+  if (target.source === "claude") {
+    let throughId = "";
+    if (around) {
+      const hit = claudeEntries(records, target.path).find((entry) => entry.id === around || entry.aliases.includes(around));
+      if (!hit) fatal(`message not found: ${around}`);
+      throughId = hit.id;
+    }
+    all = claudeEntries(claudeBranch(records, throughId), target.path);
+  } else {
+    all = codexEntries(records);
+  }
+
+  const targetIndex = around ? all.findIndex((entry) => entry.id === around || entry.aliases.includes(around)) : -1;
+  if (around && targetIndex === -1) fatal(`message not found: ${around}`);
+  const rendered = all
+    .map((entry, pos) => ({ entry, pos, sections: inWindow(entry.ts) ? renderSections(entry, target.path) : [] }))
+    .filter((item) => item.sections.length > 0);
+
+  let shown = rendered;
+  let messagesLine = "";
+  if (around) {
+    const context = Number(contextSpec ?? 3);
+    const before = rendered.filter((item) => item.pos < targetIndex);
+    shown = [
+      ...(context === 0 ? [] : before.slice(-context)),
+      ...rendered.filter((item) => item.pos === targetIndex),
+      ...rendered.filter((item) => item.pos > targetIndex).slice(0, context),
+    ];
+    messagesLine = `- **Around:** \`${around}\`, up to ${context} messages each side; ${shown.length} of ${rendered.length} shown\n`;
+  } else if (messageCountSpec) {
+    const count = Number(messageCountSpec);
+    shown = count < 0 ? rendered.slice(count) : rendered.slice(0, count);
+    messagesLine = `- **Messages:** ${count < 0 ? "last" : "first"} ${shown.length} of ${rendered.length}\n`;
+  }
+
+  const window = windowLabel();
+  let out =
+    `# ${target.source === "claude" ? "Claude Code" : "Codex"} transcript\n\n` +
+    `- **Source:** \`${target.path}\`\n` +
+    `- **Session:** \`${meta.id}\` — ${meta.title}\n` +
+    (meta.cwd ? `- **Cwd:** \`${meta.cwd}\`\n` : "") +
+    (target.t3 ? `- **T3 thread:** \`${target.t3.threadId}\` — ${target.t3.title}\n` : "") +
+    (meta.parent !== "-" ? `- **${target.source === "codex" ? "Spawned by" : "Forked from"}:** \`${meta.parent}\`\n` : "") +
+    (target.source === "claude"
+      ? around
+        ? `- **Branch:** the branch through \`${around}\`\n`
+        : "- **Branch:** active branch only\n"
+      : "") +
+    (window ? `- **Window:** ${window}\n` : "") +
+    messagesLine +
+    "\n";
+  for (const item of shown) {
+    for (const section of item.sections) {
+      out += showIds && item.entry.id ? section.replace(/^<([a-z-]+)/, `<$1 id="${attr(item.entry.id)}"`) : section;
+    }
+  }
+  process.stdout.write(out);
+}
+
+function result(target: Target, messageId: string) {
+  const records = readRecords(target.path);
+  const entries = target.source === "claude" ? claudeEntries(records, target.path) : codexEntries(records);
+  const entry = entries.find((candidate) => candidate.id === messageId || candidate.aliases.includes(messageId));
+  if (!entry) fatal(`message not found: ${messageId}`);
+  if (entry.kind !== "tool-result") fatal("message is not a tool result");
+  process.stdout.write(entry.body ?? "");
+}
+
+// ---------------------------------------------------------------- list / search
+
+type Candidate = { source: Exclude<Source, "omp">; path: string; mtime: number; meta: Meta };
+
+function candidates(): Candidate[] {
+  const source = opts["--source"];
+  if (source !== undefined && source !== "claude" && source !== "codex") usage();
+  const wantedCwd = typeof opts["--cwd"] === "string"
+    ? (existsSync(opts["--cwd"]) ? realpathSync(opts["--cwd"]) : fatal(`cwd not found: ${opts["--cwd"]}`))
+    : null;
+  const underDirs = under.map((dir) => resolve(dir.startsWith("~/") ? join(HOME, dir.slice(2)) : dir));
+  const files = [
+    ...(source !== "codex" ? claudeSessionFiles().map((path) => ({ source: "claude" as const, path })) : []),
+    ...(source !== "claude" ? codexSessionFiles().map((path) => ({ source: "codex" as const, path })) : []),
+  ];
+  const out: Candidate[] = [];
+  for (const file of files) {
+    const mtime = statSync(file.path).mtimeMs / 1000;
+    if (since !== null && mtime < since) continue;
+    const meta = sessionMeta(file.source, file.path);
+    if (until !== null && (meta.start ?? mtime) >= until) continue;
+    if (wantedCwd !== null && meta.cwd !== wantedCwd) continue;
+    if (underDirs.length && !underDirs.some((dir) => meta.cwd === dir || meta.cwd.startsWith(`${dir}/`))) continue;
+    out.push({ ...file, mtime, meta });
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+const cell = (value: string) => value.replace(/[\t\n\r]+/g, " ");
+
+function countSpec(spec: unknown, fallback: number) {
+  if (spec === undefined) return fallback;
+  if (typeof spec !== "string" || !/^(0|[1-9][0-9]{0,17})$/.test(spec)) usage();
+  return Number(spec);
+}
+
+function list() {
+  const limit = countSpec(opts["-n"], 10);
+  const rows = candidates();
+  for (const row of limit === 0 ? rows : rows.slice(0, limit)) {
+    const t3Ref = t3Owner(row.meta.id);
+    const title = t3Ref?.title ?? row.meta.title;
+    process.stdout.write(
+      [isoSeconds(Math.floor(row.mtime)), row.meta.id, row.source, title, row.meta.cwd, row.path, row.meta.parent, t3Ref?.threadId ?? "-"]
+        .map(cell)
+        .join("\t") + "\n",
+    );
+  }
+}
+
+// Longest run of the pattern that survives JSON encoding verbatim, for the
+// raw-bytes prefilter: printable ASCII minus quote and backslash.
+const longestPlainRun = (pattern: string) =>
+  pattern.split(/[^\x20-\x21\x23-\x5b\x5d-\x7e]+/).reduce((best, run) => (run.length > best.length ? run : best), "");
+
+function searchable(entry: Entry): Array<{ role: string; text: string; rank: number }> {
+  switch (entry.kind) {
+    case "user":
+      return [{ role: "user", text: entry.text!, rank: 0 }];
+    case "compaction":
+      return entry.text ? [{ role: "summary", text: entry.text, rank: 1 }] : [];
+    case "custom":
+      return entry.hidden && !withTools ? [] : [{ role: entry.customType!, text: entry.text!, rank: 1 }];
+    case "assistant":
+      return entry.parts!.flatMap((part) => {
+        if (part.type === "text") return [{ role: "assistant", text: part.text, rank: 2 }];
+        if (part.type === "reasoning") return reasoning ? [{ role: "reasoning", text: part.text, rank: 3 }] : [];
+        if (!withTools) return [];
+        const input = typeof part.input === "string" ? part.input : JSON.stringify(part.input);
+        return [{ role: "tool-call", text: `${part.name} ${input}`, rank: 4 }];
+      });
+    case "tool-result":
+      return withTools ? [{ role: "tool-result", text: entry.body ?? "", rank: 4 }] : [];
+  }
+}
+
+function search() {
+  if (positional.length !== 1) usage();
+  const pattern = positional[0];
+  const isRegex = opts["--regex"] === true;
+  const limit = countSpec(opts["-n"], 20);
+  const width = Number(opts["--width"] ?? 140);
+  if (!/^[1-9][0-9]{0,3}$/.test(String(width))) usage();
+  let re: RegExp;
+  try {
+    re = new RegExp(isRegex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  } catch {
+    fatal(`invalid regex: ${pattern}`);
+  }
+
+  let files = candidates();
+  const prefilter = isRegex ? pattern : longestPlainRun(pattern);
+  if (prefilter && files.length > 0) {
+    const grep = spawnSync("grep", ["-l", "-i", "-a", isRegex ? "-P" : "-F", "-e", prefilter, "--", ...files.map((file) => file.path)], {
+      encoding: "utf8",
+      maxBuffer: 64 << 20,
+    });
+    if (grep.status === 0 || grep.status === 1) {
+      const hits = new Set(grep.stdout.split("\n"));
+      files = files.filter((file) => hits.has(file.path));
+    }
+  }
+
+  const snippet = (text: string, role: string) => {
+    const offset = re.exec(text)?.index ?? 0;
+    const clean = text.replace(/[\x00-\x1f\x7f]/g, " ");
+    const start = Math.max(0, offset - Math.floor(width / 3));
+    const end = start + width;
+    const body = clean.slice(start, end).replace(/ {2,}/g, " ").trim();
+    return `${role}: ${start > 0 ? "…" : ""}${body}${end < clean.length ? "…" : ""}`;
+  };
+
+  let total = 0;
+  let shown = 0;
+  for (const file of files) {
+    const records = readRecords(file.path);
+    const entries = file.source === "claude" ? claudeEntries(records, file.path) : codexEntries(records);
+    const t3Ref = t3Owner(file.meta.id);
+    const title = t3Ref?.title ?? file.meta.title;
+    let hits = 0;
+    let best: { rank: number; line: string } | null = null;
+    const kept: Array<{ rank: number; n: number; id: string; ts: string; line: string }> = [];
+    const consider = (rank: number, id: string, ts: number | null, text: string, role: string) => {
+      hits++;
+      if (!best || rank < best.rank) best = { rank, line: snippet(text, role) };
+      if (hitsMax === 0) return;
+      if (kept.length >= hitsMax && kept[kept.length - 1].rank <= rank) return;
+      kept.push({ rank, n: hits, id, ts: ts === null ? "" : isoSeconds(Math.floor(ts)), line: snippet(text, role) });
+      kept.sort((a, b) => a.rank - b.rank || a.n - b.n);
+      kept.length = Math.min(kept.length, hitsMax);
+    };
+    if (since === null && until === null && re.test(title)) consider(1, "", null, title, "title");
+    for (const entry of entries) {
+      if (!inWindow(entry.ts)) continue;
+      for (const item of searchable(entry)) {
+        if (item.text && re.test(item.text)) consider(item.rank, entry.id, entry.ts, item.text, item.role);
+      }
+    }
+    if (hits === 0) continue;
+    total++;
+    if (limit !== 0 && shown >= limit) continue;
+    shown++;
+    const columns = [isoSeconds(Math.floor(file.mtime)), file.meta.id, file.source, String(hits), title, file.meta.cwd, file.path];
+    if (opts["--no-snippet"] !== true) columns.push(best!.line);
+    let out = columns.map(cell).join("\t");
+    for (const hit of kept) out += `\n\t${hit.id}\t${hit.ts}\t${cell(hit.line)}`;
+    process.stdout.write(`${out}\n`);
+  }
+  if (total > shown) {
+    process.stderr.write(`agent-transcript: ${total} sessions matched, showing ${shown} (raise with -n, 0 for all)\n`);
+  }
+}
+
+// ---------------------------------------------------------------- main
+
+if (mode === "list") {
+  if (positional.length) usage();
+  list();
+} else if (mode === "search") {
+  search();
+} else {
+  const sessionArg = mode === "result" ? (opts["--session"] as string | undefined) : positional[0];
+  if (!sessionArg || (mode === "render" && positional.length !== 1)) usage();
+  if (mode === "result" && typeof opts["--message-id"] !== "string") usage();
+  const target = resolveTarget(sessionArg);
+  if (target.source === "omp") {
+    const args = [...argv];
+    args[args.indexOf(sessionArg)] = target.path;
+    forwardToOmp(args);
+  }
+  const ompOnly = Object.keys(opts).find((flag) => OMP_ONLY.has(flag));
+  if (ompOnly) fatal(`${ompOnly} applies to OMP sessions only`);
+  if (mode === "result") {
+    result(target, opts["--message-id"] as string);
+  } else {
+    if (messageCountSpec !== undefined && !/^-?[1-9][0-9]{0,17}$/.test(messageCountSpec)) usage();
+    if (contextSpec !== undefined && !/^(0|[1-9][0-9]{0,3})$/.test(contextSpec)) usage();
+    if (around && messageCountSpec !== undefined) usage();
+    render(target);
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: omp-meta
-description: Operate on OMP sessions — read, list, slice, compare transcripts, resolve session IDs. Use only when the user explicitly asks for this; NEVER infer.
+description: Operate on agent sessions (OMP, Claude Code, Codex, T3 Code threads): read, list, slice, compare transcripts, resolve session IDs. Use only when the user explicitly asks for this; NEVER infer.
 ---
 
 # omp-meta
@@ -77,6 +77,22 @@ Done when: every claim you make about another session cites its path and the mes
 ## Many sessions at once
 
 `@omp-session-recap [dir] [--under <dir>]... [--since <when>] [--until <when>]` summarizes every session in scope with an OMP model; `--since today` alone covers every folder. Slow and token-hungry: only when asked, or when a dozen transcripts would otherwise be needed.
+
+## Claude Code, Codex and T3 Code
+
+`agent-transcript` renders Claude Code and Codex sessions in the same block format, with the same flags and the same narrow-first ladder: `-m`, `--around`/`-C`, `--since`/`--until`, `--reasoning`, `--with-tools`, `--hydrate`, `--ids`, `result`, `list`, `search`. It takes a path or any 4+ character prefix of a Claude Code session id, Claude Code subagent id, Codex thread id, or T3 Code thread id. A T3 thread renders the Claude Code or Codex session it runs on. An OMP id goes to `omp-transcript` unchanged, so `agent-transcript <any id>` works for all four.
+
+```bash
+agent-transcript 7380d76d -m -5                      # a T3 thread: last 5 messages of its Claude Code session
+agent-transcript list --source codex --since today   # list and search cover Claude Code and Codex, not OMP
+agent-transcript search 'favicon' --hits
+```
+
+Where it differs from OMP:
+- A Claude Code subagent's tool result carries `subagent="<path>"`; render that path to read the subagent.
+- Codex message ids are line numbers (`L42`). Codex compactions are encrypted, so they render as a bare `<compaction />`.
+- Injected context renders only with `--with-tools`, as `<custom-message>`: skill bodies, system reminders, AGENTS.md, environment context, developer messages.
+- `--own`, `--inherited` and `--profile` apply to OMP sessions only. `result` prints whatever the session recorded and never exits 3.
 
 ## Sidecar anatomy
 

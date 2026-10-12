@@ -115,3 +115,44 @@ A session being appended to right now can end mid-line; that file is re-scanned 
 - `3`: `result` could not recover the full output.
 
 Requires Bash, `jq`, GNU `date`, GNU `find`, and `realpath`. `search` also requires GNU `grep` and `xargs`.
+
+# agent-transcript
+
+Claude Code and Codex sessions in `omp-transcript`'s output format. Run `agent-transcript --help` for the options. Requires Bun and GNU `date`; `search` also requires GNU `grep`.
+
+## Addressing
+
+A path, or a 4+ character prefix of one of these ids:
+
+- Claude Code session: `<CLAUDE_CONFIG_DIR or ~/.claude>/projects/*/<id>.jsonl`.
+- Claude Code subagent: `…/<session id>/subagents/agent-<id>.jsonl`; the `agent-` prefix is optional.
+- Codex thread: `<CODEX_HOME or ~/.codex>/{sessions,archived_sessions}/**/rollout-<time>-<id>.jsonl`.
+- T3 Code thread, looked up in `~/.t3/userdata/statev2.sqlite`: the thread's active provider thread names the native Claude Code or Codex session, and that session renders with a `T3 thread` header line.
+- OMP session: the arguments go to `omp-transcript` unchanged.
+
+An ambiguous prefix lists up to 20 candidates and fails.
+
+## Render
+
+Claude Code renders the active branch: the last record's `parentUuid` chain. A compaction boundary continues at its `logicalParentUuid`, or at the record written just before it when that record is missing from the file, so history before each compaction and a fork's copied history are both included. `isCompactSummary` messages render as `<compaction-summary>`. Consecutive records of one API message (Claude Code writes one record per content block) form one message. Slash commands render as `<user>` with the command and its arguments; command output, `!` shell escapes and subagent task notifications render as `<custom-message type="…">`.
+
+Codex has no branches: every `response_item` renders in file order. Reasoning summaries, assistant text and tool calls between two other items form one message. Ids are 1-based line numbers (`L42`).
+
+Injected context renders only with `--with-tools`. In Claude Code that means `isMeta` messages (skill bodies, for example) and system reminders. In Codex it means developer messages, AGENTS.md, environment context, plugin and skill listings, the in-app browser notice, and the mentioned-files header.
+
+A Claude Code tool result whose subagent transcript exists carries `subagent="<path>"`.
+
+## Result
+
+`result --message-id` takes the stub's call id (`toolu_…` or Codex `call_…`) or the message id. The body is printed as recorded; images print as `[image]`.
+
+## List and search
+
+Both scan Claude Code sessions (subagents excluded) and Codex rollouts; `--source claude|codex` narrows to one. A title comes from the owning T3 thread, then the session's own title (`custom-title`/`ai-title`, or Codex's `session_index.jsonl`), then the first user message. `--since` keeps files written in the window; `--until` keeps sessions that started before it.
+
+```
+list:   <mtime>	<id>	<source>	<title>	<cwd>	<path>	<parent: Codex spawner or Claude Code fork source, or "-">	<T3 thread id or "-">
+search: <mtime>	<id>	<source>	<hits>	<title>	<cwd>	<path>	<snippet>
+```
+
+Search matches user and assistant text, compaction summaries, visible custom messages and titles. `--reasoning` adds reasoning, and `--with-tools` adds tool calls, results and injected context. `--hits`, `--regex`, `--width` and `--no-snippet` work as in `omp-transcript`, and so does the grep prefilter.
