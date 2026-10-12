@@ -1,6 +1,6 @@
 ---
 name: omp-sessions
-description: Pull context from Stefan's OMP (Oh My Pi) coding-agent sessions. Use when Stefan mentions an OMP session, session id, or past OMP conversation, wants to continue one here, asks what was said or decided in one, or asks what was worked on in some period.
+description: Pull context from Stefan's OMP (Oh My Pi) coding-agent sessions, and from Claude Code sessions, Codex threads and T3 Code threads. Use when Stefan mentions one of those sessions, a session or thread id, or a past conversation, wants to continue one here, asks what was said or decided in one, or asks what was worked on in some period.
 ---
 
 # OMP Sessions
@@ -8,6 +8,8 @@ description: Pull context from Stefan's OMP (Oh My Pi) coding-agent sessions. Us
 OMP is Stefan's terminal coding-agent harness. Its sessions are JSONL logs, often huge. Never read them directly. Use `omp-transcript` (on PATH, read-only). It scans every OMP profile by default and renders a session's active branch as markdown with tool results collapsed.
 
 Times in its output are UTC. `--since`/`--until` are read in local time and take `today`, `yesterday`, `3d`, `1w`, `2026-10-06`, `"last monday"`, `"2026-10-06 14:00"`. A date means its midnight; the window is half-open.
+
+For a Claude Code session, a Codex thread or a T3 Code thread, use `agent-transcript` instead. It takes the same flags, renders in the same format, and accepts any of those ids (or an OMP id) as a 4+ character prefix. Its `list` and `search` cover Claude Code and Codex; `omp-transcript list`/`search` cover OMP.
 
 ## Find the session
 
