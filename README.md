@@ -68,7 +68,6 @@ Link a folder with `herdr plugin link <path>` to enable it.
 Copy or symlink a file into `~/.omp/agent/themes/` (or a profile's), then pick it with `/theme`.
 
 - [nilo](.omp/themes/nilo.json) — Dark theme in Nilo's colors. User messages are white text on a brand-green block, so they're easy to spot when scrolling. Green-tinted neutrals and tool backgrounds, a sky-cyan accent, and green-leaning syntax highlighting with quiet comments.
-- [nilo-alternative](.omp/themes/nilo-alternative.json) — Variant of `nilo` with blue-grey neutrals, a navy tool background, blue-leaning syntax highlighting, and dark text on a lighter green user block.
 
 ## Tools
 
