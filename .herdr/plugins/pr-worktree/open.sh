@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-herdr=${HERDR_BIN_PATH:-herdr}
+# servers older than herdr 0.9.3 report a "... (deleted)" path after an in-place update
+herdr=${HERDR_BIN_PATH:-herdr}; herdr=${herdr% (deleted)}
 
 fail() {
   "$herdr" notification show "PR worktree failed" --body "$1" --sound none >/dev/null 2>&1 || true

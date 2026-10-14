@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-herdr=${HERDR_BIN_PATH:-herdr}
+# servers older than herdr 0.9.3 report a "... (deleted)" path after an in-place update
+herdr=${HERDR_BIN_PATH:-herdr}; herdr=${herdr% (deleted)}
 mode=${1:-event}
 command -v jq >/dev/null || exit 0
 
