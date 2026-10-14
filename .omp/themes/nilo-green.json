@@ -2,10 +2,10 @@
 	"$schema": "https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/theme-schema.json",
 	"name": "nilo-green",
 	"vars": {
-		"neutral100": "#080C0B",
-		"neutral200": "#0F1714",
-		"neutral300": "#16211E",
-		"neutral400": "#21302B",
+		"neutral100": "#080C09",
+		"neutral200": "#0F1712",
+		"neutral300": "#16211A",
+		"neutral400": "#213026",
 		"neutral500": "#384A44",
 		"neutral600": "#56685F",
 		"neutral700": "#778A82",
@@ -34,8 +34,8 @@
 		"codePunctuation": "#6C8A7F",
 		"diffAdded": "#6EF59A",
 		"diffRemoved": "#E5383B",
-		"tealBg": "#0B1D19",
-		"fence": "#2F403A",
+		"resultBg": "#0B1D11",
+		"fence": "#2F4035",
 		"turquoise": "#2FD3B0"
 	},
 	"colors": {
@@ -57,7 +57,7 @@
 		"customMessageText": "",
 		"customMessageLabel": "lightPurple",
 		"toolPendingBg": "neutral200",
-		"toolSuccessBg": "tealBg",
+		"toolSuccessBg": "resultBg",
 		"toolErrorBg": "#220018",
 		"toolTitle": "",
 		"toolOutput": "neutral700",
@@ -108,8 +108,8 @@
 		"pythonMode": "siteYellow"
 	},
 	"export": {
-		"pageBg": "#080C0B",
-		"cardBg": "#0F1714",
-		"infoBg": "#16211E"
+		"pageBg": "#080C09",
+		"cardBg": "#0F1712",
+		"infoBg": "#16211A"
 	}
 }
