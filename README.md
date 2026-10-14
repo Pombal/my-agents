@@ -67,14 +67,14 @@ Link a folder with `herdr plugin link <path>` to enable it.
 
 Copy or symlink a file into `~/.omp/agent/themes/` (or a profile's), then pick it with `/theme`.
 
-- [nilo](.omp/themes/nilo.json) — Dark theme in Nilo's colors. User messages are dark text on a green block, so they're easy to spot when scrolling. Blue-grey neutrals, a sky-cyan accent, and blue-leaning syntax highlighting with quiet comments.
+- [nilo](.omp/themes/nilo.json) — Dark theme in Nilo's colors. User messages are white text on a brand-green block, so they're easy to spot when scrolling. Green-tinted neutrals and tool backgrounds, a sky-cyan accent, and green-leaning syntax highlighting with quiet comments.
+- [nilo-alternative](.omp/themes/nilo-alternative.json) — Variant of `nilo` with blue-grey neutrals, a navy tool background, blue-leaning syntax highlighting, and dark text on a lighter green user block.
 
 ## Tools
 
 Standalone applications and background daemons.
 
 - [shadow-agent](tools/shadow-agent) — Background observer generating structured journals, commits, or telemetry from active sessions.
-- [nilo-green](.omp/themes/nilo-green.json) — Variant of `nilo` with teal-green neutrals and tool backgrounds, and green-leaning syntax highlighting.
 - [omp-session-recap](tools/omp-session-recap) — `@omp-session-recap [dir]`: summarizes every OMP session recorded in a folder with OMP's compaction prompts, after dropping fork-inherited and repeated text, then offers to open OMP there with the recap already in context.
 
 ## Scripts
