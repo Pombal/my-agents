@@ -28,8 +28,9 @@ Symlink a folder into `~/.omp/agent/extensions/` (or a profile's) to enable it.
 
 ### Usage Guard
 
-Configure `usage-guard` in `$PI_CODING_AGENT_DIR/usage-guard.json` (normally
-`~/.omp/agent/usage-guard.json`):
+Configure `$PI_CODING_AGENT_DIR/usage-guard.json` (normally `~/.omp/agent/usage-guard.json`). Inactive until `/usage-guard activate`. `/usage-guard deactivate` stops enforcement for this session. `status`, `reload`, and `resume [provider]` inspect, reload, or acknowledge.
+
+A rule must name an exact `limit`, `window`, or both from `omp usage --json --provider <provider>`. Actions are `warn`, `drain-subagents`, and `pause`; the strongest crossed action wins. `drain-subagents` blocks new `task` calls and leaves running jobs. `pause` engages OMP's process-global pause gate. An acknowledgement lasts for the current quota window, so a reset re-arms the rule. Headless `pause` drains new subagents instead, because there is no resume UI. Missing fresh data for an enforcement rule blocks new `task` calls.
 
 ```json
 {
@@ -54,26 +55,6 @@ Configure `usage-guard` in `$PI_CODING_AGENT_DIR/usage-guard.json` (normally
 }
 ```
 
-The guard starts **inactive in every session**. Enable it only when wanted:
-
-```text
-/usage-guard activate
-```
-
-Each rule must select an exact `limit`, `window`, or both from
-`omp usage --json --provider <provider>`. Actions are `warn`,
-`drain-subagents`, and `pause`; the strongest crossed action wins.
-`drain-subagents` blocks new `task` calls without cancelling running jobs.
-`pause` engages OMP's process-global pause gate. Acknowledgements are scoped
-to the current quota window, so a provider reset automatically re-arms rules.
-In headless modes, `pause` degrades to draining new subagents rather than
-engaging a gate with no resume UI. If fresh data for an enforcement rule is
-unavailable, new `task` calls are blocked conservatively.
-
-Use `/usage-guard deactivate` to stop all enforcement immediately for the
-current session. `/usage-guard status`, `/usage-guard reload`, and
-`/usage-guard resume [provider]` inspect, reload, or acknowledge active rules.
-
 ## Herdr Plugins
 
 Link a folder with `herdr plugin link <path>` to enable it.
@@ -95,3 +76,11 @@ Single-file CLI utilities.
 
 - [pr-triage](scripts/pr-triage) — Score and rank open GitHub pull requests by yield-vs-effort.
 - [link-doctor](scripts/link-doctor) — Check and repair broken markdown links across doc trees.
+
+## Tampermonkey
+
+Tampermonkey scripts. [Install links](tampermonkey/README.md).
+
+- [Discord Thread → Markdown](tampermonkey/discord-thread-markdown.user.js) — Copy a Discord conversation as markdown, with permalinks and attachment URLs.
+- [Gmail Attachment Harvester](tampermonkey/gmail-attachment-harvester.user.js) — Bulk-download attachments from the current Gmail search, renamed "Sender - filename".
+- [X Tweet Shot](tampermonkey/x-tweet-shot.user.js) — Capture a tweet and its own replies as one PNG, permalinks stamped in the footer.
