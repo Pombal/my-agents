@@ -63,6 +63,12 @@ Link a folder with `herdr plugin link <path>` to enable it.
 - [PR Worktree](.herdr/plugins/pr-worktree) — `prefix+p` asks for a PR number/URL and lands you in a worktree workspace for it.
 - [Tab Namer](.herdr/plugins/tab-namer) — names unnamed tabs from agent conversations; agentless tabs get live foreground-process labels.
 
+## Themes
+
+Copy or symlink a file into `~/.omp/agent/themes/` (or a profile's), then pick it with `/theme`.
+
+- [nilo](.omp/themes/nilo.json) — Dark theme in Nilo's colors. User messages are dark text on a green block, so they're easy to spot when scrolling. Blue-grey neutrals, a sky-cyan accent, and blue-leaning syntax highlighting with quiet comments.
+
 ## Tools
 
 Standalone applications and background daemons.
