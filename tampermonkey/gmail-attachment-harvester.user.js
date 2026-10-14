@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Gmail Attachment Harvester
 // @namespace    local
-// @version      1.3.1
+// @version      1.3.2
 // @description  Bulk-download attachments from Gmail search results, renamed "Sender - filename", into a folder of your choice
 // @match        https://mail.google.com/*
 // @grant        none
 // @run-at       document-idle
-// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/gmail-attachment-harvester.user.js
-// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/gmail-attachment-harvester.user.js
+// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/gmail-attachment-harvester.user.js
+// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/gmail-attachment-harvester.user.js
 // ==/UserScript==
 
 (function () {

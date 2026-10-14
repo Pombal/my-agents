@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name         X Tweet Shot (for AI agents)
 // @namespace    local.tools
-// @version      0.5.2
+// @version      0.5.3
 // @description  Pick a tweet, capture it (+ its own replies only) as one PNG with permalinks stamped in the footer, straight to the clipboard.
 // @match        https://x.com/*
 // @match        https://twitter.com/*
 // @grant        GM_setClipboard
 // @require      https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js
 // @run-at       document-idle
-// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/x-tweet-shot.user.js
-// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/x-tweet-shot.user.js
+// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/x-tweet-shot.user.js
+// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/x-tweet-shot.user.js
 // ==/UserScript==
 
 (() => {

@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Discord Thread → Markdown (for AI agents)
 // @namespace    local.tools
-// @version      0.9.1
+// @version      0.9.2
 // @description  Copy a Discord conversation as markdown, with per-message permalinks and attachment URLs.
 // @match        https://discord.com/channels/*
 // @grant        GM_setClipboard
 // @run-at       document-idle
-// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/discord-thread-markdown.user.js
-// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/userscripts/discord-thread-markdown.user.js
+// @downloadURL  https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/discord-thread-markdown.user.js
+// @updateURL    https://raw.githubusercontent.com/choephix/my-agents/main/tampermonkey/discord-thread-markdown.user.js
 // ==/UserScript==
 
 (() => {
