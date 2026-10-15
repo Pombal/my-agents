@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Install or update Matt Pocock's skills (github.com/mattpocock/skills) in the
+# current project, through `npx skills add`, but without letting it write to
+# the project directly: it runs against a copy, you review the diff, and only
+# then is the copy folded back. Afterwards, optionally hand over to OMP to run
+# setup-matt-pocock-skills.
+
+if [[ ${1:-} == --help || ${1:-} == -h ]]; then
+  printf '%s\n' \
+    'Usage: @matt [npx skills add options...]' \
+    'Runs `npx skills@latest add mattpocock/skills` on a copy of this project'"'"'s skills,' \
+    'shows the diff, asks before applying it, then offers to run setup-matt-pocock-skills in OMP.' \
+    'Options are passed to `skills add`, e.g. `@matt -s tdd -a codex`.'
+  exit 0
+fi
+
+for bin in npx git rsync omp; do
+  command -v "$bin" >/dev/null || { echo "@matt: $bin not found" >&2; exit 1; }
+done
+
+project=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+tmp=$(mktemp -d -t matt-skills.XXXXXX)
+trap 'rm -rf "$tmp"' EXIT
+before=$tmp/before # the project's skill files as they are
+after=$tmp/after   # the same files after the installer ran on them
+
+# Everything the installer reads or writes at a project root: the lock file and
+# every agent's skills folder (.agents/skills, .claude/skills, ...). Symlinks
+# are copied as symlinks; the installer's own are relative, so they stay valid.
+mkdir -p "$before"
+shopt -s nullglob
+(
+  cd "$project"
+  for path in skills-lock.json .*/skills; do
+    [[ $path == ./skills || $path == ../skills || ! -e $path && ! -L $path ]] && continue
+    cp -a --parents "$path" "$before"
+  done
+)
+cp -a "$before" "$after"
+
+# Prompts read the terminal directly: the installer before them may have
+# consumed stdin. No terminal, or end of input, counts as "no".
+confirm() {
+  local answer
+  printf '%s [Y/n] ' "$1" >/dev/tty || return 1
+  read -r answer </dev/tty || return 1
+  [[ ${answer,,} != n* ]]
+}
+
+echo "@matt: installing into a copy of $project"
+(cd "$after" && npx -y skills@latest add mattpocock/skills "$@")
+
+# --no-index diffs two plain directories; exit code 1 means "differences".
+changes=$(cd "$tmp" && git diff --no-index --no-renames --name-status before after || true)
+if [[ -z $changes ]]; then
+  echo "@matt: nothing to change"
+else
+  echo
+  echo "@matt: changes to $project"
+  awk -F'\t' '{ p = ($1 == "D") ? $2 : $NF; sub(/^(before|after)\//, "", p);
+                s = ($1 == "A") ? "new     " : ($1 == "D") ? "deleted " : "modified";
+                print "  " s " " p }' <<<"$changes"
+  echo
+  # New files are listed above; their full text would bury the changes to
+  # existing files, which are what the diff is for.
+  if command -v delta >/dev/null; then
+    (cd "$tmp" && git diff --no-index --no-renames --diff-filter=a before after || true) | delta --paging=never
+  else
+    (cd "$tmp" && git diff --no-index --no-renames --diff-filter=a --color=always before after || true)
+  fi
+
+  if ! confirm "Apply these changes?"; then
+    echo "@matt: discarded, project untouched"
+    exit 0
+  fi
+  # -K: where the project has a symlinked directory (e.g. .claude/skills ->
+  # ../.agents/skills), write through it instead of replacing it.
+  rsync -aK "$after"/ "$project"/
+  # rsync without --delete keeps files the installer removed; remove them too.
+  while IFS=$'\t' read -r status path; do
+    if [[ $status == D ]]; then rm -f -- "$project/${path#before/}"; fi
+  done <<<"$changes"
+  echo "@matt: applied"
+fi
+
+if [[ -e $project/.agents/skills/setup-matt-pocock-skills/SKILL.md ]]; then
+  if confirm "Run setup-matt-pocock-skills in OMP now?"; then
+    rm -rf "$tmp"
+    cd "$project"
+    exec omp "Read skill://setup-matt-pocock-skills and follow it."
+  fi
+fi
