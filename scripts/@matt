@@ -9,19 +9,65 @@ set -euo pipefail
 
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then
   cat <<'EOF'
-Usage: @matt [npx skills add options...]
+Usage: @matt [--update] [--official] [npx skills add options...]
 Runs `npx skills@latest add mattpocock/skills` on a copy of this project's skills,
 shows the diff, asks before applying it, then offers to run setup-matt-pocock-skills in OMP.
-Options are passed to `skills add`, e.g. `@matt -s tdd -a codex`.
+
+  --update    select every Matt skill already in this project that still exists upstream
+  --official  select the skills upstream ships in its plugin (.claude-plugin/plugin.json)
+
+Other options are passed to `skills add`, e.g. `@matt -s tdd -a codex`.
+Per-project only: choosing a global install in the installer aborts without installing.
 EOF
   exit 0
 fi
 
-for bin in npx git rsync omp; do
+for bin in npx git rsync omp curl jq; do
   command -v "$bin" >/dev/null || { echo "@matt: $bin not found" >&2; exit 1; }
 done
 
+update=false official=false args=()
+for arg in "$@"; do
+  case $arg in
+    --update) update=true ;;
+    --official) official=true ;;
+    *) args+=("$arg") ;;
+  esac
+done
+
+upstream=https://raw.githubusercontent.com/mattpocock/skills/main
 project=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+selected=()
+if $official; then
+  mapfile -t names < <(curl -fsSL "$upstream/.claude-plugin/plugin.json" | jq -r '.skills[] | split("/") | last')
+  selected+=("${names[@]}")
+fi
+if $update; then
+  mapfile -t names < <(curl -fsSL 'https://api.github.com/repos/mattpocock/skills/git/trees/main?recursive=1' |
+    jq -r '.tree[].path | select(test("^skills/[^/]+/[^/]+/SKILL\\.md$")) | split("/")[2]')
+  declare -A upstream_names=()
+  for name in "${names[@]}"; do upstream_names[$name]=1; done
+  shopt -s nullglob
+  declare -A installed=()
+  for skill in "$project"/.*/skills/*/SKILL.md; do
+    name=$(basename "$(dirname "$skill")")
+    [[ -n ${upstream_names[$name]:-} ]] && installed[$name]=1
+  done
+  shopt -u nullglob
+  if [[ -f $project/skills-lock.json ]]; then
+    while read -r name; do
+      [[ -z ${upstream_names[$name]:-} ]] && echo "@matt: $name is in skills-lock.json but no longer upstream; left as is"
+    done < <(jq -r '.skills | to_entries[] | select(.value.source == "mattpocock/skills") | .key' "$project/skills-lock.json")
+  fi
+  if ((${#installed[@]} == 0)); then
+    echo "@matt: --update found no Matt skills in $project" >&2
+    $official || exit 1
+  fi
+  selected+=("${!installed[@]}")
+fi
+for name in "${selected[@]}"; do args+=(-s "$name"); done
+
 tmp=$(mktemp -d -t matt-skills.XXXXXX)
 trap 'rm -rf "$tmp"' EXIT
 before=$tmp/before # the project's skill files as they are
@@ -50,8 +96,27 @@ confirm() {
   [[ ${answer,,} != n* ]]
 }
 
+# The installer runs with HOME pointed into the temp folder, so a global
+# install (its scope prompt allows one) lands there instead of in your real
+# home, where nothing would review it. npm keeps using your real cache and
+# config. The global lock file is copied in so the installer still remembers
+# your last agent choice, and copied back after a project install.
+real_home=$HOME
+fake_home=$tmp/home
+global_lock=.agents/.skill-lock.json
+mkdir -p "$fake_home/.agents"
+[[ -f $real_home/$global_lock ]] && cp "$real_home/$global_lock" "$fake_home/$global_lock"
+
 echo "@matt: installing into a copy of $project"
-(cd "$after" && npx -y skills@latest add mattpocock/skills "$@")
+(cd "$after" && HOME=$fake_home npm_config_cache=${npm_config_cache:-$real_home/.npm} \
+  npm_config_userconfig=${npm_config_userconfig:-$real_home/.npmrc} \
+  npx -y skills@latest add mattpocock/skills "${args[@]}")
+
+if [[ -n $(find "$fake_home" -name SKILL.md -print -quit) ]]; then
+  echo "@matt: that was a global install; @matt only installs per project. Nothing was installed." >&2
+  exit 1
+fi
+[[ -f $fake_home/$global_lock ]] && cp "$fake_home/$global_lock" "$real_home/$global_lock"
 
 # --no-index diffs two plain directories; exit code 1 means "differences".
 changes=$(git -C "$tmp" diff --no-index --no-renames --name-status before after || true)
