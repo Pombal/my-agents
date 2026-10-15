@@ -8,11 +8,12 @@ set -euo pipefail
 # setup-matt-pocock-skills.
 
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-  printf '%s\n' \
-    'Usage: @matt [npx skills add options...]' \
-    'Runs `npx skills@latest add mattpocock/skills` on a copy of this project'"'"'s skills,' \
-    'shows the diff, asks before applying it, then offers to run setup-matt-pocock-skills in OMP.' \
-    'Options are passed to `skills add`, e.g. `@matt -s tdd -a codex`.'
+  cat <<'EOF'
+Usage: @matt [npx skills add options...]
+Runs `npx skills@latest add mattpocock/skills` on a copy of this project's skills,
+shows the diff, asks before applying it, then offers to run setup-matt-pocock-skills in OMP.
+Options are passed to `skills add`, e.g. `@matt -s tdd -a codex`.
+EOF
   exit 0
 fi
 
@@ -53,7 +54,7 @@ echo "@matt: installing into a copy of $project"
 (cd "$after" && npx -y skills@latest add mattpocock/skills "$@")
 
 # --no-index diffs two plain directories; exit code 1 means "differences".
-changes=$(cd "$tmp" && git diff --no-index --no-renames --name-status before after || true)
+changes=$(git -C "$tmp" diff --no-index --no-renames --name-status before after || true)
 if [[ -z $changes ]]; then
   echo "@matt: nothing to change"
 else
@@ -66,9 +67,9 @@ else
   # New files are listed above; their full text would bury the changes to
   # existing files, which are what the diff is for.
   if command -v delta >/dev/null; then
-    (cd "$tmp" && git diff --no-index --no-renames --diff-filter=a before after || true) | delta --paging=never
+    (git -C "$tmp" diff --no-index --no-renames --diff-filter=a before after || true) | delta --paging=never
   else
-    (cd "$tmp" && git diff --no-index --no-renames --diff-filter=a --color=always before after || true)
+    git -C "$tmp" diff --no-index --no-renames --diff-filter=a --color=always before after || true
   fi
 
   if ! confirm "Apply these changes?"; then
