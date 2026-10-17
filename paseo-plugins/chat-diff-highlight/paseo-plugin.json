@@ -1,0 +1,8 @@
+{
+  "id": "chat-diff-highlight",
+  "name": "Chat diff highlight",
+  "media": ["screenshots/after-light.png", "screenshots/after-dark.png"],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}
