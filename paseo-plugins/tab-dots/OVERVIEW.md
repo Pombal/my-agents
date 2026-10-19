@@ -25,7 +25,6 @@ Settings are stored on the host, so every web or desktop window connected to it 
 ## Limits
 
 - Web and desktop apps only. Paseo has no plugin slot in sidebar rows, so the dots are added to the page directly; phones show nothing.
-- It reads Paseo's internal tab layout from the browser's storage and the row's internal structure. A Paseo update can change either: the order then falls back to creation order, or the dots stop showing. The sidebar itself keeps working.
 - "Mark as read" on a workspace leaves permission requests flagged until you answer them, so amber dots stay.
 - Tested on Paseo 0.12.0 in the web app, grouped by project and by status.
 - It reads Paseo's internal tab layout from the browser's storage and the row's internal structure. A Paseo update can change either: the order then falls back to Paseo's default, or the dots stop showing. The sidebar itself keeps working.
