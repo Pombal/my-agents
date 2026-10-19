@@ -41,7 +41,7 @@ export default function contribute(client: PluginClientContext) {
   // toast replaces either in the same tick the check ends. Toasts are a
   // hook-only API, so a composer pill's icon component lends one; on web that
   // pill is hidden, on native it shows a spinner of its own.
-  const run = async (agentId: string, workspaceId: () => Promise<string | undefined>, note = "") => {
+  const run = async (agentId: string, workspaceId: () => Promise<string | undefined>) => {
     if (running.has(agentId)) return;
     running.add(agentId);
     paint();
@@ -81,8 +81,7 @@ export default function contribute(client: PluginClientContext) {
       running.delete(agentId);
       paint();
     }
-    if (note) lent.toast?.show(`${feedback.text}. ${note}`, { variant: "warning", durationMs: 8000 });
-    else if (lent.toast) lent.toast.show(feedback.text, { variant: feedback.variant, durationMs: feedback.variant === "error" ? 6000 : 2500 });
+    if (lent.toast) lent.toast.show(feedback.text, { variant: feedback.variant, durationMs: feedback.variant === "error" ? 6000 : 2500 });
     else if (feedback.variant === "error") throw new Error(feedback.text); // Command hosts toast thrown errors.
   };
 
@@ -94,32 +93,24 @@ export default function contribute(client: PluginClientContext) {
   ];
 
   if (Platform.OS === "web") {
-    // Ctrl+Alt+T targets the selected agent tab of the pane last clicked or focused.
-    // Paseo's non-Mac "Cycle theme" uses the same combo, and its window listener
-    // runs before any plugin's, so it cannot be shadowed. When it fired (the event
-    // arrives default-prevented), say once how to avoid it: the desktop app can
-    // unbind it; the browser app cannot.
-    let clashExplained = false;
-    const clashNote = navigator.userAgent.includes("Electron")
-      ? "Ctrl+Alt+T also cycled the theme: clear “Cycle theme” in Settings → Shortcuts."
-      : "Ctrl+Alt+T also cycles Paseo's theme in the browser; Ctrl+K → Retitle this tab doesn't.";
+    // Ctrl+Shift+Alt+T targets the selected agent tab of the pane last clicked or focused.
+    // Paseo matches shortcut modifiers exactly, so this doesn't collide with its
+    // non-Mac "Cycle theme" (Ctrl+Alt+T) or "New terminal" (Ctrl+Shift+T).
     let lastPane: Element | null = null;
     const track = (event: Event) => { lastPane = (event.target as Element | null)?.closest?.(PANE) ?? lastPane; };
     const keydown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey || event.repeat || event.isComposing || event.getModifierState("AltGraph")) return;
+      if (!event.ctrlKey || !event.altKey || !event.shiftKey || event.metaKey || event.repeat || event.isComposing || event.getModifierState("AltGraph")) return;
       if (event.code !== "KeyT" && event.key.toLowerCase() !== "t") return;
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
       const panes = [...document.querySelectorAll(PANE)].filter(pane => pane.getClientRects().length > 0);
       const pane = panes.find(candidate => candidate === lastPane) ?? (panes.length === 1 ? panes[0] : undefined);
       const agentId = pane?.querySelector(TAB)?.getAttribute("data-testid")?.slice("workspace-tab-agent_".length);
       if (!agentId) return;
-      const note = event.defaultPrevented && !clashExplained ? clashNote : "";
-      clashExplained ||= Boolean(note);
       event.preventDefault();
       event.stopImmediatePropagation();
       // The spinner starts now; the workspace (needed only for the toast-lending pill) resolves meanwhile.
-      run(agentId, async () => (await client.paseo.agents.ref(agentId).refresh())?.agent.workspaceId, note)
-        .catch(error => console.warn("titles: Ctrl+Alt+T failed", error));
+      run(agentId, async () => (await client.paseo.agents.ref(agentId).refresh())?.agent.workspaceId)
+        .catch(error => console.warn("titles: Ctrl+Shift+Alt+T failed", error));
     };
     document.addEventListener("pointerdown", track, true);
     document.addEventListener("focusin", track, true);

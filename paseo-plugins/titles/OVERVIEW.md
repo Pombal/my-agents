@@ -24,7 +24,7 @@ subject yet ("hi", "quick question"), the default stays.
 
 Three triggers run the same check:
 
-- **Ctrl+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
+- **Ctrl+Shift+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
 - **Ctrl+K / ⌘K → Retitle this tab.**
 - **`/retitle`** in the composer (phones too). It's a plugin command, so nothing is sent to the agent.
 
@@ -67,20 +67,14 @@ above the composer there. The Retitling… toast's spinner uses the host's
 `icon` toast option, which the plugin's `ToastOptions` type doesn't declare;
 if a Paseo version drops it, the toast is text-only.
 
-### Ctrl+Alt+T and Paseo's "Cycle theme"
+### Why Ctrl+Shift+Alt+T
 
-On non-Mac systems Paseo binds **Ctrl+Alt+T to Cycle theme**. Its keyboard
-listener is registered before any plugin's, so a plugin **cannot shadow it**:
-pressing Ctrl+Alt+T retitles the tab *and* switches the theme. (The previous
-version of this plugin claimed to shadow it; it didn't.) Titles notices when
-that happened and says so once per session:
-
-- **Desktop app:** open Settings → Shortcuts, find *Cycle theme* and choose **Clear**. After that, Ctrl+Alt+T only retitles.
-- **Browser (app.paseo.sh):** shortcuts can't be edited there, so Ctrl+Alt+T keeps cycling the theme. Use Ctrl+K → *Retitle this tab* or `/retitle` instead.
-- **Mac:** no clash, because Paseo uses Cmd+Alt+T for the theme.
-
-Many Linux desktops also bind Ctrl+Alt+T to "open terminal". Their window
-manager gets the key before the app does.
+On non-Mac systems Paseo binds **Ctrl+Alt+T to Cycle theme**, and its
+keyboard listener runs before any plugin's, so a plugin can't take that combo
+over (an earlier version tried; the theme switched as well). Paseo matches
+shortcut modifiers exactly, so adding Shift avoids both Cycle theme and
+Ctrl+Shift+T (new terminal). Chrome doesn't use Ctrl+Shift+Alt+T either.
+Keyboard layouts where Ctrl+Alt acts as AltGr are skipped (AltGraph check).
 
 ## Model
 
@@ -114,7 +108,7 @@ plugin API has no rename operation.
 | Screenshot | Shows |
 | --- | --- |
 | `01-first-turn-title.png` | New Haiku agent about Raspberry Pi SD-card corruption → **SD Card** after its first reply (3.0 s). |
-| `03-ctrl-alt-t-renamed.png` | Ctrl+Alt+T on a hand-named tab ("My Coffee Notes") whose latest question was about cold brew → **Cold Brew**, plus the one-time Cycle-theme warning. |
+| `03-ctrl-alt-t-renamed.png` | Previous shortcut (Ctrl+Alt+T) on a hand-named tab ("My Coffee Notes") whose latest question was about cold brew → **Cold Brew**, plus the since-removed Cycle-theme warning. |
 | `04-command-center-item.png` | Ctrl+K → *Retitle this tab*. |
 | `05-command-center-kept.png` | Same subject → `“Cold Brew” still fits`. |
 | `06-slash-command.png`, `07-slash-result.png` | `/retitle` on desktop web → kept, nothing posted to the chat. |
@@ -129,12 +123,11 @@ plugin API has no rename operation.
 Also seen live: an earlier drift test renamed *Lockfile* → *Altitude* after a
 question about Everest. Indicator latency, trigger to indicator, measured in
 the page with a MutationObserver (includes the automation's key dispatch):
-⌘K 6–10 ms, `/retitle` 10 ms, Ctrl+Alt+T 44 ms (Paseo's theme cycle runs
-first; the tab row re-renders and the spinner blinks off for ~80 ms), phone
+⌘K 6–10 ms, `/retitle` 10 ms, keyboard shortcut 44 ms (measured with the
+previous Ctrl+Alt+T, while Paseo's theme cycle also ran), phone
 `/retitle` toast 94 ms (includes the tap). At phone width only `/retitle`
-exists: there's no tab for Ctrl+Alt+T to target and Paseo doesn't open the
-Command Center. The keyboard test confirmed Paseo's theme cycle fires
-too (see above). A missing CLI was checked by running `decideTitle` with an
+exists: there's no tab for the shortcut to target and Paseo doesn't open the
+Command Center. A missing CLI was checked by running `decideTitle` with an
 empty `PATH`, which gave `Claude CLI not found on the daemon's PATH`. The
 desktop app and the native phone app weren't driven. Native uses the same
 slash-command, pill and toast APIs, with no DOM code. All test agents were
