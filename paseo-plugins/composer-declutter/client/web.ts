@@ -11,29 +11,80 @@ declare const document: {
   head: { appendChild(element: StyleElement): void };
   createElement(tag: "style"): StyleElement;
 };
+declare const window: {
+  addEventListener(type: "focus", listener: () => void): void;
+  removeEventListener(type: "focus", listener: () => void): void;
+};
 
-export function startDecluttering() {
+const ROOT = '[data-testid="message-input-root"]';
+
+// The idle dictation and Voice mode buttons have no test IDs, only Paseo's translated
+// accessibility labels (i18n keys composer.voice.startDictation / enableVoiceMode), so
+// list every shipped locale. Busy states (stop, cancel, mute...) use other labels and are
+// never matched.
+const START_DICTATION = [
+  "Start dictation", "Iniciar dictado", "Démarrer la dictée", "Iniciar ditado",
+  "Начать диктовку", "音声入力を開始", "받아쓰기 시작", "开始听写", "بدء الإملاء",
+];
+const ENABLE_VOICE = [
+  "Enable Voice mode", "Habilitar el modo de voz", "Activer le mode vocal", "Ativar modo de voz",
+  "Включить голосовой режим", "音声モードを有効にする", "음성 모드 켜기", "启用语音模式", "تمكين الوضع الصوتي",
+];
+const labelled = (labels: readonly string[]) =>
+  `:is(${labels.map((label) => `[aria-label="${label}"]`).join(", ")})`;
+
+const RULES: Record<keyof Preferences, string> = {
+  hideThinking: '[data-testid="agent-thinking-selector"]',
+  hideMode: '[data-testid="mode-control"]',
+  hideFastMode: '[data-testid="agent-feature-fast_mode"]',
+  hideOtherFeatures: '[data-testid^="agent-feature-"]:not([data-testid="agent-feature-fast_mode"])',
+  hideDictation: labelled(START_DICTATION),
+  // The Voice button sits alone in a wrapper; hiding the wrapper also drops its flex gap,
+  // so the remaining right-hand controls keep their usual right edge.
+  hideVoice: `div:has(> ${labelled(ENABLE_VOICE)})`,
+};
+
+/** One rule per control, so a selector a browser rejects cannot void the others. */
+function stylesheet(values: Preferences): string {
+  return (Object.keys(RULES) as (keyof Preferences)[])
+    .filter((key) => values[key])
+    .map((key) => `${ROOT} ${RULES[key]} { display: none !important; }`)
+    .join("\n");
+}
+
+/**
+ * Keeps one removable stylesheet in sync with the host settings. `load` is re-run whenever
+ * the window regains focus, so changes saved in another window arrive without a refresh.
+ * Fails open: until settings load, every control stays visible.
+ */
+export function startDecluttering(load: () => Promise<Preferences | undefined>) {
   if (Platform.OS !== "web" || typeof document === "undefined") {
-    return { update(_values: Preferences) {}, dispose() {} };
+    return { apply(_values: Preferences) {}, dispose() {} };
   }
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "composer-declutter");
   document.head.appendChild(style);
+  let edits = 0;
+  let disposed = false;
+  const render = (values: Preferences) => { style.textContent = stylesheet(values); };
+  const refresh = () => {
+    const editsAtStart = edits;
+    load().then((values) => {
+      // A save made while this read was in flight is newer than what the read returned.
+      if (values && !disposed && edits === editsAtStart) render(values);
+    }, () => {});
+  };
+  refresh();
+  window.addEventListener("focus", refresh);
   return {
-    update(values: Preferences) {
-      const selectors: string[] = [];
-      if (values.hideThinking) selectors.push('[data-testid="agent-thinking-selector"]');
-      if (values.hideMode) selectors.push('[data-testid="mode-control"]');
-      if (values.hideFastMode) selectors.push('[data-testid="agent-feature-fast_mode"]');
-      if (values.hideOtherFeatures) {
-        selectors.push('[data-testid^="agent-feature-"]:not([data-testid="agent-feature-fast_mode"])');
-      }
-      // Match ONLY idle start buttons. Never match recording, processing, cancel,
-      // stop, retry, insert, mute/unmute or disconnect controls, including overlays.
-      if (values.hideDictation) selectors.push('[data-testid="message-input-root"] [aria-label="Start dictation"]');
-      if (values.hideVoice) selectors.push('[data-testid="message-input-root"] [aria-label="Enable Voice mode"]');
-      style.textContent = selectors.length ? `${selectors.join(",\n")} { display: none !important; }` : "";
+    apply(values: Preferences) {
+      edits += 1;
+      if (!disposed) render(values);
     },
-    dispose() { style.remove(); },
+    dispose() {
+      disposed = true;
+      window.removeEventListener("focus", refresh);
+      style.remove();
+    },
   };
 }
