@@ -11,7 +11,7 @@ const entrySchema = z.object({
   }).passthrough().optional(),
 }).passthrough();
 
-export async function copyCompletedSession(source: string): Promise<string> {
+export async function copyCompletedSession(source: string, contextNote: string): Promise<string> {
   if (!source.startsWith("/") || !source.endsWith(".jsonl")) throw new Error("Parent OMP session path is unavailable.");
   const handle = await open(source, "r");
   let bytes: Buffer;
@@ -48,6 +48,16 @@ export async function copyCompletedSession(source: string): Promise<string> {
     ...header, id, timestamp, parentSession: header.id,
     providerPromptCacheKey: header.providerPromptCacheKey ?? header.id,
   };
+  const parentEntryId = entries.at(-1)?.id;
+  if (!parentEntryId) throw new Error("Completed OMP turn has no entry ID.");
+  let noteId: string;
+  do { noteId = randomUUID().slice(0, 8); } while (entries.some(entry => entry.id === noteId));
+  // OMP replays custom_message entries into model context. display:false hides
+  // this in both OMP and Paseo; appending it does not invoke a model turn.
+  entries.push({
+    type: "custom_message", id: noteId, parentId: parentEntryId, timestamp,
+    customType: "side-agent-context", content: contextNote, display: false, attribution: "agent",
+  });
   const destination = join(dirname(source), `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
   await writeFile(destination, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n", { flag: "wx", mode: 0o600 });
   try {

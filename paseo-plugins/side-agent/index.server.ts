@@ -44,7 +44,8 @@ export default function contribute(server: PluginServerContext) {
       }
       if (parent.provider !== "omp") throw new Error("Full memory is OMP-only; use /side --fork for this provider.");
       if (!parent.persistence?.nativeHandle) throw new Error("Parent OMP session file is unavailable.");
-      sessionCopy = await copyCompletedSession(parent.persistence.nativeHandle);
+      const contextNote = `You are a side agent forked from Paseo chat ${parent.id} (${parent.title?.trim() || "Untitled chat"}). The conversation above belongs to the parent; earlier tasks are not yours. Work only on what the user asks next.`;
+      sessionCopy = await copyCompletedSession(parent.persistence.nativeHandle, contextNote);
       const child = await daemon.importAgent({
         providerId: "omp", providerHandleId: sessionCopy, cwd: parent.cwd,
         ...(parent.workspaceId ? { workspaceId: parent.workspaceId } : {}),
@@ -56,7 +57,7 @@ export default function contribute(server: PluginServerContext) {
         modelId: parent.model, thinkingOptionId: parent.thinkingOptionId ?? null,
         ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}), featureValues,
       });
-      if (task) await daemon.sendAgentMessage(child.id, prompt);
+      if (task) await daemon.sendAgentMessage(child.id, task);
       return { agentId: child.id, mode };
     } catch (error) {
       // A failed full-mode launch must not leave an active half-configured child.

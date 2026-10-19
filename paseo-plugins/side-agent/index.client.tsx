@@ -19,7 +19,7 @@ export default function contribute(client: PluginClientContext) {
   const settings = client.addSettingsScreen({ id: "context", title: "Side agent", icon: "SlidersHorizontal", Component: ContextSettings });
   const command = {
     name: "/side",
-    description: "Spin off a visible side agent with parent context",
+    description: "Side agent with parent context · --fork / --full",
     argumentHint: "[--fork|--full] [task]",
     context: "agent" as const,
     async onSubmit({ args, agent, rpc, openScreen }: PluginAgentCommandContext & { args: string }) {
