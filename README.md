@@ -4,6 +4,8 @@
 > kept between markdown pages  
 > blooming on demand
 
+Icon: a single white four-pointed sparkle with a black outline on a transparent background ([SVG](assets/icon.svg), [favicon](assets/favicon.ico)).
+
 ## Skills
 
 - [Dry Dev](skills/dry-dev) — Rehearse an implementation as exact commands and diffs, executing nothing.
