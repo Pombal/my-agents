@@ -1,0 +1,9 @@
+{
+  "id": "popular-themes",
+  "name": "Popular themes",
+  "description": "Official popular dark and light palettes for Paseo.",
+  "media": ["screenshots/contact-sheet.webp"],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}
