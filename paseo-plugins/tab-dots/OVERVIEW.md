@@ -10,7 +10,7 @@ Colours follow Paseo's own status colours:
 - Blue, slowly pulsing: running (only in the "Unread and running" and "Every tab" modes).
 - Gray: read (only in "Every tab").
 
-Hover a dot to see the tab's title and state. Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
+Hover a dot to see the tab's title and state; click it to open that tab (which marks it read). Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
 
 ## Settings
 
@@ -18,7 +18,8 @@ Settings → Plugins → tab-dots → Tab dots, or ⌘K "Tab dots settings" (⌘
 
 - **Which tabs**: Unread (default), Unread and running, or Every tab.
 - **Dot size**: Regular (5 px, up to 5 dots) or Small (4 px, up to 8). Extra tabs show as "+N"; tabs waiting on you are kept first, then running ones.
-- **Replace the time** (on by default): rows with dots hide their last-activity time and the dots take its place. Hovering the row brings back the row menu, so the dots move left by the menu's width.
+- **Replace the time** (on by default): rows with dots hide their last-activity time.
+- **Dot position** (with Replace the time): Right edge (default) puts the dots where the time was; hovering the row brings back the row menu, so they move left by its width. Steady never moves them and leaves the menu's room free.
 
 Settings are stored on the host, so every web or desktop window connected to it uses them.
 

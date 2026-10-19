@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useSettings } from "@getpaseo/plugin/client";
 import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { type DotSize, preferences, type Preferences, type ShowMode } from "../shared/preferences";
+import { type DotAlign, type DotSize, preferences, type Preferences, type ShowMode } from "../shared/preferences";
 
 const SHOW_OPTIONS: { label: string; value: ShowMode }[] = [
   { label: "Unread", value: "unread" },
@@ -12,11 +12,14 @@ const SIZE_OPTIONS: { label: string; value: DotSize }[] = [
   { label: "Regular", value: "regular" },
   { label: "Small", value: "small" },
 ];
-
+const ALIGN_OPTIONS: { label: string; value: DotAlign }[] = [
+  { label: "Right edge", value: "edge" },
+  { label: "Steady", value: "steady" },
+];
 const INFO =
   "One dot per tab in the sidebar's workspace rows, in tab order; sub-agents are left out. " +
   "Green: finished, unread. Red: error. Amber: waiting for permission. Blue, pulsing: running. " +
-  "Gray: read. Hover a dot for the tab's title. Web and desktop apps only.";
+  "Gray: read. Hover a dot for the tab's title; click it to open that tab. Web and desktop apps only.";
 
 export function createSettingsScreen(apply: (values: Preferences) => void) {
   return function TabDotsSettings() {
@@ -53,6 +56,9 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
         <SettingsSwitch label="Replace the time" hint="Rows with dots hide their last-activity time"
           value={current.replaceTime} disabled={settings.saving || !current.enabled}
           onValueChange={(replaceTime) => save({ replaceTime })} />
+        <SettingsSelect label="Dot position" hint="Right edge: where the time was; moves left while the row's menu shows on hover · Steady: never moves, keeps room for the menu"
+          value={current.align} options={ALIGN_OPTIONS} disabled={settings.saving || !current.enabled || !current.replaceTime}
+          onValueChange={(align) => save({ align })} />
       </SettingsCard>
     </SettingsSection>;
   };

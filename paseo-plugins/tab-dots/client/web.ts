@@ -38,8 +38,16 @@ declare const window: {
   innerWidth: number;
   addEventListener(type: "storage" | "focus", listener: () => void): void;
   removeEventListener(type: "storage" | "focus", listener: () => void): void;
+  addEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
+  removeEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
+  dispatchEvent(event: unknown): boolean;
   getComputedStyle(element: El): { color: string };
 };
+declare const history: { pushState(state: null, unused: string, url: string): void };
+declare class PopStateEvent { constructor(type: "popstate") }
+const PRESS_EVENTS = ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "click"] as const;
+type PressEvent = (typeof PRESS_EVENTS)[number];
+interface PressLike { type: string; target: El | null; stopPropagation(): void; preventDefault(): void }
 declare const localStorage: { getItem(key: string): string | null };
 declare function requestAnimationFrame(callback: () => void): number;
 declare function cancelAnimationFrame(handle: number): void;
@@ -72,7 +80,10 @@ const CSS = `
   --td-ok: #35c264; --td-err: #f7796d; --td-warn: #db932e; --td-run: #5caaf6; }
 [${DOTS}][data-tone="light"] { --td-ok: #299f51; --td-err: #f12e2f; --td-warn: #b37824; --td-run: #268ae0; }
 [${DOTS}][data-size="small"] { gap: 2px; }
-[${DOTS}] > i { display: block; flex: none; width: 5px; height: 5px; border-radius: 50%; }
+[${DOTS}] > i { display: block; flex: none; width: 5px; height: 5px; border-radius: 50%; position: relative; cursor: pointer; transition: transform .12s; }
+/* A bigger invisible hit area: the full row height, and half of each gap. */
+[${DOTS}] > i::before { content: ""; position: absolute; inset: -8px -2px; }
+[${DOTS}] > i:hover { transform: scale(1.6); }
 [${DOTS}][data-size="small"] > i { width: 4px; height: 4px; }
 [${DOTS}] > i[data-state="finished"], [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
 [${DOTS}] > i[data-state="error"], [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
@@ -82,9 +93,9 @@ const CSS = `
 [${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
 @keyframes tab-dots-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { [${DOTS}] > i, [data-tab-dots-tip] i { animation: none !important; } }
-/* The time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
+/* Right edge: the time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
 [${REPLACE}] [data-testid="sidebar-workspace-timestamp"] { display: none !important; }
-[${REPLACE}]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
+[${REPLACE}="edge"]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
 [data-tab-dots-tip] { position: fixed; z-index: 2147483000; pointer-events: none; display: none; align-items: center; gap: 6px;
   max-width: 280px; padding: 3px 8px; border-radius: 6px; font: 12px/18px system-ui, sans-serif; white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0,0,0,.25); --td-ok: #35c264; --td-err: #f7796d; --td-warn: #db932e; --td-run: #5caaf6; }
@@ -152,7 +163,7 @@ export function startTabDots(initial: Preferences): TabDots {
     const title = titleRow.firstElementChild as El;
     const { color, tone } = inkOf(title);
     const signature = JSON.stringify([color, preferences.size, more, dots]);
-    if (preferences.replaceTime) row.setAttribute(REPLACE, "");
+    if (preferences.replaceTime) row.setAttribute(REPLACE, preferences.align);
     else row.removeAttribute(REPLACE);
     const existing = row.querySelector(`[${DOTS}]`);
     if (existing && existing.parentElement === titleRow && existing.getAttribute(DOTS) === signature) return;
@@ -168,6 +179,7 @@ export function startTabDots(initial: Preferences): TabDots {
       const element = document.createElement("i");
       element.setAttribute("data-state", dot.state);
       element.setAttribute("data-title", dot.title);
+      element.setAttribute("data-agent", dot.agentId);
       container.appendChild(element);
     }
     if (more > 0) {
@@ -239,6 +251,26 @@ export function startTabDots(initial: Preferences): TabDots {
   document.addEventListener("mouseover", onOver);
   document.addEventListener("mouseout", onOut);
 
+  // A dot opens its tab. Window capture runs before the row's own press handling, so the
+  // row never sees presses on a dot (it would otherwise open the workspace's last tab).
+  const onPress = (event: PressLike) => {
+    const dot = event.target?.closest(`[${DOTS}] > i`);
+    const agentId = dot?.getAttribute("data-agent");
+    const key = dot?.closest(ROWS)?.getAttribute("data-testid")?.slice(ROW_PREFIX.length);
+    if (!agentId || !key) return;
+    event.stopPropagation();
+    event.preventDefault();
+    if (event.type !== "click") return;
+    tip.setAttribute("style", "display:none");
+    const split = key.lastIndexOf(":");
+    // The app's own agent route (`buildHostAgentDetailRoute`); it needs the full agent id.
+    const path = `/h/${encodeURIComponent(key.slice(0, split))}/workspace/${encodeURIComponent(key.slice(split + 1))}`
+      + `?open=${encodeURIComponent(`agent:${agentId}`)}`;
+    history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+  for (const type of PRESS_EVENTS) window.addEventListener(type, onPress, true);
+
   return {
     setAgents(agents) {
       roots = rootsByWorkspace(agents);
@@ -253,6 +285,7 @@ export function startTabDots(initial: Preferences): TabDots {
       if (frame) cancelAnimationFrame(frame);
       clearInterval(poll);
       window.removeEventListener("storage", reloadLayout);
+      for (const type of PRESS_EVENTS) window.removeEventListener(type, onPress, true);
       observer.disconnect();
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
