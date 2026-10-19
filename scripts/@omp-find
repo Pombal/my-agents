@@ -1,18 +1,339 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env bun
+// @omp-find: search every OMP session, reasoning and tool traffic included,
+// and print the matches for a human. The search itself is omp-transcript's
+// `search --hits`, run once per needle; a session is shown only when every
+// needle matches somewhere in it. `--tsv` prints the joined raw rows instead.
+import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 
-# Alias kept for muscle memory. The search itself lives in omp-transcript:
-# this is `search --hits` over every profile, with reasoning and tool traffic
-# included and no row limit.
-script_dir=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
-omp_transcript=$script_dir/../skills/tool-specific/omp-meta/scripts/omp-transcript
+const transcript = join(
+  dirname(realpathSync(import.meta.path)),
+  "../skills/tool-specific/omp-meta/scripts/omp-transcript",
+);
+// --all-forks: forks are collapsed here, after the needles are joined, so
+// every needle is checked against the same session file.
+const baseArgs = ["search", "--profile", "all", "--reasoning", "--with-tools", "--hits", "-n", "0", "--all-forks"];
 
-if [[ ${1:-} == --help || ${1:-} == -h ]]; then
-  printf '%s\n' \
-    'Usage: @omp-find [search options] [--] "needle"' \
-    'Alias for: omp-transcript search --profile all --reasoning --with-tools --hits -n 0 "$@"' \
-    'Run omp-transcript --help for the options, --since/--until among them.'
-  exit 0
-fi
+const usage = `Usage: @omp-find [search options] [--tsv] [--] <needle>...
 
-exec "$omp_transcript" search --profile all --reasoning --with-tools --hits -n 0 "$@"
+Searches every OMP profile, reasoning and tool traffic included. With several
+needles, a session must contain all of them (anywhere in it, not necessarily
+in one message). Each session shows up to 5 matching messages per needle
+(--hits <n> for more). Sessions print oldest first, so the newest lands next
+to your prompt.
+
+  --since <when>   only matches at or after <when>: today, 3d, 1w, 2026-10-06…
+  --until <when>   only matches before <when>
+  --regex          read every needle as a regex instead of a literal
+  --under <dir>    only sessions started under <dir>
+  -n <count>       only the newest <count> sessions (default: all)
+  --all-forks      show every fork, not only the newest of each lineage
+  --tsv            raw omp-transcript TSV rows, newest first (for scripts)
+
+Example: @omp-find --since 1w webshare favicon
+
+All omp-transcript search options work; see omp-transcript --help.`;
+
+// --- Arguments: needles are the positionals, everything else goes to every search. ---
+const VALUE_FLAGS = new Set(["--profile", "--cwd", "--under", "--since", "--until", "--width"]);
+const argv = process.argv.slice(2);
+const needles: string[] = [];
+const passArgs: string[] = [];
+let tsv = false;
+let isRegex = false;
+let hasWidth = false;
+let allForks = false;
+let limit = 0;
+for (let i = 0; i < argv.length; i++) {
+  const arg = argv[i];
+  if (arg === "-h" || arg === "--help") {
+    console.log(usage);
+    process.exit(0);
+  } else if (arg === "--") {
+    needles.push(...argv.slice(i + 1));
+    break;
+  } else if (arg === "--tsv") {
+    tsv = true;
+  } else if (arg === "--all-forks") {
+    allForks = true;
+  } else if (arg === "-n") {
+    limit = Number(argv[++i]);
+    if (!Number.isInteger(limit) || limit < 0) {
+      process.stderr.write(`@omp-find: -n wants a whole number, got ${JSON.stringify(argv[i])}\n`);
+      process.exit(2);
+    }
+  } else if (VALUE_FLAGS.has(arg)) {
+    if (arg === "--width") hasWidth = true;
+    passArgs.push(arg, argv[++i] ?? "");
+  } else if (arg === "--hits" && /^[1-9][0-9]*$/.test(argv[i + 1] ?? "")) {
+    passArgs.push(arg, argv[++i]);
+  } else if (arg.startsWith("-")) {
+    if (arg === "--regex") isRegex = true;
+    passArgs.push(arg);
+  } else {
+    needles.push(arg);
+  }
+}
+if (needles.length === 0 || needles.some((needle) => needle === "")) {
+  process.stderr.write(`${usage}\n`);
+  process.exit(2);
+}
+
+// --- Colours: on a terminal unless NO_COLOR is set; FORCE_COLOR wins over both. ---
+const color = Boolean(process.env.FORCE_COLOR) || (!process.env.NO_COLOR && process.stdout.isTTY === true);
+const sgr = (code: string) => (text: string) => (color && text ? `\x1b[${code}m${text}\x1b[0m` : text);
+const bold = sgr("1");
+const dim = sgr("2");
+const italic = sgr("3");
+const match = sgr("1;30;43");
+const ROLE_STYLE: Record<string, (text: string) => string> = {
+  user: sgr("1;32"),
+  developer: sgr("32"),
+  title: sgr("1;35"),
+  assistant: sgr("1;36"),
+  reasoning: sgr("2;3;36"),
+  "tool-call": sgr("33"),
+  "tool-result": sgr("2;33"),
+};
+const PROFILE_STYLE = sgr("1;34");
+
+const columns = process.stdout.columns ?? (Number(process.env.COLUMNS) || 120);
+// Hit lines are: 4 indent, 12 time, 2, 12 role, then the snippet.
+const ROLE_WIDTH = 12;
+const HIT_INDENT = 4 + 12 + 2 + ROLE_WIDTH;
+const width = Math.max(60, columns - HIT_INDENT - 1);
+
+// --- Run one search per needle, in parallel. ---
+// Session row: mtime id hits title cwd path lineage snippet
+// Hit line:    \t message-id timestamp role: snippet
+type Hit = { id: string; ts: string; role: string; text: string; raw: string };
+type Session = {
+  mtime: string;
+  id: string;
+  hits: number;
+  title: string;
+  cwd: string;
+  path: string;
+  lineage: string;
+  row: string[];
+  list: Hit[];
+};
+
+function parse(output: string): Map<string, Session> {
+  const sessions = new Map<string, Session>();
+  let last: Session | undefined;
+  for (const line of output.split("\n")) {
+    if (!line) continue;
+    if (line.startsWith("\t")) {
+      const [, id = "", ts = "", rest = ""] = line.split("\t");
+      const roleMatch = /^([a-z-]+): ([\s\S]*)$/.exec(rest);
+      last?.list.push({ id, ts, role: roleMatch?.[1] ?? "", text: roleMatch?.[2] ?? rest, raw: line });
+      continue;
+    }
+    const row = line.split("\t");
+    const [mtime, id, hits, title, cwd, path, lineage] = row;
+    last = { mtime, id, hits: Number(hits), title, cwd, path, lineage, row, list: [] };
+    sessions.set(path, last);
+  }
+  return sessions;
+}
+
+const extraArgs = tsv || hasWidth ? [] : ["--width", String(width)];
+const label = needles.map((needle) => JSON.stringify(needle)).join(" + ");
+if (process.stderr.isTTY) process.stderr.write(dim(`searching for ${label}…`));
+const results = await Promise.all(
+  needles.map(async (needle) => {
+    const proc = Bun.spawn([transcript, ...baseArgs, ...extraArgs, ...passArgs, "--", needle], {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { stdout, stderr, code };
+  }),
+);
+if (process.stderr.isTTY) process.stderr.write("\r\x1b[K");
+for (const result of results) {
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.code !== 0) process.exit(result.code || 1);
+}
+const perNeedle = results.map((result) => parse(result.stdout));
+
+// --- Keep sessions every needle matched; merge their hits. ---
+type Joined = Session & { counts: number[]; hidden: number };
+let sessions: Joined[] = [];
+for (const [path, first] of perNeedle[0]) {
+  const all = perNeedle.map((map) => map.get(path));
+  if (all.some((session) => session === undefined)) continue;
+  const found = all as Session[];
+  const seen = new Set<string>();
+  const list: Hit[] = [];
+  for (const hit of found.flatMap((session) => session.list)) {
+    // A message can match several needles; show it once.
+    const key = `${hit.id}\t${hit.role}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(hit);
+  }
+  const counts = found.map((session) => session.hits);
+  // Unshown matches per needle; a message matching two needles counts twice here.
+  const hidden = found.reduce((sum, session) => sum + session.hits - session.list.length, 0);
+  sessions.push({ ...first, hits: counts.reduce((a, b) => a + b, 0), counts, hidden, list });
+}
+
+// Newest first; then, like omp-transcript, keep only the newest session of each lineage.
+sessions.sort((a, b) => b.mtime.localeCompare(a.mtime) || b.path.localeCompare(a.path));
+if (!allForks) {
+  const seenRoots = new Set<string>();
+  sessions = sessions.filter((session) => {
+    const root = session.lineage === "-" ? session.id : session.lineage;
+    if (seenRoots.has(root)) return false;
+    seenRoots.add(root);
+    return true;
+  });
+}
+const total = sessions.length;
+if (limit > 0) sessions = sessions.slice(0, limit);
+
+if (total === 0) {
+  process.stderr.write(`no session matches ${needles.length > 1 ? "all of " : ""}${label}\n`);
+  process.exit(1);
+}
+
+if (tsv) {
+  const lines: string[] = [];
+  for (const session of sessions) {
+    const row = session.row.slice();
+    row[2] = String(session.hits);
+    lines.push(row.join("\t"), ...session.list.map((hit) => hit.raw));
+  }
+  console.log(lines.join("\n"));
+  process.exit(0);
+}
+
+// --- Formatting helpers. ---
+const HOME = process.env.HOME ?? "";
+const tildify = (path: string) => (HOME && path.startsWith(HOME) ? `~${path.slice(HOME.length)}` : path);
+const profileOf = (path: string) => /\/\.omp\/profiles\/([^/]+)\//.exec(path)?.[1] ?? "";
+
+const dayKey = (date: Date) => date.toLocaleDateString("en-CA");
+const clock = (date: Date) => date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const shortDay = (date: Date) => date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const longDay = (date: Date) =>
+  `${date.toLocaleDateString("en-GB", { weekday: "short" })} ${shortDay(date)}`;
+
+function ago(date: Date): string {
+  const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `${days}d ago`;
+  return `${Math.round(days / 7)}w ago`;
+}
+
+let needleRe: RegExp | null = null;
+try {
+  const escape = (needle: string) => needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  needleRe = new RegExp(needles.map((needle) => (isRegex ? `(?:${needle})` : escape(needle))).join("|"), "gi");
+} catch {
+  needleRe = null; // a jq-only regex: show the snippets without highlighting
+}
+const highlight = (text: string) => (needleRe && color ? text.replace(needleRe, (m) => match(m)) : text);
+
+// Snippets come elided with "…" at either end; dim those so the text stands out.
+function snippet(text: string): string {
+  const lead = text.startsWith("…") ? "…" : "";
+  const tail = text.endsWith("…") && text.length > 1 ? "…" : "";
+  const body = text.slice(lead.length, text.length - tail.length);
+  return dim(lead) + highlight(body) + dim(tail);
+}
+
+const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "es"}`;
+
+// Some sessions never get a title (OMP doesn't auto-title sessions started
+// through Paseo), so stand in their first user message. It sits near the top
+// of the file, so only the head is read.
+const HEAD_BYTES = 1 << 20;
+async function firstUserMessage(path: string): Promise<string> {
+  const head = await Bun.file(path).slice(0, HEAD_BYTES).text();
+  for (const line of head.split("\n")) {
+    if (!line.includes('"user"')) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue; // the line cut off at HEAD_BYTES
+    }
+    if (record?.type !== "message" || record.message?.role !== "user") continue;
+    const content = record.message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.map((part) => (part?.type === "text" ? part.text : "")).join(" ")
+          : "";
+    const flat = text.replace(/\s+/g, " ").trim();
+    if (flat) return flat;
+  }
+  return "";
+}
+
+const untitled = (title: string) => !title || title === "-";
+const firstMessages = new Map(
+  await Promise.all(
+    sessions
+      .filter((session) => untitled(session.title))
+      .map(async (session) => [session.path, await firstUserMessage(session.path).catch(() => "")] as const),
+  ),
+);
+const UNTITLED = "untitled · ";
+function heading(session: Joined): string {
+  if (!untitled(session.title)) return bold(session.title);
+  const first = firstMessages.get(session.path) ?? "";
+  if (!first) return dim(italic("(untitled)"));
+  const room = Math.max(20, columns - 2 - UNTITLED.length - 2);
+  const shown = first.length > room ? `${first.slice(0, room - 1)}…` : first;
+  return dim(UNTITLED) + italic(`“${shown}”`);
+}
+
+// --- Print, oldest session first. ---
+const out: string[] = [];
+for (const session of sessions.slice().reverse()) {
+  const when = new Date(session.mtime);
+  const profile = profileOf(session.path);
+
+  out.push(`${bold("●")} ${heading(session)}`);
+  const matches =
+    needles.length === 1
+      ? count(session.hits, "match")
+      : `matches: ${needles.map((needle, i) => `${needle} ${session.counts[i]}`).join(", ")}`;
+  const meta = [`last active ${longDay(when)} ${clock(when)} (${ago(when)})`, tildify(session.cwd) || "?", matches];
+  out.push(`  ${dim(meta.join(" · "))}${profile ? `  ${PROFILE_STYLE(`[${profile}]`)}` : ""}`);
+  const lineage = session.lineage && session.lineage !== "-" ? dim(`  (forked from ${session.lineage})`) : "";
+  out.push(`  ${dim(session.id)}${lineage}`);
+
+  // omp-transcript picks the best hits (user messages first); read them in order.
+  const list = session.list.slice().sort((a, b) => a.ts.localeCompare(b.ts));
+  for (const hit of list) {
+    let time = "";
+    if (hit.ts) {
+      const date = new Date(hit.ts);
+      time = dayKey(date) === dayKey(when) ? clock(date) : `${shortDay(date)} ${clock(date)}`;
+    }
+    const style = ROLE_STYLE[hit.role] ?? ((text: string) => text);
+    out.push(`    ${dim(time.padStart(12))}  ${style(hit.role.padEnd(ROLE_WIDTH))}${snippet(hit.text)}`);
+  }
+  if (session.hidden > 0) out.push(`    ${" ".repeat(14)}${dim(`+ ${session.hidden} more`)}`);
+  out.push("");
+}
+
+const shown = total > sessions.length ? `newest ${sessions.length} of ${total} sessions` : `${total} session${total === 1 ? "" : "s"}`;
+out.push(dim(`${shown} with `) + bold(needles.length > 1 ? `all of ${label}` : label));
+out.push(dim("read one: omp-transcript <session-id>    raw rows with message ids: add --tsv"));
+console.log(out.join("\n"));
