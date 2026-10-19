@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PastSession } from "../shared/rpc";
-import { buildListItems, matchesQuery, type ListItem } from "./model";
+import { buildListItems, matchesQuery, mergeByNewest, sourceWord, type ListItem } from "./model";
 
 function session(key: string, title: string, cwd = "/home/cx/agentspace/index"): PastSession {
   return { key, source: key.startsWith("omp:") ? "omp" : "paseo", title, cwd, at: "2026-10-19T00:00:00.000Z", provider: "omp", preview: null };
@@ -53,5 +53,25 @@ describe("matchesQuery", () => {
     expect(matchesQuery(entry, "TINT scratch")).toBe(true);
     expect(matchesQuery(entry, "tint nilo")).toBe(false);
     expect(matchesQuery(entry, "   ")).toBe(true);
+  });
+});
+
+describe("mergeByNewest", () => {
+  it("interleaves two newest-first lists by time", () => {
+    const at = (key: string, iso: string) => ({ ...session(key, key), at: iso });
+    const merged = mergeByNewest(
+      [at("paseo:a", "2026-10-19T10:00:00.000Z"), at("omp:b", "2026-10-17T10:00:00.000Z")],
+      [at("ext:claude:c", "2026-10-18T10:00:00.000Z"), at("ext:codex:d", "2026-10-01T10:00:00.000Z")],
+    );
+    expect(merged.map((entry) => entry.key)).toEqual(["paseo:a", "ext:claude:c", "omp:b", "ext:codex:d"]);
+  });
+});
+
+describe("sourceWord", () => {
+  it("names where a session ran; Paseo agents carry no word", () => {
+    expect(sourceWord(session("paseo:a", "x"))).toBeNull();
+    expect(sourceWord({ ...session("omp:a", "x"), source: "omp" })).toBe("terminal");
+    expect(sourceWord({ ...session("ext:claude:a", "x"), source: "external", provider: "claude" })).toBe("claude code");
+    expect(sourceWord({ ...session("ext:codex:a", "x"), source: "external", provider: "codex" })).toBe("codex");
   });
 });

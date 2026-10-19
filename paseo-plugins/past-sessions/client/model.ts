@@ -34,3 +34,29 @@ export function buildListItems(
   if (open) items.push(...extra.map((entry): ListItem => ({ kind: "row", key: entry.key, entry })));
   return items;
 }
+
+/** The muted word before a row's time: none for Paseo agents, else where the session ran. */
+export function sourceWord(entry: PastSession): string | null {
+  if (entry.source === "paseo") return null;
+  if (entry.source === "omp") return "terminal";
+  return entry.provider === "claude" ? "claude code" : entry.provider;
+}
+
+/** Two newest-first lists as one, newest first; ties keep `a` first. */
+export function mergeByNewest(a: PastSession[], b: PastSession[]): PastSession[] {
+  const merged: PastSession[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    const left = a[i];
+    const right = b[j];
+    if (left && (!right || left.at >= right.at)) {
+      merged.push(left);
+      i += 1;
+    } else if (right) {
+      merged.push(right);
+      j += 1;
+    }
+  }
+  return merged;
+}

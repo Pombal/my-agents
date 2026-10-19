@@ -1,20 +1,11 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { promisify } from "node:util";
 import type { reopenPastSession } from "../shared/rpc";
+import { paseoBinary } from "./paseo-cli";
 
-/**
- * The plugin SDK's PaseoApi (0.11.4) has no import or unarchive call, so reopening goes
- * through the Paseo CLI next to the daemon. It talks to the same daemon over its normal API:
- * `paseo agent reload` → `refreshAgent` (unarchives and loads an archived agent),
- * `paseo import` → `importAgent` (the provider session becomes a Paseo agent).
- */
-function paseoBinary(): string {
-  const sibling = path.join(path.dirname(process.execPath), "paseo");
-  return existsSync(sibling) ? sibling : "paseo";
-}
+// `paseo agent reload` → `refreshAgent` (unarchives and loads an archived agent);
+// `paseo import` → `importAgent` (a provider session becomes a Paseo agent).
 
 async function runPaseo(args: string[]): Promise<unknown> {
   let stdout: string;
@@ -52,7 +43,7 @@ export async function reopenHandler(
   }
   return {
     agentId: agentIdOf(
-      await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.file]),
+      await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.handle]),
     ),
   };
 }

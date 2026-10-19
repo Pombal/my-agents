@@ -3,9 +3,10 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import {
+  listExternalSessions,
   listPastSessions,
   reopenPastSession,
   type PastSession,
@@ -15,7 +16,7 @@ import {
 import { viewSettings, type Density } from "../shared/view";
 import { absoluteTime, folderChip, relativeTime, tildify } from "./format";
 import { Interactive } from "./interactive";
-import { buildListItems, type ListItem } from "./model";
+import { buildListItems, mergeByNewest, sourceWord, type ListItem } from "./model";
 import { ProviderGlyph, useSnapshotIcons } from "./provider-glyph";
 import { tooltip } from "./web";
 
@@ -92,6 +93,13 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     context: { ...muted, marginTop: 8 },
     warning: { ...SMALL, color: colors.statusWarning, marginTop: 4 },
     label: { ...muted, fontWeight: "500", paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 6 },
+    labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+    labelInRow: { flexShrink: 1 },
+    externalControl: { flexDirection: "row", alignItems: "center", gap: 2, paddingRight: gutter - 6, paddingTop: 4 },
+    externalButton: { flexDirection: "row", alignItems: "center", gap: 5, height: 24, paddingHorizontal: 6, borderRadius: 6 },
+    externalText: { ...muted, flexShrink: 1 },
+    externalTextHot: { color: colors.foreground },
+    externalError: { ...SMALL, color: colors.statusWarning, flexShrink: 1 },
     row: { paddingHorizontal: gutter, paddingVertical: 8 },
     rowCompact: { paddingVertical: 6 },
     rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
@@ -289,7 +297,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
           <View style={styles.right}>
             {fromPaseo ? null : (
               <>
-                <Text style={styles.tag}>terminal</Text>
+                <Text style={styles.tag}>{sourceWord(entry)}</Text>
                 <Text style={styles.dot}>·</Text>
               </>
             )}
@@ -354,6 +362,90 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
   );
 });
 
+type ExternalState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; count: number; fetchedAt: string; warnings: string[] };
+
+/**
+ * The quiet switch for Claude Code and Codex sessions: "+ Claude Code & Codex" until clicked, a
+ * spinner while the daemon lists them, then "Claude Code & Codex · 12" (click to hide) with a
+ * refresh button.
+ */
+function ExternalControl(props: {
+  shown: boolean;
+  state: ExternalState;
+  now: number;
+  styles: Styles;
+  theme: PluginTheme;
+  onToggle(): void;
+  onRefresh(): void;
+}) {
+  const { shown, state, styles, theme } = props;
+  const muted = theme.colors.foregroundMuted;
+  const ready = shown && state.kind === "ready";
+  const label =
+    state.kind === "loading" && shown
+      ? "Listing Claude Code & Codex…"
+      : ready
+        ? `Claude Code & Codex · ${state.count}`
+        : "Claude Code & Codex";
+  const hint = ready
+    ? `Listed ${relativeTime(state.fetchedAt, props.now)}${state.warnings.length ? ` · ${state.warnings.join("; ")}` : ""}. Click to hide.`
+    : "Also show Claude Code and Codex sessions never opened in Paseo";
+  return (
+    <View style={styles.externalControl}>
+      {shown && state.kind === "error" ? (
+        <Text style={styles.externalError} numberOfLines={1}>
+          Couldn't list: {state.message}
+        </Text>
+      ) : null}
+      <Interactive
+        accessibilityRole="switch"
+        accessibilityState={{ checked: shown }}
+        accessibilityLabel={hint}
+        testID="past-sessions-external"
+        disabled={shown && state.kind === "loading"}
+        onPress={props.onToggle}
+        style={({ hovered, focused }) => [
+          styles.externalButton,
+          hovered ? styles.iconButtonHovered : null,
+          focused ? styles.focusRing : null,
+        ]}
+      >
+        {({ hovered }) => (
+          <View ref={tooltip(hint)} style={styles.line}>
+            {shown && state.kind === "loading" ? (
+              <ActivityIndicator size="small" color={muted} />
+            ) : (
+              <Icon name={shown ? "Check" : "Plus"} size={13} color={hovered ? theme.colors.foreground : muted} />
+            )}
+            <Text style={[styles.externalText, hovered || ready ? styles.externalTextHot : null]} numberOfLines={1}>
+              {label}
+            </Text>
+          </View>
+        )}
+      </Interactive>
+      {ready || (shown && state.kind === "error") ? (
+        <Interactive
+          accessibilityRole="button"
+          accessibilityLabel="List Claude Code and Codex sessions again"
+          testID="past-sessions-external-refresh"
+          onPress={props.onRefresh}
+          style={({ hovered, focused }) => [
+            styles.clear,
+            hovered ? styles.iconButtonHovered : null,
+            focused ? styles.focusRing : null,
+          ]}
+        >
+          {({ hovered }) => <Icon name="RefreshCw" size={12} color={hovered ? theme.colors.foreground : muted} />}
+        </Interactive>
+      ) : null}
+    </View>
+  );
+}
+
 function contextLine(data: PastSessionsListing, scope: Scope): string {
   const folder = tildify(data.folder, data.home);
   if (scope === "workspace") return `Archived agents of ${data.workspaceName} · ${folder}`;
@@ -398,31 +490,82 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const [searchFocused, setSearchFocused] = useState(false);
   const [sameFolderOpen, setSameFolderOpen] = useState(false);
   const muted = theme.colors.foregroundMuted;
+  const listExternal = useRpc(listExternalSessions);
+  // On demand: the daemon lists Claude Code (file scan) and Codex (an app-server per call) only
+  // after a click; the choice is not remembered.
+  const [showExternal, setShowExternal] = useState(false);
+  const refreshExternal = useRef(false);
 
   const result = useQuery({
     queryKey: ["past-sessions", workspaceId, scope],
     queryFn: () => list({ workspaceId, scope }),
   });
+  const externalScope = scope === "workspace" ? null : scope;
+  const external = useQuery({
+    queryKey: ["external-sessions", workspaceId, externalScope],
+    enabled: showExternal && externalScope !== null,
+    staleTime: Infinity,
+    queryFn: () => {
+      const refresh = refreshExternal.current;
+      refreshExternal.current = false;
+      return listExternal({ workspaceId, scope: externalScope ?? "folder", refresh });
+    },
+  });
   const mutation = useMutation({
     mutationFn: (entry: PastSession) =>
       entry.source === "paseo"
         ? reopen({ source: "paseo", agentId: entry.agentId ?? "" })
-        : reopen({ source: "omp", file: entry.file ?? "", cwd: entry.cwd, provider: entry.provider }),
+        : reopen({
+            source: "import",
+            provider: entry.provider,
+            cwd: entry.cwd,
+            handle: (entry.source === "omp" ? entry.file : entry.sessionId) ?? "",
+          }),
     onSuccess: ({ agentId }, entry) => {
       void queryClient.invalidateQueries({ queryKey: ["past-sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["external-sessions"] });
       if (navigation) navigation.openAgent({ agentId });
       else toast.show(`${entry.source === "paseo" ? "Restored" : "Imported"}. It's in the sidebar now.`, { variant: "success" });
     },
     onError: (error) => toast.error(`Couldn't reopen: ${error instanceof Error ? error.message : String(error)}`),
   });
 
-  const data = result.data?.scope === scope ? result.data : undefined;
+  const listed = result.data?.scope === scope ? result.data : undefined;
+  const externalEntries = showExternal && externalScope ? external.data?.entries : undefined;
+  const data = useMemo(
+    () => (listed && externalEntries ? { ...listed, entries: mergeByNewest(listed.entries, externalEntries) } : listed),
+    [listed, externalEntries],
+  );
   const items = useMemo(
     () => (data ? buildListItems(data, { query, sameFolderOpen }) : []),
     [data, query, sameFolderOpen],
   );
   const now = Date.now();
   const busyKey = mutation.isPending ? mutation.variables?.key : undefined;
+
+  const externalControl = externalScope ? (
+    <ExternalControl
+      shown={showExternal}
+      state={
+        external.isFetching
+          ? { kind: "loading" }
+          : external.isError
+            ? { kind: "error", message: external.error instanceof Error ? external.error.message : String(external.error) }
+            : external.data
+              ? { kind: "ready", count: external.data.entries.length, fetchedAt: external.data.fetchedAt, warnings: external.data.warnings }
+              : { kind: "idle" }
+      }
+      now={now}
+      styles={styles}
+      theme={theme}
+      onToggle={() => setShowExternal((shown) => !shown)}
+      onRefresh={() => {
+        refreshExternal.current = true;
+        setShowExternal(true);
+        void external.refetch();
+      }}
+    />
+  ) : null;
 
   const segments = (
     <View style={styles.segments} accessibilityRole="tablist">
@@ -639,7 +782,16 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
         renderItem={renderItem}
         initialNumToRender={30}
         keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={mainCount > 0 ? <Text style={styles.label}>{label}</Text> : null}
+        ListHeaderComponent={
+          externalControl ? (
+            <View style={styles.labelRow}>
+              <Text style={[styles.label, styles.labelInRow]}>{label}</Text>
+              {externalControl}
+            </View>
+          ) : mainCount > 0 ? (
+            <Text style={styles.label}>{label}</Text>
+          ) : null
+        }
         ListFooterComponent={
           hidden > 0 ? (
             <Text style={styles.footer} testID="past-sessions-footer">

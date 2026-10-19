@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { listPastSessions, PastSession } from "../shared/rpc";
+import type { listPastSessions, PastSession, Scope } from "../shared/rpc";
 import { byNewest, mergePastSessions, type AgentRecord } from "./merge";
 import { OmpSessionIndex, resolvedOrSelf, type OmpSessionRoot } from "./omp-sessions";
 import { TailCache } from "./preview";
@@ -74,7 +74,7 @@ export function transcriptFile(
  * Adds previews (recap if `paseo-recap` has one, else the transcript's last reply) and dates rows
  * by their transcript's newest record, then re-sorts. 24 files are read at a time.
  */
-async function withPreviews(entries: PastSession[], recapsByAgent: Map<string, string>): Promise<PastSession[]> {
+export async function withPreviews(entries: PastSession[], recapsByAgent: Map<string, string>): Promise<PastSession[]> {
   const out: PastSession[] = [];
   for (let start = 0; start < entries.length; start += 24) {
     out.push(
@@ -136,11 +136,22 @@ async function gitWorktrees(repo: string, warnings: string[]): Promise<string[]>
   }
 }
 
-export async function listHandler(
-  input: RpcInput<typeof listPastSessions>,
-  { paseo }: PluginHandlerContext,
-): Promise<RpcOutput<typeof listPastSessions>> {
-  const started = performance.now();
+/** Everything both list handlers need about a workspace's scope; built from daemon API calls. */
+export interface ScopeContext {
+  workspace: { id: string; name: string; projectRootPath: string; projectDisplayName: string };
+  folder: string;
+  /** Resolved folders the scope covers; with `includeSubfolders` anything below them too. */
+  targets: string[];
+  includeSubfolders: boolean;
+  projectWorkspaceIds: string[];
+  projectKey: string | null;
+  agents: AgentRecord[];
+  providers: Record<string, unknown>;
+  home: string;
+  warnings: string[];
+}
+
+export async function scopeContext(paseo: Paseo, workspaceId: string, scope: Scope): Promise<ScopeContext> {
   const warnings: string[] = [];
   const [workspaces, projects, agentEntries, config] = await Promise.all([
     listAllWorkspaces(paseo),
@@ -151,12 +162,11 @@ export async function listHandler(
       return null;
     }),
   ]);
-  const workspace = workspaces.find((candidate) => candidate.id === input.workspaceId);
-  if (!workspace) throw new Error(`Workspace ${input.workspaceId} not found`);
+  const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
+  if (!workspace) throw new Error(`Workspace ${workspaceId} not found`);
   const folder = workspace.workspaceDirectory ?? workspace.projectRootPath;
   const projectWorkspaces = workspaces.filter((candidate) => candidate.projectId === workspace.projectId);
-  const projectKey = projects.projects.find((project) => project.projectId === workspace.projectId)?.projectKey ?? null;
-  const includeSubfolders = input.scope === "project";
+  const includeSubfolders = scope === "project";
   const rawTargets = includeSubfolders
     ? [
         workspace.projectRootPath,
@@ -164,16 +174,7 @@ export async function listHandler(
         ...(workspace.projectKind === "git" ? await gitWorktrees(workspace.projectRootPath, warnings) : []),
       ]
     : [folder];
-  const targets = [...new Set(await Promise.all(rawTargets.filter(Boolean).map(resolvedOrSelf)))];
-
   const home = homedir();
-  const providers: Record<string, unknown> = config?.config.providers ?? {};
-  const { sessions, stats } = await (await sessionIndex()).list({
-    sessionRoots: sessionRootsFromProviders(providers, home),
-    targets,
-    includeSubfolders,
-  });
-
   const agents: AgentRecord[] = await Promise.all(
     agentEntries.map(async ({ agent, project }) => ({
       id: agent.id,
@@ -193,15 +194,41 @@ export async function listHandler(
       transcript: agent.archivedAt ? transcriptFile(agent.persistence, agent.cwd, home) : null,
     })),
   );
+  return {
+    workspace,
+    folder,
+    targets: [...new Set(await Promise.all(rawTargets.filter(Boolean).map(resolvedOrSelf)))],
+    includeSubfolders,
+    projectWorkspaceIds: projectWorkspaces.map((candidate) => candidate.id),
+    projectKey: projects.projects.find((project) => project.projectId === workspace.projectId)?.projectKey ?? null,
+    agents,
+    providers: config?.config.providers ?? {},
+    home,
+    warnings,
+  };
+}
+
+export async function listHandler(
+  input: RpcInput<typeof listPastSessions>,
+  { paseo }: PluginHandlerContext,
+): Promise<RpcOutput<typeof listPastSessions>> {
+  const started = performance.now();
+  const context = await scopeContext(paseo, input.workspaceId, input.scope);
+  const { workspace, targets, includeSubfolders, home } = context;
+  const { sessions, stats } = await (await sessionIndex()).list({
+    sessionRoots: sessionRootsFromProviders(context.providers, home),
+    targets,
+    includeSubfolders,
+  });
 
   const { entries, sameFolder, hiddenKnownToPaseo } = mergePastSessions({
-    agents,
+    agents: context.agents,
     ompSessions: sessions,
     scope: {
       mode: input.scope,
       targets,
-      workspaceIds: includeSubfolders ? projectWorkspaces.map((candidate) => candidate.id) : [workspace.id],
-      projectKey: includeSubfolders ? projectKey : null,
+      workspaceIds: includeSubfolders ? context.projectWorkspaceIds : [workspace.id],
+      projectKey: includeSubfolders ? context.projectKey : null,
     },
   });
 
@@ -209,7 +236,7 @@ export async function listHandler(
   return {
     workspaceName: workspace.name,
     home,
-    folder,
+    folder: context.folder,
     projectRoot: workspace.projectRootPath,
     projectName: workspace.projectDisplayName,
     scope: input.scope,
@@ -222,6 +249,6 @@ export async function listHandler(
       ompFilesRead: stats.filesRead,
       hiddenKnownToPaseo,
     },
-    warnings,
+    warnings: context.warnings,
   };
 }
