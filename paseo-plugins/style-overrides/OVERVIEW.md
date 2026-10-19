@@ -1,49 +1,83 @@
 # Personal style overrides
 
-Stefan's small visual tweaks, kept together in `client/overrides.ts` rather than scattered through
-Paseo or several plugins. The first tweak tightens the left sidebar: workspace/new-workspace rows
-are 28px instead of 36px and project headers are 32px instead of 40px, with smaller bottom gaps.
-Text size, horizontal indentation, colors, hover states and menus stay Paseo's own. Rows can still
-grow for extra content; these are minimum heights, not fixed heights.
+Stefan's own visual tweaks to Paseo, all in one file (`client/overrides.ts`) instead of spread
+across Paseo or several plugins. Web and desktop apps only. Nothing to configure: the tweaks apply
+while the plugin is enabled.
 
-Client-only, for the web and desktop apps (React Native Web). No daemon code, no restart, no
-phone layout changes, and no new setting to find: it applies automatically while enabled.
-Disable with `flock /tmp/paseo-plugin.lock paseo plugin disable style-overrides`; enable again with
-`flock /tmp/paseo-plugin.lock paseo plugin enable style-overrides`. Disabling removes the plugin's
-style element and restores Paseo's layout. If an already-open app has not picked up a plugin
-change, refresh that app once.
+## Current tweaks
 
-## How to add a tweak
+**Compact sidebar rows** (2026-10-19). Workspace, "New workspace" and "Show more" rows go from
+36px to 28px, the same height as the History/Search rows at the top of the sidebar. Project
+headers (group by project) and status headers (group by status) go from 40px and 36px to 32px.
+Paseo's 2px gap between rows stays, so a hovered row stays separate from the selected one. Text
+size, indentation, icons, colors and menus are Paseo's own. Rows with PR/check details still grow
+to fit (44px instead of 52px). Below 720px wide (Paseo's phone/narrow layout) nothing changes and
+rows keep their 44px touch size.
 
-1. Find the target in the live web DOM. Prefer a specific `data-testid` or accessible `aria-*`
-   selector, then check the source to understand the element. Never use generated/hashed classes
-   or broad selectors that restyle unrelated screens.
-2. Screenshot the relevant screen before editing. Add one grouped CSS block to
-   `client/overrides.ts`, with the date and Stefan's wording of what he wanted. For a revision to
-   an existing tweak, edit that block. Keep the tiny injector and client entrypoint unchanged.
-3. Run `flock /tmp/paseo-plugin.lock paseo plugin reload style-overrides`. Do not restart the
-   daemon. Refresh the browser only if it does not receive the reload automatically.
-4. Screenshot after, check hover, menus, selection, and expanded/collapsed or nested states near
-   the change. Save small screenshots under `screenshots/`. Check disable restores the original
-   layout, then re-enable. Keep the plugin enabled when finished.
+| Before | After | Group by status | Collapsed project |
+| --- | --- | --- | --- |
+| ![](screenshots/sidebar-before.webp) | ![](screenshots/sidebar-after.webp) | ![](screenshots/sidebar-status-grouping.webp) | ![](screenshots/sidebar-collapsed.webp) |
+
+`sidebar-hover-selected.webp`: a hovered row (kebab menu showing) under the selected one.
+`sidebar-row-menu.webp`: the workspace menu opened from a compact row.
+
+## Adding, changing or removing a tweak (for agents)
+
+All CSS lives in the `overrides` string in `client/overrides.ts`: one block per tweak, each starting
+with a `/* ── Name ── */` header, the date, and Stefan's own words. `client/web.ts` (injects one
+`<style data-plugin="style-overrides">` and removes it on disable) and `index.client.ts` never need
+editing.
+
+1. **Find a stable selector.** Inspect the live web app (see the Paseo section of
+   `~/agentspace/index/atlas/tools.md` for opening it in a headless browser). Use `data-testid`
+   (prefix match `[data-testid^="…-"]` for per-item IDs) or `aria-*` attributes. Confirm in the
+   Paseo source (`~/forkspace/paseo/packages/app/src`, `grep testID=`) what the element is and
+   which sibling elements share its geometry, so the tweak covers all of them (e.g. "Show more"
+   rows share workspace row geometry). Never use generated class names (`css-…`, `r-…`) or broad
+   tag/role selectors.
+2. **Measure before.** Record heights/paddings/margins with `getComputedStyle` and take a
+   screenshot.
+3. **Edit.** New tweak: append a new block. Revision: edit its block in place and keep the date of
+   the original request plus a short note. Removal: delete the whole block. Rules:
+   - Use `!important`: React Native Web's atomic classes have the same specificity.
+   - Prefer `min-height` to `height`, so content that wraps or grows is not clipped.
+   - Wrap layout changes in `@media (min-width: 720px) { … }` unless Stefan wants the change on
+     the narrow/phone web layout too. Below 720px Paseo enlarges touch targets.
+   - Change only what was asked; keep Paseo's colors, fonts and spacing elsewhere.
+4. **Apply:** `flock /tmp/paseo-plugin.lock paseo plugin reload style-overrides`. Do not restart
+   the daemon. An open app picks it up live; refresh only if it does not.
+5. **Verify live**, then replace this plugin's screenshots for that tweak: hover and selected
+   states, menus, collapsed/expanded and any other grouping/mode the element appears in, and a
+   window narrower than 720px. Headless Chromium reports no hover-capable pointer, so Paseo
+   ignores Puppeteer's mouse hover. To show a hover state, dispatch `pointerenter` (with
+   `pointerType: "mouse"`) on the row and its ancestors.
+6. **Document:** update "Current tweaks" above (what changed, in pixels; screenshots). Commit only
+   this directory.
+
+Disable everything: `flock /tmp/paseo-plugin.lock paseo plugin disable style-overrides` (the
+style element is removed live). Enable again: `… plugin enable style-overrides`.
 
 ## Limits
 
-The 28px rows are intentionally compact for mouse/trackpad use, not phone-sized touch targets.
-Only rows marked by the three sidebar `data-testid` prefixes in the CSS are affected; nested agent
-rows retain their own layout. A Paseo upgrade that renames those IDs or changes row contents may
-need an updated rule. No React-owned nodes or inline styles are modified: cleanup removes the
-single `<style data-plugin="style-overrides">` element.
+- The selectors depend on Paseo's sidebar `data-testid`s. A Paseo upgrade that renames them makes
+  the tweak silently stop applying. It does not break anything; just remeasure and update the
+  selectors.
+- The phone app (native, not web) is unaffected by design.
 
-## Live proof (2026-10-19, Paseo 0.11.4 web)
+## Live proof (2026-10-19, app.paseo.sh against the 0.11.4 daemon, dark theme)
 
-`screenshots/sidebar-before.webp` and `sidebar-after.webp` show the same sidebar before and after
-installation. Measured workspace/new-workspace rows: 36 → 28px; project headers: 40 → 32px.
-Font sizes stayed unchanged. The plugin arrived in the already-open app without a refresh.
-`sidebar-row-menu.webp` shows the workspace menu opening on hover; project actions also opened.
-`sidebar-collapsed.webp` shows the index project collapsed; expanding restored its workspace rows.
-`sidebar-extra-content.webp` shows a workspace with PR/check metadata: the row grows to 44px,
-keeping both lines readable. No separate nested agent rows were present in this sidebar.
-`sidebar-disabled.webp` shows the original spacing restored after disabling: zero plugin style
-elements and the original 36/40px row heights. Re-enabling and reloading left the plugin running.
+Measured with the plugin on/off in the same tab:
 
+| Element | Paseo | With plugin |
+| --- | --- | --- |
+| Workspace / New workspace row | 36px + 2px gap | 28px + 2px gap |
+| Project header | 40px + 4px gap | 32px + 2px gap |
+| Status group header | 36px + 8px gap | 32px + 2px gap |
+| Row with PR/check line | 52px | 44px |
+| Any row, window 700px wide | 44px | 44px (unchanged) |
+
+Hover next to the selected row, the workspace menu, collapsing/expanding a project and switching
+to group-by-status all work (screenshots above); the grouping was set back to Project afterwards.
+`paseo plugin disable` removed the style element live (rows back to 36px); re-enabling restored
+28px. No "Show more" row was present in this sidebar, so its rule is checked against the source
+only.
