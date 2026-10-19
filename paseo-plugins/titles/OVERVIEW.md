@@ -37,9 +37,16 @@ triggers may override hand-chosen names.
 
 ### Feedback
 
-Nothing goes into the conversation. While Claude thinks (2–5 s), a small
-**Retitling…** pill with a spinner sits above the composer. Then one Paseo
-toast reports the outcome:
+Nothing goes into the conversation. While Claude thinks (2–5 s), the check
+shows in the same tick as the trigger:
+
+- **Web and desktop:** a small spinner replaces the agent tab's icon (in every
+  pane that shows the tab), drawn in the theme's foreground color.
+- **Where the tab isn't on screen** (phone layouts, the native apps): a
+  **Retitling…** toast with a spinner at the top.
+
+The indicator ends in the same frame as one Paseo toast that reports the
+outcome (it replaces the Retitling… toast):
 
 | Outcome | Toast |
 | --- | --- |
@@ -49,9 +56,16 @@ toast reports the outcome:
 | Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
 | Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
 
-Pressing a trigger again while a check is running does nothing; the pill shows
-that a check is already under way. Two clients retitling the same tab at once
-get `Already retitling this tab`.
+Pressing a trigger again while a check is running does nothing; the spinner
+shows that a check is already under way. Two clients retitling the same tab at
+once get `Already retitling this tab`.
+
+Toasts are a hook-only plugin API, so a composer pill's icon component lends
+one. On web that pill is hidden by CSS (`button:has([data-testid="titles-retitling-pill"])`);
+on native apps it can't be hidden, so a faint **Retitling…** pill also sits
+above the composer there. The Retitling… toast's spinner uses the host's
+`icon` toast option, which the plugin's `ToastOptions` type doesn't declare;
+if a Paseo version drops it, the toast is text-only.
 
 ### Ctrl+Alt+T and Paseo's "Cycle theme"
 
@@ -100,17 +114,26 @@ plugin API has no rename operation.
 | Screenshot | Shows |
 | --- | --- |
 | `01-first-turn-title.png` | New Haiku agent about Raspberry Pi SD-card corruption → **SD Card** after its first reply (3.0 s). |
-| `02-retitling-pill.png` | The **Retitling…** pill while Claude thinks. |
 | `03-ctrl-alt-t-renamed.png` | Ctrl+Alt+T on a hand-named tab ("My Coffee Notes") whose latest question was about cold brew → **Cold Brew**, plus the one-time Cycle-theme warning. |
 | `04-command-center-item.png` | Ctrl+K → *Retitle this tab*. |
 | `05-command-center-kept.png` | Same subject → `“Cold Brew” still fits`. |
 | `06-slash-command.png`, `07-slash-result.png` | `/retitle` on desktop web → kept, nothing posted to the chat. |
 | `08-renamed-meanwhile.png` | Renamed via CLI while the check ran → compare-and-set refused, hand name kept. |
-| `09…11-phone-*.png` | 390×844 touch layout: `/retitle` completion, pill, kept toast. |
+| `09-phone-slash-command.png`, `11-phone-result.png` | 390×844 touch layout: `/retitle` completion, kept toast. |
 | `12-hand-name-preserved.png` | Renamed to "Umbrella Keeper Notes" while the first turn was still running; after the turn the log reads `kept hand-chosen "Umbrella Keeper Notes"`. |
+| `13-before-faint-pill.png` | Before (Ctrl+Alt+T, previous version): the only indicator was a disabled pill at 50 % opacity, grey 12 px text, above the composer, far from the tab and the toast. |
+| `14-command-center-tab-spinner.png`, `15-slash-tab-spinner.png`, `16-ctrl-alt-t-tab-spinner.png` | Mid-check on desktop web (1440×900) for each trigger: spinner in place of the tab icon, no pill. |
+| `17-tab-spinner-closeup.png` | The tab row mid-check (light theme). |
+| `18-phone-slash-loading-toast.png` | 390×844 touch layout, `/retitle` mid-check: **Retitling…** toast with spinner. |
 
 Also seen live: an earlier drift test renamed *Lockfile* → *Altitude* after a
-question about Everest. The keyboard test confirmed Paseo's theme cycle fires
+question about Everest. Indicator latency, trigger to indicator, measured in
+the page with a MutationObserver (includes the automation's key dispatch):
+⌘K 6–10 ms, `/retitle` 10 ms, Ctrl+Alt+T 44 ms (Paseo's theme cycle runs
+first; the tab row re-renders and the spinner blinks off for ~80 ms), phone
+`/retitle` toast 94 ms (includes the tap). At phone width only `/retitle`
+exists: there's no tab for Ctrl+Alt+T to target and Paseo doesn't open the
+Command Center. The keyboard test confirmed Paseo's theme cycle fires
 too (see above). A missing CLI was checked by running `decideTitle` with an
 empty `PATH`, which gave `Claude CLI not found on the daemon's PATH`. The
 desktop app and the native phone app weren't driven. Native uses the same
@@ -135,7 +158,7 @@ paseo plugin disable titles
 - `server/model.ts`: prompt and Claude CLI call.
 - `server/rename.ts`: compare-and-set rename over the local daemon RPC.
 - `index.server.ts`: first-turn lifecycle, the `retitle` RPC, per-tab exclusivity.
-- `index.client.tsx`: the three triggers, the pill and the toast.
+- `index.client.tsx`: the three triggers, the tab spinner, the Retitling… toast and the outcome toast.
 
 `npm test` runs 7 tests on the pure policy: the default-title rule, which
 titles count as short, keep-versus-rename parsing with identifier-safe Title

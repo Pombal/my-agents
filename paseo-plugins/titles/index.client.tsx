@@ -1,29 +1,71 @@
 import { ActivityIndicator, Platform } from "react-native";
 import type { PluginButtonIconProps, PluginClientContext } from "@getpaseo/plugin/client";
-import { useToast, type ToastApi, type ToastVariant } from "@getpaseo/plugin/client/react-native";
+import { useToast, type ToastApi, type ToastOptions, type ToastVariant } from "@getpaseo/plugin/client/react-native";
+import { useEffect } from "react";
 import { retitle } from "./shared/rpc";
 
 const TAB = '[data-testid^="workspace-tab-agent_"][aria-selected="true"]';
 const PANE = '[data-testid^="workspace-pane-"]';
+const LENDER = "titles-retitling-pill";
+const web = Platform.OS === "web" && typeof document !== "undefined";
+
+// While Claude thinks, a spinner replaces the icon of the agent's tab (every
+// pane that shows it), in Paseo's own colors. The rules key on the tab's stable
+// test id, so re-renders and theme switches keep them.
+const tabSpinner = (agentId: string) => {
+  const icon = `[data-testid="workspace-tab-agent_${agentId}"] > div > div:first-child`;
+  return `${icon} > * { visibility: hidden; }
+${icon}::after { content: ""; position: absolute; inset: 1px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--colors-foreground) 22%, transparent); border-top-color: var(--colors-foreground); border-right-color: var(--colors-foreground);
+  animation: titles-retitling-spin 0.8s linear infinite; }`;
+};
+const tabVisible = (agentId: string) =>
+  [...document.querySelectorAll(`[data-testid="workspace-tab-agent_${agentId}"]`)].some(tab => tab.getClientRects().length > 0);
 
 export default function contribute(client: PluginClientContext) {
   const running = new Set<string>();
+  // Web only: the tab spinners, and hiding the toast-lending pill (below).
+  const style = web ? document.head.appendChild(document.createElement("style")) : null;
+  const paint = () => {
+    if (style) style.textContent = [
+      "@keyframes titles-retitling-spin { to { transform: rotate(360deg); } }",
+      `button:has([data-testid="${LENDER}"]) { display: none; }`,
+      ...[...running].map(tabSpinner),
+    ].join("\n");
+  };
+  paint();
 
-  // Feedback never enters the conversation. While Claude thinks, the agent's
-  // composer shows a "Retitling…" pill; the outcome is a Paseo toast. Toasts
-  // are a hook-only API, so the pill's own spinner component lends us one.
-  const run = async (agentId: string, workspaceId: string, note = "") => {
+  // Feedback never enters the conversation. The indicator starts in the same
+  // tick as the trigger: the tab spinner where the agent's tab is on screen,
+  // otherwise (phone layouts, native apps) a "Retitling…" toast. The outcome
+  // toast replaces either in the same tick the check ends. Toasts are a
+  // hook-only API, so a composer pill's icon component lends one; on web that
+  // pill is hidden, on native it shows a spinner of its own.
+  const run = async (agentId: string, workspaceId: () => Promise<string | undefined>, note = "") => {
     if (running.has(agentId)) return;
     running.add(agentId);
+    paint();
+    const announce = !web || !tabVisible(agentId);
     const lent: { toast?: ToastApi } = {};
-    const Spinner = ({ size, color }: PluginButtonIconProps) => {
-      lent.toast = useToast();
-      return <ActivityIndicator size={size} color={color} />;
+    const Lender = ({ size, color }: PluginButtonIconProps) => {
+      const toast = useToast();
+      lent.toast = toast;
+      useEffect(() => {
+        if (!announce || !running.has(agentId)) return;
+        // `icon` isn't in the plugin's ToastOptions type, but the host passes options through; without it the toast is text-only.
+        toast.show("Retitling…", { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="titles-retitling-toast" /> } as ToastOptions);
+      }, [toast]);
+      return <ActivityIndicator size={size} color={color} testID={LENDER} />;
     };
-    const pill = client.addComposerPill({
-      id: `retitling-${agentId}`, workspaceId, agentId,
-      button: { title: "Retitling…", icon: Spinner, disabled: true, behavior: { kind: "action", onPress() {} } },
-    });
+    let pill: { remove(): void } | undefined;
+    let finished = false;
+    void workspaceId().then(id => {
+      if (!id || finished) return;
+      pill = client.addComposerPill({
+        id: `retitling-${agentId}`, workspaceId: id, agentId,
+        button: { title: "Retitling…", icon: Lender, disabled: true, behavior: { kind: "action", onPress() {} } },
+      });
+    }, error => console.warn("titles: couldn't resolve the tab's workspace", error));
     let feedback: { text: string; variant: ToastVariant };
     try {
       const result = await client.rpc(retitle, { agentId });
@@ -34,8 +76,10 @@ export default function contribute(client: PluginClientContext) {
     } catch (error) {
       feedback = { text: `Couldn't retitle: ${error instanceof Error ? error.message : String(error)}`, variant: "error" };
     } finally {
-      pill.remove();
+      finished = true;
+      pill?.remove();
       running.delete(agentId);
+      paint();
     }
     if (note) lent.toast?.show(`${feedback.text}. ${note}`, { variant: "warning", durationMs: 8000 });
     else if (lent.toast) lent.toast.show(feedback.text, { variant: feedback.variant, durationMs: feedback.variant === "error" ? 6000 : 2500 });
@@ -43,9 +87,10 @@ export default function contribute(client: PluginClientContext) {
   };
 
   const cleanups = [
-    // Command Center requires a built-in glyph; tab and workspace icons are untouched.
-    client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, workspace.id) }),
-    client.addSlashCommand({ name: "retitle", description: "Rename this tab if its title no longer fits", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, workspace.id) }),
+    // Command Center requires a built-in glyph; tab and workspace icons are left alone except for the spinner.
+    client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
+    client.addSlashCommand({ name: "retitle", description: "Rename this tab if its title no longer fits", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
+    () => style?.remove(),
   ];
 
   if (Platform.OS === "web") {
@@ -72,8 +117,8 @@ export default function contribute(client: PluginClientContext) {
       clashExplained ||= Boolean(note);
       event.preventDefault();
       event.stopImmediatePropagation();
-      void client.paseo.agents.ref(agentId).refresh()
-        .then(snapshot => snapshot?.agent.workspaceId && run(agentId, snapshot.agent.workspaceId, note))
+      // The spinner starts now; the workspace (needed only for the toast-lending pill) resolves meanwhile.
+      run(agentId, async () => (await client.paseo.agents.ref(agentId).refresh())?.agent.workspaceId, note)
         .catch(error => console.warn("titles: Ctrl+Alt+T failed", error));
     };
     document.addEventListener("pointerdown", track, true);
