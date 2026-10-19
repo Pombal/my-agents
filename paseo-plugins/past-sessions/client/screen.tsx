@@ -39,13 +39,13 @@ export function PastSessionsScreen({ theme, layout, host, params, navigation }: 
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-      <View style={[styles.header, { paddingHorizontal: gutter, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingHorizontal: gutter }]}>
         <Icon name="LayoutGrid" size={16} color={colors.foregroundMuted} />
         <View style={styles.body}>
-          <Text style={{ color: colors.foregroundMuted, fontSize: 11 }} numberOfLines={1}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 }} numberOfLines={1}>
             {workspace ? workspace.projectDisplayName : " "}
           </Text>
-          <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "600" }} numberOfLines={1}>
+          <Text style={{ color: colors.foreground, fontSize: 14, lineHeight: 20, fontWeight: "600" }} numberOfLines={1}>
             {workspace ? workspace.name : workspaces.isError ? "Workspaces unavailable" : "Loading workspaces…"}
           </Text>
         </View>
@@ -129,21 +129,15 @@ export function PastSessionsScreen({ theme, layout, host, params, navigation }: 
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  body: { flex: 1, minWidth: 0, gap: 1 },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 12 },
+  body: { flex: 1, minWidth: 0 },
   switch: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 10,
-    height: 30,
-    borderRadius: 7,
+    height: 28,
+    borderRadius: 6,
     borderWidth: StyleSheet.hairlineWidth,
   },
   option: {

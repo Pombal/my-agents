@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { useRpc } from "@getpaseo/plugin/client";
+import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useMemo, useState, type ReactNode } from "react";
@@ -12,10 +12,12 @@ import {
   type PastSessionsListing,
   type Scope,
 } from "../shared/rpc";
-import { absoluteTime, folderLabel, relativeTime, tildify } from "./format";
+import { viewSettings, type Density } from "../shared/view";
+import { absoluteTime, folderChip, relativeTime, tildify } from "./format";
 import { Interactive } from "./interactive";
 import { buildListItems, type ListItem } from "./model";
 import { ProviderGlyph, useSnapshotIcons } from "./provider-glyph";
+import { tooltip } from "./web";
 
 interface Props {
   workspaceId: string;
@@ -24,6 +26,7 @@ interface Props {
   theme: PluginTheme;
   /** Host id, for provider glyphs. */
   serverId: string;
+  /** Phone-sized layout: no hover, search on its own line. */
   compact: boolean;
   navigation: PluginSurfaceProps["navigation"];
 }
@@ -34,10 +37,15 @@ const SCOPES: { value: Scope; label: string; hint: string }[] = [
   { value: "project", label: "Project", hint: "Everything in the project, its subfolders and worktrees" },
 ];
 
-// Rows are two text lines; the glyph and both right-hand items sit on these line boxes.
-const TITLE_LINE = 20;
-const META_LINE = 18;
-const GLYPH = 16;
+const DENSITIES: { value: Density; icon: string; label: string }[] = [
+  { value: "comfortable", icon: "Rows2", label: "Comfortable: two lines of the last reply" },
+  { value: "compact", icon: "Rows4", label: "Compact: one line per session" },
+];
+
+// Paseo's default type ramp (Interface size 14): 14/20 for titles, 12/17 for everything else.
+const BASE = { fontSize: 14, lineHeight: 20 } as const;
+const SMALL = { fontSize: 12, lineHeight: 17 } as const;
+const GLYPH = 14;
 
 type Styles = ReturnType<typeof createStyles>;
 
@@ -45,126 +53,116 @@ function createStyles(theme: PluginTheme, compact: boolean) {
   const { colors } = theme;
   const gutter = compact ? 14 : 20;
   const focusRing = { outlineColor: colors.accent, outlineStyle: "solid", outlineWidth: 2 } as const;
+  const muted = { ...SMALL, color: colors.foregroundMuted };
+  const segmentGroup = { flexDirection: "row", padding: 2, borderRadius: 12, backgroundColor: colors.surface2 } as const;
   return StyleSheet.create({
     root: { flex: 1, minHeight: 0, backgroundColor: colors.surface0 },
-    header: { paddingHorizontal: gutter, paddingTop: 14, paddingBottom: 12, gap: 10 },
+    // The bottom padding keeps scrolled rows from touching the context line.
+    header: { paddingHorizontal: gutter, paddingTop: 12, paddingBottom: 6 },
     toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
     focusRing,
     focusRingInset: { ...focusRing, outlineOffset: -2 },
-    segments: {
-      flexDirection: "row",
-      padding: 2,
-      borderRadius: 8,
-      backgroundColor: colors.surface1,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-    segment: {
-      paddingHorizontal: compact ? 10 : 12,
-      height: 28,
-      justifyContent: "center",
-      borderRadius: 6,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: "transparent",
-    },
-    segmentHovered: { backgroundColor: colors.surface2 },
-    segmentActive: { backgroundColor: colors.surface0, borderColor: colors.border },
-    segmentText: { color: colors.foregroundMuted, fontSize: 13 },
-    segmentTextHovered: { color: colors.foreground },
-    segmentTextActive: { color: colors.foreground, fontWeight: "600" },
+    segments: { ...segmentGroup, flexShrink: 0 },
+    segment: { height: 24, paddingHorizontal: 8, borderRadius: 10, justifyContent: "center" },
+    densityOption: { height: 24, paddingHorizontal: 6, borderRadius: 10, justifyContent: "center" },
+    segmentActive: { backgroundColor: colors.surface0 },
+    segmentText: { ...SMALL, color: colors.foregroundMuted },
+    segmentTextHot: { color: colors.foreground },
     spacer: { flex: 1 },
-    iconButton: { width: 34, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    iconButton: { width: 28, height: 28, borderRadius: 6, alignItems: "center", justifyContent: "center" },
     iconButtonHovered: { backgroundColor: colors.surface1 },
     iconButtonPressed: { backgroundColor: colors.surface2 },
     search: {
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
+      height: compact ? 34 : 28,
       paddingHorizontal: 10,
-      height: 34,
-      borderRadius: 8,
+      borderRadius: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       backgroundColor: colors.surface1,
     },
-    searchInline: { flex: 1, minWidth: 160 },
+    searchInline: { flex: 1, minWidth: 140 },
+    searchRow: { marginTop: 8 },
     searchFocused: { borderColor: colors.accent },
     // The container shows focus; the browser's own ring inside it would double the border.
-    searchInput: { flex: 1, color: colors.foreground, fontSize: 13, paddingVertical: 0, outlineWidth: 0 },
-    clear: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-    clearHovered: { backgroundColor: colors.surface2 },
-    context: { color: colors.foregroundMuted, fontSize: 12 },
-    warning: { color: colors.statusWarning, fontSize: 12 },
-    sectionLabel: {
-      paddingHorizontal: gutter,
-      paddingTop: 6,
-      paddingBottom: 6,
-      color: colors.foregroundMuted,
-      fontSize: 11,
-      fontWeight: "600",
-      letterSpacing: 0.6,
-      textTransform: "uppercase",
-    },
-    row: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 12,
-      paddingHorizontal: gutter,
-      paddingVertical: 10,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.border,
-    },
+    searchInput: { flex: 1, ...BASE, color: colors.foreground, paddingVertical: 0, outlineWidth: 0 },
+    clear: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    context: { ...muted, marginTop: 8 },
+    warning: { ...SMALL, color: colors.statusWarning, marginTop: 4 },
+    label: { ...muted, fontWeight: "500", paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 6 },
+    row: { paddingHorizontal: gutter, paddingVertical: 8 },
+    rowCompact: { paddingVertical: 6 },
+    rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
     rowHovered: { backgroundColor: colors.surface1 },
     rowPressed: { backgroundColor: colors.surface2 },
-    glyph: { width: GLYPH, height: TITLE_LINE, alignItems: "center", justifyContent: "center" },
-    rowBody: { flex: 1, minWidth: 0 },
-    line: { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0 },
-    title: { flex: 1, color: colors.foreground, fontSize: 14, lineHeight: TITLE_LINE, fontWeight: "500" },
-    relative: { color: colors.foregroundMuted, fontSize: 12, lineHeight: TITLE_LINE },
-    meta: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, height: META_LINE },
-    tag: { paddingHorizontal: 5, borderRadius: 4, backgroundColor: colors.surface2 },
-    tagText: { color: colors.foregroundMuted, fontSize: 11, lineHeight: 15 },
-    metaText: { flexShrink: 1, color: colors.foregroundMuted, fontSize: 12, lineHeight: META_LINE },
-    action: { flexDirection: "row", alignItems: "center", gap: 5, height: META_LINE },
-    actionText: { color: colors.foregroundMuted, fontSize: 12, lineHeight: META_LINE },
-    actionTextHot: { color: colors.accent, fontWeight: "600" },
+    split: { flexDirection: "row", gap: 10 },
+    glyph: { width: GLYPH, height: BASE.lineHeight, alignItems: "center", justifyContent: "center" },
+    body: { flex: 1, minWidth: 0 },
+    line: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    lineCompact: { gap: 10 },
+    title: { ...BASE, flexShrink: 1, color: colors.foreground },
+    titleCompact: { maxWidth: "56%" },
+    titleFill: { flex: 1 },
+    tail: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 },
+    tailHidden: { opacity: 0 },
+    dash: { ...muted, opacity: 0.6 },
+    chip: {
+      flexShrink: 1,
+      // Phones leave the title little room; the chip yields first.
+      maxWidth: compact ? "28%" : "40%",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 6,
+      borderRadius: 5,
+      backgroundColor: colors.surface2,
+    },
+    chipHot: { backgroundColor: colors.surface0 },
+    chipText: { ...muted, flexShrink: 1 },
+    right: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
+    meta: muted,
+    tag: { ...muted, opacity: 0.72 },
+    dot: { ...muted, opacity: 0.5 },
+    action: { ...SMALL, color: colors.foreground, fontWeight: "500" },
+    preview: { ...muted, marginTop: 1 },
+    previewInline: { ...muted, flex: 1, minWidth: 0 },
+    previewNone: { fontStyle: "italic", opacity: 0.75 },
+    recapLabel: { color: colors.foreground, fontWeight: "500" },
+    expansion: { paddingLeft: GLYPH + 10, paddingBottom: 2 },
     folderHeader: {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
-      marginTop: 18,
+      marginTop: 10,
       paddingHorizontal: gutter,
-      paddingVertical: 12,
+      paddingVertical: 10,
       borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
       backgroundColor: colors.surface1,
     },
     folderHeaderHovered: { backgroundColor: colors.surface2 },
-    folderHeaderBody: { flex: 1, minWidth: 0, gap: 2 },
-    folderHeaderTitle: { color: colors.foreground, fontSize: 13, fontWeight: "600" },
-    folderHeaderHint: { color: colors.foregroundMuted, fontSize: 12 },
-    count: {
-      minWidth: 22,
-      paddingHorizontal: 7,
-      paddingVertical: 1,
-      borderRadius: 10,
-      backgroundColor: colors.surface2,
-      alignItems: "center",
-    },
-    countText: { color: colors.foreground, fontSize: 12, fontWeight: "600" },
+    folderHeaderBody: { flex: 1, minWidth: 0 },
+    folderHeaderTitle: { ...BASE, color: colors.foreground, fontWeight: "500" },
+    folderHeaderHint: muted,
+    count: { paddingHorizontal: 7, borderRadius: 9, backgroundColor: colors.surface2 },
+    countText: { ...SMALL, color: colors.foreground },
     state: { alignItems: "center", gap: 8, paddingHorizontal: 32, paddingVertical: 40 },
-    stateTitle: { color: colors.foreground, fontSize: 14, fontWeight: "600", textAlign: "center" },
-    stateDetail: { color: colors.foregroundMuted, fontSize: 13, textAlign: "center", maxWidth: 420 },
+    stateTitle: { ...BASE, color: colors.foreground, fontWeight: "600", textAlign: "center" },
+    stateDetail: { ...muted, textAlign: "center", maxWidth: 420 },
     stateButton: {
       marginTop: 6,
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-      borderRadius: 7,
+      paddingHorizontal: 12,
+      height: 28,
+      justifyContent: "center",
+      borderRadius: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
-    stateButtonText: { color: colors.foreground, fontSize: 13 },
-    footer: { paddingHorizontal: gutter, paddingTop: 16, paddingBottom: 24, color: colors.foregroundMuted, fontSize: 11 },
+    stateButtonText: { ...SMALL, color: colors.foreground },
+    footer: { ...muted, paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 24 },
   });
 }
 
@@ -205,12 +203,25 @@ function StateMessage(props: {
   );
 }
 
+function Preview({ entry, styles, lines }: { entry: PastSession; styles: Styles; lines: number }) {
+  const { preview } = entry;
+  if (!preview) return <Text style={[styles.preview, styles.previewNone]}>No reply</Text>;
+  return (
+    <Text style={styles.preview} numberOfLines={lines}>
+      {preview.kind === "recap" ? <Text style={styles.recapLabel}>Recap </Text> : null}
+      {preview.text}
+    </Text>
+  );
+}
+
 interface RowProps {
   entry: PastSession;
-  where: string | null;
+  chip: { label: string; path: string } | null;
   now: number;
   busy: boolean;
   disabled: boolean;
+  divider: boolean;
+  density: Density;
   compact: boolean;
   serverId: string;
   snapshotSvg: string | undefined;
@@ -219,20 +230,27 @@ interface RowProps {
   onOpen(entry: PastSession): void;
 }
 
+/**
+ * Comfortable: glyph | title, folder chip, "terminal · 2 d ago" / two preview lines.
+ * Compact: one line with the preview as a muted tail; hover opens the two-line preview below.
+ * Hover or keyboard focus swaps the time for the action; the "terminal" word stays.
+ */
 const SessionRow = memo(function SessionRow(props: RowProps) {
-  const { entry, where, now, busy, disabled, compact, styles, theme, onOpen } = props;
+  const { entry, chip, now, busy, density, compact, styles, theme } = props;
   const fromPaseo = entry.source === "paseo";
-  const muted = theme.colors.foregroundMuted;
+  const dense = density === "compact";
   const actionLabel = fromPaseo ? "Restore" : "Import";
   return (
     <Interactive
       accessibilityRole="button"
       accessibilityLabel={`${actionLabel} ${entry.title}`}
       testID={`past-session-${entry.key}`}
-      disabled={disabled}
-      onPress={() => onOpen(entry)}
+      disabled={props.disabled}
+      onPress={() => props.onOpen(entry)}
       style={({ hovered, pressed, focused }) => [
         styles.row,
+        dense ? styles.rowCompact : null,
+        props.divider && !dense ? styles.rowDivider : null,
         hovered ? styles.rowHovered : null,
         pressed ? styles.rowPressed : null,
         focused ? styles.focusRingInset : null,
@@ -240,56 +258,95 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
     >
       {({ hovered, focused }) => {
         const hot = hovered || focused;
+        const glyph = (
+          <View style={styles.glyph}>
+            <ProviderGlyph
+              provider={entry.provider}
+              serverId={props.serverId}
+              snapshotSvg={props.snapshotSvg}
+              size={GLYPH}
+              color={theme.colors.foregroundMuted}
+            />
+          </View>
+        );
+        const title = (
+          <Text
+            style={[styles.title, dense ? (compact ? styles.titleFill : styles.titleCompact) : null]}
+            numberOfLines={1}
+          >
+            {entry.title}
+          </Text>
+        );
+        const folder = chip ? (
+          <View ref={tooltip(chip.path)} style={[styles.chip, hot ? styles.chipHot : null]}>
+            <Icon name="Folder" size={11} color={theme.colors.foregroundMuted} />
+            <Text style={styles.chipText} numberOfLines={1}>
+              {chip.label}
+            </Text>
+          </View>
+        ) : null;
+        const right = (
+          <View style={styles.right}>
+            {fromPaseo ? null : (
+              <>
+                <Text style={styles.tag}>terminal</Text>
+                <Text style={styles.dot}>·</Text>
+              </>
+            )}
+            {busy ? (
+              <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
+            ) : hot ? (
+              <>
+                <Icon name={fromPaseo ? "ArchiveRestore" : "Import"} size={14} color={theme.colors.accent} />
+                <Text style={styles.action}>{actionLabel}</Text>
+              </>
+            ) : (
+              <Text ref={tooltip(`Last active ${absoluteTime(entry.at)}`)} style={styles.meta}>
+                {relativeTime(entry.at, now, dense)}
+              </Text>
+            )}
+          </View>
+        );
+
+        if (!dense) {
+          return (
+            <View style={styles.split}>
+              {glyph}
+              <View style={styles.body}>
+                <View style={styles.line}>
+                  {title}
+                  {folder}
+                  <View style={styles.spacer} />
+                  {right}
+                </View>
+                <Preview entry={entry} styles={styles} lines={2} />
+              </View>
+            </View>
+          );
+        }
+        const opened = hot && !compact;
         return (
           <>
-            <View style={styles.glyph}>
-              {fromPaseo ? (
-                <ProviderGlyph
-                  provider={entry.provider}
-                  serverId={props.serverId}
-                  snapshotSvg={props.snapshotSvg}
-                  size={GLYPH}
-                  color={muted}
-                />
-              ) : (
-                <Icon name="SquareTerminal" size={GLYPH} color={muted} />
-              )}
-            </View>
-            <View style={styles.rowBody}>
-              <View style={styles.line}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {entry.title}
-                </Text>
-                <Text style={styles.relative}>{relativeTime(entry.at, now)}</Text>
-              </View>
-              <View style={styles.line}>
-                <View style={styles.meta}>
-                  <View style={styles.tag}>
-                    <Text style={styles.tagText}>{fromPaseo ? "Paseo" : "OMP terminal"}</Text>
-                  </View>
-                  <Text style={styles.metaText} numberOfLines={1}>
-                    {absoluteTime(entry.at)}
-                    {where ? ` · ${where}` : ""}
+            <View style={[styles.line, styles.lineCompact]}>
+              {glyph}
+              {title}
+              {folder}
+              {compact ? null : (
+                <View style={[styles.tail, opened ? styles.tailHidden : null]}>
+                  <Text style={styles.dash}>—</Text>
+                  <Text style={[styles.previewInline, entry.preview ? null : styles.previewNone]} numberOfLines={1}>
+                    {entry.preview?.text ?? "No reply"}
                   </Text>
                 </View>
-                <View style={styles.action}>
-                  {busy ? (
-                    <ActivityIndicator size="small" color={muted} />
-                  ) : (
-                    <>
-                      {compact ? null : (
-                        <Text style={[styles.actionText, hot ? styles.actionTextHot : null]}>{actionLabel}</Text>
-                      )}
-                      <Icon
-                        name={fromPaseo ? "ArchiveRestore" : "Import"}
-                        size={14}
-                        color={hot ? theme.colors.accent : muted}
-                      />
-                    </>
-                  )}
-                </View>
-              </View>
+              )}
+              {compact ? <View style={styles.spacer} /> : null}
+              {right}
             </View>
+            {opened ? (
+              <View style={styles.expansion}>
+                <Preview entry={entry} styles={styles} lines={2} />
+              </View>
+            ) : null}
           </>
         );
       }}
@@ -301,7 +358,7 @@ function contextLine(data: PastSessionsListing, scope: Scope): string {
   const folder = tildify(data.folder, data.home);
   if (scope === "workspace") return `Archived agents of ${data.workspaceName} · ${folder}`;
   if (scope === "folder") return `Everything that ran in ${folder}`;
-  return `Everything in ${data.projectName} · ${tildify(data.projectRoot, data.home)}, subfolders and worktrees`;
+  return `Everything in ${data.projectName}, its subfolders and worktrees · ${tildify(data.projectRoot, data.home)}`;
 }
 
 function emptyMessage(scope: Scope, query: string): { title: string; detail: string } {
@@ -315,6 +372,20 @@ function emptyMessage(scope: Scope, query: string): { title: string; detail: str
   return { title: "No past sessions here", detail: "Archived agents and terminal sessions for this place appear here." };
 }
 
+/** The saved density, switched optimistically; saving failures keep the local choice. */
+function useDensity(): [Density, (density: Density) => void] {
+  const settings = useSettings(viewSettings);
+  const [chosen, setChosen] = useState<Density | null>(null);
+  const saved = settings.status === "ready" ? settings.values.density : "comfortable";
+  return [
+    chosen ?? saved,
+    (density) => {
+      setChosen(density);
+      if (settings.status === "ready") void settings.save({ density }, settings.revision);
+    },
+  ];
+}
+
 export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, serverId, compact, navigation }: Props) {
   const styles = useMemo(() => createStyles(theme, compact), [theme, compact]);
   const list = useRpc(listPastSessions);
@@ -322,6 +393,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const queryClient = useQueryClient();
   const toast = useToast();
   const snapshotIcons = useSnapshotIcons();
+  const [density, setDensity] = useDensity();
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [sameFolderOpen, setSameFolderOpen] = useState(false);
@@ -351,7 +423,6 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   );
   const now = Date.now();
   const busyKey = mutation.isPending ? mutation.variables?.key : undefined;
-  const base = data ? (scope === "project" ? data.projectRoot : data.folder) : "";
 
   const segments = (
     <View style={styles.segments} accessibilityRole="tablist">
@@ -365,22 +436,41 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             accessibilityHint={option.hint}
             testID={`past-sessions-scope-${option.value}`}
             onPress={() => onScopeChange(option.value)}
-            style={({ hovered, focused }) => [
+            style={({ focused }) => [
               styles.segment,
-              active ? styles.segmentActive : hovered ? styles.segmentHovered : null,
+              active ? styles.segmentActive : null,
               focused ? styles.focusRing : null,
             ]}
           >
             {({ hovered }) => (
-              <Text
-                style={[
-                  styles.segmentText,
-                  hovered ? styles.segmentTextHovered : null,
-                  active ? styles.segmentTextActive : null,
-                ]}
-              >
-                {option.label}
-              </Text>
+              <Text style={[styles.segmentText, active || hovered ? styles.segmentTextHot : null]}>{option.label}</Text>
+            )}
+          </Interactive>
+        );
+      })}
+    </View>
+  );
+
+  const densitySwitch = (
+    <View style={styles.segments} accessibilityRole="radiogroup" accessibilityLabel="Density">
+      {DENSITIES.map((option) => {
+        const active = option.value === density;
+        return (
+          <Interactive
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: active }}
+            accessibilityLabel={option.label}
+            testID={`past-sessions-density-${option.value}`}
+            onPress={() => setDensity(option.value)}
+            style={({ focused }) => [
+              styles.densityOption,
+              active ? styles.segmentActive : null,
+              focused ? styles.focusRing : null,
+            ]}
+          >
+            {({ hovered }) => (
+              <Icon name={option.icon} size={15} color={active || hovered ? theme.colors.foreground : muted} />
             )}
           </Interactive>
         );
@@ -410,7 +500,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           onPress={() => setQuery("")}
           style={({ hovered, focused }) => [
             styles.clear,
-            hovered ? styles.clearHovered : null,
+            hovered ? styles.iconButtonPressed : null,
             focused ? styles.focusRing : null,
           ]}
         >
@@ -445,24 +535,15 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
 
   const header = (
     <View style={styles.header}>
-      {compact ? (
-        <>
-          <View style={styles.toolbar}>
-            {segments}
-            <View style={styles.spacer} />
-            {refresh}
-          </View>
-          {search}
-        </>
-      ) : (
-        <View style={styles.toolbar}>
-          {segments}
-          {search}
-          {refresh}
-        </View>
-      )}
+      <View style={styles.toolbar}>
+        {segments}
+        {compact ? <View style={styles.spacer} /> : search}
+        {densitySwitch}
+        {refresh}
+      </View>
+      {compact ? <View style={styles.searchRow}>{search}</View> : null}
       {data ? (
-        <Text style={styles.context} numberOfLines={1}>
+        <Text style={styles.context} numberOfLines={compact ? 2 : 1}>
           {contextLine(data, scope)}
         </Text>
       ) : null}
@@ -490,8 +571,8 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     body = <StateMessage styles={styles} theme={theme} icon="History" title="Reading sessions…" busy />;
   } else {
     const mainCount = data.entries.length;
-    const label = scope === "workspace" ? `Archived agents · ${mainCount}` : `Past sessions · ${mainCount}`;
-    const renderItem = ({ item }: { item: ListItem }) => {
+    const label = scope === "workspace" ? `Archived agents · ${mainCount}` : `Paseo agents and terminal sessions · ${mainCount}`;
+    const renderItem = ({ item, index }: { item: ListItem; index: number }) => {
       if (item.kind === "empty") {
         const message = emptyMessage(scope, query);
         return <StateMessage styles={styles} theme={theme} icon="Inbox" title={message.title} detail={message.detail} />;
@@ -513,13 +594,13 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
               <>
                 <Icon
                   name={item.open ? "ChevronDown" : "ChevronRight"}
-                  size={16}
+                  size={14}
                   color={hovered ? theme.colors.foreground : muted}
                 />
                 <View style={styles.folderHeaderBody}>
                   <Text style={styles.folderHeaderTitle}>Terminal sessions in this folder</Text>
                   <Text style={styles.folderHeaderHint} numberOfLines={2}>
-                    Never opened in Paseo. Import one to continue it here.
+                    Never opened in Paseo. Click one to import it.
                   </Text>
                 </View>
                 <View style={styles.count}>
@@ -533,10 +614,12 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       return (
         <SessionRow
           entry={item.entry}
-          where={folderLabel(item.entry.cwd, base, data.home)}
+          chip={folderChip(item.entry.cwd, data.folder, data.home)}
           now={now}
           busy={busyKey === item.entry.key}
           disabled={mutation.isPending}
+          divider={items[index - 1]?.kind === "row"}
+          density={density}
           compact={compact}
           serverId={serverId}
           snapshotSvg={snapshotIcons.get(item.entry.provider)}
@@ -546,23 +629,25 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
         />
       );
     };
-    const { stats } = data;
+    const hidden = data.stats.hiddenKnownToPaseo;
     body = (
       <FlatList
         style={{ flex: 1, minHeight: 0 }}
         data={items}
+        extraData={density}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         initialNumToRender={30}
         keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={mainCount > 0 ? <Text style={styles.sectionLabel}>{label}</Text> : null}
+        ListHeaderComponent={mainCount > 0 ? <Text style={styles.label}>{label}</Text> : null}
         ListFooterComponent={
-          <Text style={styles.footer} testID="past-sessions-footer">
-            {stats.hiddenKnownToPaseo > 0
-              ? `${stats.hiddenKnownToPaseo} terminal ${stats.hiddenKnownToPaseo === 1 ? "session is" : "sessions are"} already in Paseo and not repeated. `
-              : ""}
-            Scanned {stats.ompFilesSeen} OMP {stats.ompFilesSeen === 1 ? "file" : "files"} in {stats.elapsedMs} ms.
-          </Text>
+          hidden > 0 ? (
+            <Text style={styles.footer} testID="past-sessions-footer">
+              {hidden} terminal {hidden === 1 ? "session is" : "sessions are"} already in Paseo and not repeated.
+            </Text>
+          ) : (
+            <View style={{ height: 24 }} />
+          )
         }
       />
     );

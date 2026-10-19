@@ -17,6 +17,8 @@ export const PastSessionSchema = z.object({
   agentId: z.string().optional(),
   sessionId: z.string().optional(),
   file: z.string().optional(),
+  /** A `paseo-recap` summary, else the last assistant reply as plain text; null when neither exists. */
+  preview: z.object({ kind: z.enum(["recap", "reply"]), text: z.string() }).nullable(),
 });
 export type PastSession = z.infer<typeof PastSessionSchema>;
 

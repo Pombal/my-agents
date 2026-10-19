@@ -3,7 +3,7 @@ import type { PastSession } from "../shared/rpc";
 import { buildListItems, matchesQuery, type ListItem } from "./model";
 
 function session(key: string, title: string, cwd = "/home/cx/agentspace/index"): PastSession {
-  return { key, source: key.startsWith("omp:") ? "omp" : "paseo", title, cwd, at: "2026-10-19T00:00:00.000Z", provider: "omp" };
+  return { key, source: key.startsWith("omp:") ? "omp" : "paseo", title, cwd, at: "2026-10-19T00:00:00.000Z", provider: "omp", preview: null };
 }
 
 const shape = (items: ListItem[]) =>

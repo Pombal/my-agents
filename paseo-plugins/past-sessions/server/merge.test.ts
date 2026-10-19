@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergePastSessions, titleFromPrompt, type AgentRecord, type ScopeFilter } from "./merge";
+import { cleanTitle, mergePastSessions, titleFromPrompt, type AgentRecord, type ScopeFilter } from "./merge";
 import type { OmpSession } from "./omp-sessions";
 
 const folder = "/home/cx/agentspace/index";
@@ -23,6 +23,7 @@ function agent(overrides: Partial<AgentRecord> & { id: string }): AgentRecord {
     updatedAt: "2026-10-01T00:00:00.000Z",
     lastUserMessageAt: null,
     sessionRefs: [],
+    transcript: null,
     ...overrides,
   };
 }
@@ -141,6 +142,15 @@ describe("mergePastSessions dedup and order", () => {
     expect(result.entries).toEqual([
       expect.objectContaining({ key: "paseo:a", title: "Fix the build", at: "2026-10-05T00:00:00.000Z" }),
     ]);
+  });
+});
+
+describe("cleanTitle", () => {
+  it("drops Nerd Font glyphs OMP puts before terminal titles", () => {
+    expect(cleanTitle("\uF0EB  DOCS: Find subagent decisions")).toBe("DOCS: Find subagent decisions");
+    expect(cleanTitle("\u{F0A1E} WIDGET: Scaffold")).toBe("WIDGET: Scaffold");
+    expect(cleanTitle("\uF0EB")).toBeNull();
+    expect(cleanTitle("Fix café ✓")).toBe("Fix café ✓");
   });
 });
 

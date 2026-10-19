@@ -15,6 +15,8 @@ export interface AgentRecord {
   lastUserMessageAt: string | null;
   /** Provider session ids and native handles (OMP: session id and/or .jsonl path). */
   sessionRefs: string[];
+  /** The provider's transcript file when it can be located cheaply (OMP, Claude Code), else null. */
+  transcript: string | null;
 }
 
 export interface ScopeFilter {
@@ -55,8 +57,18 @@ export function titleFromPrompt(prompt: string | null): string | null {
   );
 }
 
+// Unicode private-use characters: Nerd Font glyphs OMP puts in session titles. App fonts have no
+// glyph for them, so they would render as empty boxes.
+const PRIVATE_USE = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/gu;
+
+/** A displayable title: icon-font glyphs removed, whitespace trimmed; null when nothing is left. */
+export function cleanTitle(title: string | null | undefined): string | null {
+  const cleaned = title?.replace(PRIVATE_USE, "").replace(/\s+/g, " ").trim();
+  return cleaned || null;
+}
+
 /** Newest activity first; ties broken by key so the order is stable. */
-function byNewest(a: PastSession, b: PastSession): number {
+export function byNewest(a: PastSession, b: PastSession): number {
   if (a.at === b.at) return a.key.localeCompare(b.key);
   return a.at < b.at ? 1 : -1;
 }
@@ -95,14 +107,16 @@ export function mergePastSessions(input: {
       key: `paseo:${agent.id}`,
       source: "paseo",
       title:
-        agent.title?.trim() ||
-        session?.title ||
-        titleFromPrompt(session?.firstPrompt ?? null) ||
+        cleanTitle(agent.title) ||
+        cleanTitle(session?.title) ||
+        cleanTitle(titleFromPrompt(session?.firstPrompt ?? null)) ||
         "Untitled agent",
       cwd: agent.cwd,
       at: session?.mtime ?? agent.lastUserMessageAt ?? agent.updatedAt,
       provider: agent.provider,
       agentId: agent.id,
+      ...(agent.transcript ? { file: agent.transcript } : {}),
+      preview: null,
     });
   }
 
@@ -119,12 +133,13 @@ export function mergePastSessions(input: {
   const terminal: PastSession[] = [...newestOmp.values()].map((session) => ({
     key: `omp:${session.sessionId}`,
     source: "omp",
-    title: session.title || titleFromPrompt(session.firstPrompt) || "Empty session",
+    title: cleanTitle(session.title) || cleanTitle(titleFromPrompt(session.firstPrompt)) || "Empty session",
     cwd: session.cwd,
     at: session.mtime,
     provider: session.provider,
     sessionId: session.sessionId,
     file: session.file,
+    preview: null,
   }));
 
   if (input.scope.mode === "workspace") {

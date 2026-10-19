@@ -5,6 +5,9 @@ declare const document: {
   addEventListener(type: "keydown" | "pointerdown", listener: (event: { key?: string }) => void, capture: boolean): void;
   removeEventListener(type: "keydown" | "pointerdown", listener: (event: { key?: string }) => void, capture: boolean): void;
 };
+interface TitledElement {
+  setAttribute(name: "title", value: string): void;
+}
 
 let keyboard = false;
 const onKey = (event: { key?: string }) => {
@@ -30,4 +33,16 @@ export function startFocusModality(): () => void {
 
 export function focusFromKeyboard(): boolean {
   return keyboard;
+}
+
+/**
+ * A ref callback that gives the element a native browser tooltip. react-native-web drops a
+ * `title` prop, and native apps have no hover, so this is web-only and a no-op elsewhere.
+ */
+export function tooltip(text: string): (node: unknown) => void {
+  return (node) => {
+    if (Platform.OS !== "web" || !node || typeof node !== "object" || !("setAttribute" in node)) return;
+    const element: TitledElement = node as TitledElement; // react-native-web refs are DOM elements
+    element.setAttribute("title", text);
+  };
 }

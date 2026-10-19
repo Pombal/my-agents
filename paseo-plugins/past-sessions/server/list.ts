@@ -4,9 +4,11 @@ import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { listPastSessions } from "../shared/rpc";
-import { mergePastSessions, type AgentRecord } from "./merge";
+import type { listPastSessions, PastSession } from "../shared/rpc";
+import { byNewest, mergePastSessions, type AgentRecord } from "./merge";
 import { OmpSessionIndex, resolvedOrSelf, type OmpSessionRoot } from "./omp-sessions";
+import { TailCache } from "./preview";
+import { RecapStore } from "./recaps";
 
 type Paseo = PluginHandlerContext["paseo"];
 
@@ -43,6 +45,54 @@ async function sessionIndex(): Promise<OmpSessionIndex> {
     ([home, tmp]) => new OmpSessionIndex({ home, tmp }),
   );
   return index;
+}
+const tails = new TailCache();
+const recaps = new RecapStore(
+  path.join(process.env.PASEO_HOME ?? path.join(homedir(), ".paseo"), "plugin-data", "paseo-recap", "recaps.json"),
+);
+
+/**
+ * The agent's transcript, when finding it costs at most a stat: OMP stores the session file as
+ * its native handle; Claude Code keeps `~/.claude/projects/<cwd, non-alphanumerics → "-">/<id>.jsonl`.
+ * Codex rollouts sit in date folders that would need a search, so they get no preview.
+ */
+export function transcriptFile(
+  persistence: { provider: string; sessionId: string; nativeHandle?: string } | null | undefined,
+  cwd: string,
+  home: string,
+): string | null {
+  if (!persistence) return null;
+  const handle = persistence.nativeHandle;
+  if (handle && path.isAbsolute(handle) && handle.endsWith(".jsonl")) return handle;
+  if (persistence.provider === "claude" && persistence.sessionId) {
+    return path.join(home, ".claude", "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${persistence.sessionId}.jsonl`);
+  }
+  return null;
+}
+
+/**
+ * Adds previews (recap if `paseo-recap` has one, else the transcript's last reply) and dates rows
+ * by their transcript's newest record, then re-sorts. 24 files are read at a time.
+ */
+async function withPreviews(entries: PastSession[], recapsByAgent: Map<string, string>): Promise<PastSession[]> {
+  const out: PastSession[] = [];
+  for (let start = 0; start < entries.length; start += 24) {
+    out.push(
+      ...(await Promise.all(
+        entries.slice(start, start + 24).map(async (entry): Promise<PastSession> => {
+          const tail = entry.file ? await tails.summary(entry.file) : null;
+          const recap = entry.agentId ? recapsByAgent.get(entry.agentId) : undefined;
+          const preview = recap
+            ? { kind: "recap" as const, text: recap }
+            : tail?.reply
+              ? { kind: "reply" as const, text: tail.reply }
+              : null;
+          return { ...entry, at: tail?.lastActiveAt ?? entry.at, preview };
+        }),
+      )),
+    );
+  }
+  return out.sort(byNewest);
 }
 
 async function listAllWorkspaces(paseo: Paseo) {
@@ -140,6 +190,7 @@ export async function listHandler(
         agent.persistence?.nativeHandle,
         agent.runtimeInfo?.sessionId,
       ].filter((ref): ref is string => typeof ref === "string" && ref.length > 0),
+      transcript: agent.archivedAt ? transcriptFile(agent.persistence, agent.cwd, home) : null,
     })),
   );
 
@@ -154,6 +205,7 @@ export async function listHandler(
     },
   });
 
+  const recapsByAgent = await recaps.read();
   return {
     workspaceName: workspace.name,
     home,
@@ -161,8 +213,8 @@ export async function listHandler(
     projectRoot: workspace.projectRootPath,
     projectName: workspace.projectDisplayName,
     scope: input.scope,
-    entries,
-    sameFolder,
+    entries: await withPreviews(entries, recapsByAgent),
+    sameFolder: await withPreviews(sameFolder, recapsByAgent),
     stats: {
       elapsedMs: Math.round(performance.now() - started),
       ompDirsScanned: stats.dirsScanned,

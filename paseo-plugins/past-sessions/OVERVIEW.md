@@ -7,12 +7,28 @@ Two sources, newest activity first:
   A session any Paseo agent (live or archived, any folder) already owns is never listed twice;
   the footer counts those ("23 terminal sessions are already in Paseo and not repeated").
 
-Each row is two lines on a fixed grid: the provider mark beside the title, relative time at the
-right; below, a source tag, local date and time (`2026-10-17 19:14`), outside the listed folder
-the subfolder or `~/…` path, and at the right what a click does: **Restore** (Paseo) or
-**Import** (OMP; phone-sized layouts show only the icon). Rows, scope buttons, search clear,
-refresh, Switch and the section header react to hover (tint, pointer cursor; a row's action turns
-accent) and press, and show a focus ring when reached by keyboard (not after a click).
+Rows follow design 6 from `~/www/webshare/pages/past-sessions-mocks-2/`, in two densities picked
+with the switch next to refresh (saved on the host as plugin settings, so it survives reloads):
+- **Comfortable** (default): provider mark; title, then a folder chip for rows outside the
+  workspace folder (last path segment, full path as tooltip), then at the right
+  `terminal · 2 d ago` (the word only on terminal sessions; no word = Paseo agent); below, up to
+  two lines of preview.
+- **Compact**: one line, the preview as a muted tail and a short time (`2d`). Hovering a row
+  opens its two-line preview underneath. On phones the tail is dropped and nothing expands.
+
+Hover or keyboard focus swaps the time for **Restore** / **Import** (the `terminal` word stays);
+the whole row is the button. The time's tooltip has the absolute date. Sizes are Paseo's
+defaults, 14 px titles and 12 px for the rest (plugins can't read the Interface size setting).
+
+Preview, in order: the `paseo-recap` summary (`~/.paseo/plugin-data/paseo-recap/recaps.json`),
+marked **Recap**; else the last assistant reply from the session's transcript; else *No reply*.
+Transcripts: the OMP session file (terminal rows, and OMP agents' native handle) or Claude Code's
+`~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in date folders, so Codex agents show
+*No reply*. Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,
+`<system-notice>` … any hyphenated tag), OMP `/prose` `[ran …; recover: …]` records, code blocks
+and markdown markup are removed. Rows are dated by the transcript's newest message, not the file
+mtime: OMP appends `session_exit` records to old sessions when their terminal is killed (a herdr
+restart touched ~60 files on 2026-10-19), which would otherwise make them all "just now".
 
 Provider marks: Paseo's plugin SDK does not expose its provider icons, so the built-in marks
 (Claude, Codex, OMP, Pi, OpenCode, Copilot) are copied as SVG strings into
@@ -20,10 +36,11 @@ Provider marks: Paseo's plugin SDK does not expose its provider icons, so the bu
 provider-snapshot `iconSvg` (e.g. Antigravity); anything else gets Paseo's Bot, like the app.
 The Bot carries `provider` and `serverId` props, so Stefan's `provider-icons` plugin repaints it
 (`omp-nilo` → Nilo logo). Marks render as SVG images, which only the web app (and Desktop) can
-draw; native phone apps show Bot. OMP terminal rows show a terminal icon.
+draw; native phone apps show Bot.
 
-Titles are never shortened by the plugin beyond width ellipsis. Paseo itself cuts the provisional
-title of an agent created from a prompt to the first 60 characters of its first line
+Titles are never shortened by the plugin beyond width ellipsis; Nerd Font glyphs (Unicode private
+use) are removed because app fonts render them as boxes. Paseo itself cuts the provisional title
+of an agent created from a prompt to the first 60 characters of its first line
 (`create-agent-title.js`), and stores it that way.
 
 ## Where
@@ -70,29 +87,33 @@ subagent transcripts are skipped.
 ## Speed
 
 Per file it stats, and on first sight or change reads only the first 64 KB (title record, header,
-first prompt); results are cached in the plugin's daemon-side process by mtime and size. The
-footer shows files scanned and handler time (all daemon API calls included). Measured 2026-10-19:
-index workspace 123 files, 22–85 ms; nilo whole project (95 worktrees, 876 files) 134 ms cold;
-scanner alone on drimgar-compendium (522 files) 414 ms cold, 7 ms warm.
+first prompt) and, for previews and dates, the last 64 KB; both are cached in the plugin's
+daemon-side process by mtime and size. Measured 2026-10-19: index workspace 123 files, 22–85 ms;
+nilo whole project (95 worktrees, 876 files) 134 ms cold for the scan; tail reads for its 797
+listed sessions 78 ms cold, 2 ms warm; scanner alone on drimgar-compendium (522 files) 414 ms
+cold, 7 ms warm.
 
 ## Proof (live web app, 2026-10-19, `screenshots/`)
 
-- `desktop-dark-workspace.webp`: index › Paseo Plugins (dark plugin theme), one-line toolbar;
-  the `review the proposed final diff` row is `omp-nilo`, repainted by provider-icons.
-- `desktop-light-workspace-hover.webp`: nilo-wayfinder › Subagents, light theme: OMP, Claude and
-  Codex marks, hovered row with the accent Restore.
-- `desktop-dark-focus-ring.webp`: keyboard focus on the Project scope button.
-- `desktop-dark-terminal-sessions.webp`: the 103 terminal sessions expanded, hovered Import row,
-  a long first prompt ellipsized by width.
-- `phone-light-workspace.webp`, `phone-dark-terminal-sessions.webp`: phone-sized web, search on
-  its own line.
-- `desktop-dark-claude-row.webp` → `restored-claude-agent.webp`: a throwaway Claude Haiku agent,
-  archived, restored by a click; its Paseo tab shows the same Claude mark. Agent, workspace,
-  project and folder were deleted afterwards.
-- `reopened-paseo-agent.webp`, `reopened-omp-session.webp` (first version, same reopen code):
-  an archived agent restored and an OMP-only session imported (3.1 s). Earlier counts matched an
-  independent brute-force scan (index 114 = 14 + 100, 20 hidden; Infra - Ofis 31 = 5 + 26,
-  17 hidden; nilo project 656 OMP only, 9 hidden).
+- `desktop-dark-workspace-recap.webp`: Workspace scope, index › Paseo Plugins; the hovered row
+  shows the Recap preview and Restore; the collapsed terminal section below.
+- `desktop-dark-project-chips.webp`: Project scope, nilo › Playtest Errors: terminal rows with
+  `terminal · …`, folder chips for herdr worktrees, a hovered Paseo row with Restore, a
+  *No reply* row, `omp-nilo` marks repainted by provider-icons.
+- `desktop-dark-compact-hover.webp`: Compact density, a hovered row opened to its Recap, the
+  terminal section expanded with `terminal · 1h` rows.
+- `desktop-light-workspace.webp`: light theme, nilo-wayfinder › Subagents: OMP, Claude (with
+  previews from Claude Code transcripts) and Codex (*No reply*) rows, a hovered Restore.
+- `phone-light-project-comfortable.webp`, `phone-light-project-compact.webp`,
+  `phone-dark-workspace-comfortable.webp`: phone width; search on its own line; the terminal
+  section expanded.
+- Density choice survived a page reload (checked; settings file
+  `~/.paseo/plugin-settings/past-sessions/`), and was set back to Comfortable afterwards.
+- From earlier versions (same reopen code): `restored-claude-agent.webp` (a throwaway Claude
+  Haiku agent restored by a click), `reopened-paseo-agent.webp`, `reopened-omp-session.webp`
+  (an OMP-only session imported in 3.1 s). Earlier counts matched an independent brute-force
+  scan (index 114 = 14 + 100, 20 hidden; Infra - Ofis 31 = 5 + 26, 17 hidden; nilo project 656
+  OMP only, 9 hidden).
 
 ## Limits
 
@@ -109,6 +130,9 @@ scanner alone on drimgar-compendium (522 files) 414 ms cold, 7 ms warm.
 - Switch lists active Paseo workspaces only. Live agents are not listed (they are in the sidebar).
 - Session folders set via `PI_CODING_AGENT_SESSION_DIR`, `sessionDir` settings or `XDG_DATA_HOME`
   are not read. Non-OMP provider sessions (Claude Code, Codex) only appear once Paseo owns them.
+- A preview needs an assistant reply in the transcript's last 64 KB; a session that ends in a
+  long tool run shows an older reply or *No reply*. Tooltips (full path, absolute time) and hover
+  exist only on web/desktop.
 
 ## Disable
 

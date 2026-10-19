@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { absoluteTime, folderLabel, relativeTime, tildify } from "./format";
+import { absoluteTime, folderChip, relativeTime, tildify } from "./format";
 
 // Local wall-clock times, so the expectations hold in any time zone.
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute).getTime();
@@ -24,6 +24,15 @@ describe("relativeTime", () => {
     expect(relativeTime(iso(new Date(2024, 6, 19).getTime()), now)).toBe("2 y ago");
   });
 
+  it("has a short form for compact rows", () => {
+    expect(relativeTime(iso(now - 59_000), now, true)).toBe("now");
+    expect(relativeTime(iso(at(19, 13, 12)), now, true)).toBe("8m");
+    expect(relativeTime(iso(at(19, 7, 0)), now, true)).toBe("6h");
+    expect(relativeTime(iso(at(18, 9, 0)), now, true)).toBe("1d");
+    expect(relativeTime(iso(at(1, 12, 0)), now, true)).toBe("2w");
+    expect(relativeTime(iso(new Date(2026, 6, 19).getTime()), now, true)).toBe("3mo");
+  });
+
   it("treats clock skew into the future as now", () => {
     expect(relativeTime(iso(now + 10_000), now)).toBe("just now");
   });
@@ -35,12 +44,14 @@ describe("absoluteTime", () => {
   });
 });
 
-describe("folderLabel", () => {
-  it("hides the listed folder, shows subfolders relative to it and anything else from ~", () => {
-    expect(folderLabel("/home/cx/index", "/home/cx/index", "/home/cx")).toBeNull();
-    expect(folderLabel("/home/cx/index/.scratch/a", "/home/cx/index", "/home/cx")).toBe(".scratch/a");
-    expect(folderLabel("/home/cx/indexer", "/home/cx/index", "/home/cx")).toBe("~/indexer");
-    expect(folderLabel("/mnt/vault", "/home/cx/index", "/home/cx")).toBe("/mnt/vault");
+describe("folderChip", () => {
+  it("marks only rows outside the folder, with the last segment and the full ~ path", () => {
+    expect(folderChip("/home/cx/index", "/home/cx/index", "/home/cx")).toBeNull();
+    expect(folderChip("/home/cx/.herdr/worktrees/nilo/nilo-facebook", "/home/cx/workspace/nilo", "/home/cx")).toEqual({
+      label: "nilo-facebook",
+      path: "~/.herdr/worktrees/nilo/nilo-facebook",
+    });
+    expect(folderChip("/mnt/vault/", "/home/cx/index", "/home/cx")).toEqual({ label: "vault", path: "/mnt/vault/" });
   });
 });
 
