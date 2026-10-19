@@ -6,7 +6,7 @@ import { compilePreset, preferences } from "../shared/presets";
 import { type SidebarFilter, type WorkspaceRef, readSelection, writeSelection } from "./web";
 
 export function createSwitcher(client: PluginClientContext, filter: SidebarFilter) {
-  return function PresetSwitcher({ theme, host, layout }: PluginSidebarItemProps) {
+  return function PresetSwitcher({ theme, host }: PluginSidebarItemProps) {
     const settings = useSettings(preferences);
     const queryClient = useQueryClient();
     const queryKey = ["filter-presets-projects", host.id];
@@ -54,12 +54,21 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
     if (!ready) return <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, padding: 6 }}>
       {projects.isError || settings.status === "error" || settings.status === "invalid" ? "Filter presets unavailable" : "Loading filter presets…"}
     </Text>;
-    return <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, paddingHorizontal: 8, paddingVertical: layout.compact ? 4 : 6 }}>
-      {choices.map(({ id, name }) => <Pressable key={id} testID={`filter-preset-${id}`} accessibilityRole="button"
-        accessibilityLabel={`Filter preset: ${name}`} accessibilityState={{ selected: active === id }} onPress={() => select(id)}
-        style={{ paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6, backgroundColor: active === id ? theme.colors.accent : theme.colors.surface0 }}>
-        <Text style={{ fontSize: 12, fontWeight: active === id ? "600" : "400", color: active === id ? theme.colors.accentForeground : theme.colors.foregroundMuted }}>{name}</Text>
-      </Pressable>)}
+    // Link-style row: plain text, active one underlined; kept short so it doesn't read as a toolbar.
+    return <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, paddingHorizontal: 16, paddingVertical: 2 }}>
+      {choices.map(({ id, name }) => {
+        const on = active === id;
+        return <Pressable key={id} testID={`filter-preset-${id}`} accessibilityRole="button"
+          accessibilityLabel={`Filter preset: ${name}`} accessibilityState={{ selected: on }} onPress={() => select(id)}
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }} style={{ paddingVertical: 2 }}>
+          {(state) => <Text style={{
+            fontSize: 12, lineHeight: 16, fontWeight: on ? "600" : "400",
+            // react-native-web adds `hovered` to the pressable state; native never sets it.
+            color: on || ("hovered" in state && state.hovered === true) ? theme.colors.foreground : theme.colors.foregroundMuted,
+            textDecorationLine: on ? "underline" : "none", textDecorationColor: theme.colors.accent,
+          }}>{name}</Text>}
+        </Pressable>;
+      })}
     </View>;
   };
 }
