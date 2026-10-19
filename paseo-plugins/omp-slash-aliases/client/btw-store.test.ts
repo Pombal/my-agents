@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { BtwChat, BtwEntry } from "../shared/btw";
-import { ASK_TIMEOUT_MS, BtwStore, type BtwTransport, type PendingAsk, settlePending } from "./btw-store";
+import {
+  ASK_TIMEOUT_MS,
+  BtwStore,
+  type BtwTransport,
+  formatDuration,
+  formatElapsed,
+  type PendingAsk,
+  settlePending,
+} from "./btw-store";
 
 function entry(id: string, question: string, patch: Partial<BtwEntry> = {}): BtwEntry {
   return { id, question, answer: "", status: "running", createdAt: 1, updatedAt: 1, ...patch };
@@ -133,5 +141,12 @@ describe("BtwStore", () => {
     expect([store.isHost("chat-a", first), store.isHost("chat-a", second)]).toEqual([true, false]);
     releaseFirst();
     expect(store.isHost("chat-a", second)).toBe(true);
+  });
+});
+
+describe("time labels", () => {
+  it("formats a running timer and a finished duration", () => {
+    expect([0, 7_400, 83_000].map(formatElapsed)).toEqual(["0:00", "0:07", "1:23"]);
+    expect([200, 6_300, 72_000].map(formatDuration)).toEqual(["1s", "6s", "1m 12s"]);
   });
 });

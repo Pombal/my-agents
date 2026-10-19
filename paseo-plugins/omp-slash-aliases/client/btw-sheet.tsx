@@ -1,19 +1,30 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginButtonIconProps } from "@getpaseo/plugin/client";
 import { copyText, Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { type ComponentType, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { type ComponentType, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import type { BtwEntry } from "../shared/btw";
-import { type BtwStore, type ChatState, isBusy, type PendingAsk } from "./btw-store";
+import { type BtwStore, type ChatState, formatDuration, formatElapsed, isBusy, type PendingAsk } from "./btw-store";
 import { plainText } from "./markdown";
 import { MarkdownView } from "./markdown-view";
 
 export const BTW_ICON = "MessageCircleQuestion";
 
-/** Paseo's chat metadata size (timestamps, "Worked for…"). */
-const META = { fontSize: 13, lineHeight: 18 };
+/** Strip text: Paseo's small size. */
+const SMALL = { fontSize: 12, lineHeight: 16 };
+const TINY = { fontSize: 11, lineHeight: 16 };
 
-/** One row of the sheet: a record from OMP, or this client's ask that has no record yet. Newest first. */
+/**
+ * Web only: a long open card keeps its question strip at the top of the sheet and its
+ * status/actions strip at the bottom while you scroll through the answer. Native
+ * clients have no sticky positioning, so there the strips scroll with the card.
+ */
+// -1: the scroll area can sit on a fractional pixel, which let a sliver of answer text show past the strip.
+const STICK_TOP = Platform.OS === "web" ? ({ position: "sticky", top: -1, zIndex: 1 } as unknown as ViewStyle) : null;
+const STICK_BOTTOM =
+  Platform.OS === "web" ? ({ position: "sticky", bottom: -1, zIndex: 1 } as unknown as ViewStyle) : null;
+
+/** One card: a record from OMP, or this client's ask that has no record yet. Newest first. */
 type Row = { key: string; question: string; createdAt?: number } & (
   | { kind: "answer"; entry: BtwEntry }
   | { kind: "pending"; ask: PendingAsk }
@@ -28,17 +39,38 @@ function rows(chat: ChatState): Row[] {
   ];
 }
 
-function IconButton({
+function isRunning(row: Row): boolean {
+  return row.kind === "pending" ? !row.ask.error : row.entry.status === "running";
+}
+
+/** The current time, ticking every second while `active`. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return active ? now : Date.now();
+}
+
+function StripButton({
   icon,
   label,
   onPress,
+  quiet,
+  framed,
   onFocusChange,
   theme,
 }: {
   icon: string;
   label: string;
   onPress(): void;
-  onFocusChange(focused: boolean): void;
+  /** Half-visible until the card is hovered or a button is focused. */
+  quiet?: boolean;
+  /** Stop: the one action that matters while an answer runs. */
+  framed?: boolean;
+  onFocusChange?(focused: boolean): void;
   theme: PluginTheme;
 }) {
   return (
@@ -46,33 +78,73 @@ function IconButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       onPress={onPress}
-      onFocus={() => onFocusChange(true)}
-      onBlur={() => onFocusChange(false)}
-      hitSlop={6}
+      onFocus={() => onFocusChange?.(true)}
+      onBlur={() => onFocusChange?.(false)}
+      hitSlop={4}
       style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
-        styles.iconButton,
+        styles.stripButton,
+        framed && { borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface2 },
         (pressed || hovered) && { backgroundColor: theme.colors.surface2 },
+        quiet && { opacity: 0.5 },
       ]}
     >
-      <Icon name={icon} size={14} color={theme.colors.foregroundMuted} />
+      {({ hovered }: { pressed: boolean; hovered?: boolean }) => {
+        const color = framed || hovered ? theme.colors.foreground : theme.colors.foregroundMuted;
+        return (
+          <>
+            <Icon name={icon} size={12} color={color} />
+            <Text style={[SMALL, { color }]}>{label}</Text>
+          </>
+        );
+      }}
     </Pressable>
   );
 }
 
-function RowView({
+function FoldedCard({ row, onOpen, theme }: { row: Row; onOpen(): void; theme: PluginTheme }) {
+  const entry = row.kind === "answer" ? row.entry : undefined;
+  const failure = row.kind === "pending" ? row.ask.error : entry?.error;
+  const muted = theme.colors.foregroundMuted;
+  const preview = failure ?? (entry?.answer ? plainText(entry.answer) : entry?.status === "cancelled" ? "Stopped" : "…");
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Show answer: ${row.question}`}
+      onPress={onOpen}
+      style={({ hovered }: { pressed: boolean; hovered?: boolean }) => [
+        styles.card,
+        styles.folded,
+        { borderColor: theme.colors.border, backgroundColor: hovered ? theme.colors.surface2 : theme.colors.surface0 },
+      ]}
+    >
+      <View style={styles.chevron}>
+        <Icon name="ChevronRight" size={12} color={muted} />
+      </View>
+      <View style={styles.flex}>
+        <Text numberOfLines={1} style={[styles.question, { color: theme.colors.foreground, opacity: 0.85 }]}>
+          {row.question}
+        </Text>
+        <Text numberOfLines={1} style={[SMALL, { color: failure ? theme.colors.statusDanger : muted }]}>
+          {preview}
+        </Text>
+      </View>
+      {row.createdAt ? <Text style={[TINY, styles.time, { color: muted }]}>{new Date(row.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+    </Pressable>
+  );
+}
+
+function OpenCard({
   row,
-  expanded,
-  onToggle,
+  onFold,
   touch,
   agentId,
   store,
   theme,
 }: {
   row: Row;
-  /** Null: the row cannot collapse (it is the only one). */
-  expanded: boolean | null;
-  onToggle(): void;
-  /** Touch layouts show the actions all the time; pointer layouts on hover or focus. */
+  /** Absent when the card is the only one. */
+  onFold?: () => void;
+  /** Touch layouts show the actions at full strength; pointer layouts on hover or focus. */
   touch: boolean;
   agentId: string;
   store: BtwStore;
@@ -81,6 +153,7 @@ function RowView({
   const toast = useToast();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [fullQuestion, setFullQuestion] = useState(false);
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -89,10 +162,15 @@ function RowView({
   }, [copied]);
 
   const entry = row.kind === "answer" ? row.entry : undefined;
-  const failure = row.kind === "pending" ? row.ask.error : entry?.error;
-  const running = row.kind === "pending" ? !row.ask.error : entry?.status === "running";
+  const running = isRunning(row);
+  const now = useNow(running);
   const answer = entry?.answer ?? "";
+  const failure =
+    row.kind === "pending"
+      ? row.ask.error
+      : (entry?.error ?? (entry?.status === "interrupted" ? "Interrupted: the OMP process stopped." : undefined));
   const muted = theme.colors.foregroundMuted;
+  const strip = { backgroundColor: theme.colors.surface1, borderColor: theme.colors.border };
 
   async function copy() {
     try {
@@ -106,112 +184,126 @@ function RowView({
     store.dismiss(agentId, row.key).catch(error => toast.error(`Could not dismiss: ${String(error)}`));
   }
 
-  if (expanded === false) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Show answer: ${row.question}`}
-        onPress={onToggle}
-        style={({ hovered: over }: { pressed: boolean; hovered?: boolean }) => [
-          styles.collapsed,
-          over && { backgroundColor: theme.colors.surface2 },
-        ]}
-      >
-        <Text numberOfLines={1} style={[styles.collapsedQuestion, { color: theme.colors.foreground }]}>
-          {row.question}
+  let status: ReactNode;
+  if (running) {
+    const phase = row.kind === "pending" ? "Sending…" : answer ? "Writing…" : "Thinking…";
+    status = (
+      <>
+        <ActivityIndicator size={12} color={muted} />
+        <Text style={[SMALL, { color: muted }]}>
+          {phase} {formatElapsed(now - (row.kind === "pending" ? row.ask.sentAt : row.entry.createdAt))}
         </Text>
-        <Text numberOfLines={1} style={[META, { color: failure ? theme.colors.statusDanger : muted }]}>
-          {failure ?? (answer ? plainText(answer) : entry?.status === "cancelled" ? "Stopped" : "…")}
-        </Text>
-      </Pressable>
+      </>
     );
+  } else if (failure) {
+    status = (
+      <>
+        <Icon name="CircleAlert" size={12} color={theme.colors.statusDanger} />
+        <Text numberOfLines={2} style={[SMALL, styles.flex, { color: theme.colors.statusDanger }]}>
+          {failure}
+        </Text>
+      </>
+    );
+  } else if (entry?.status === "complete") {
+    status = (
+      <>
+        <Icon name="Check" size={12} color={muted} />
+        <Text style={[SMALL, { color: muted }]}>Answered in {formatDuration(entry.updatedAt - entry.createdAt)}</Text>
+      </>
+    );
+  } else {
+    status = <Text style={[SMALL, { color: muted }]}>Stopped</Text>;
   }
 
-  const showActions = touch || hovered || focused;
-  const status = running ? (row.kind === "pending" ? "Sending…" : answer ? null : "Thinking…") : null;
-
+  const quiet = !touch && !hovered && !focused;
   return (
-    <View style={styles.row} onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
-      <Pressable
-        accessibilityRole={expanded === null ? undefined : "button"}
-        accessibilityLabel={expanded === null ? undefined : "Collapse"}
-        disabled={expanded === null}
-        onPress={onToggle}
-        style={[styles.bubble, { backgroundColor: theme.colors.surface2 }]}
-      >
-        <Text selectable style={[styles.question, { color: theme.colors.foreground }]}>
-          {row.question}
-        </Text>
-      </Pressable>
-      {running ? (
-        // Under the question, so Stop stays in reach while a long answer streams below.
-        <View style={styles.footer}>
-          <ActivityIndicator size={12} color={muted} />
-          {status ? <Text style={[META, { color: muted }]}>{status}</Text> : null}
-          <Pressable accessibilityRole="button" onPress={dismiss} hitSlop={6}>
-            {({ hovered: over }: { pressed: boolean; hovered?: boolean }) => (
-              <Text style={[META, { color: over ? theme.colors.foreground : muted }]}>Stop</Text>
-            )}
+    <View
+      style={[styles.card, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface0 }]}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <View style={[styles.header, STICK_TOP, strip]}>
+        {onFold ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Fold" onPress={onFold} hitSlop={6} style={styles.chevron}>
+            <Icon name="ChevronDown" size={12} color={muted} />
           </Pressable>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={fullQuestion ? "Shorten question" : "Show whole question"}
+          onPress={() => setFullQuestion(full => !full)}
+          style={styles.flex}
+        >
+          <Text selectable numberOfLines={fullQuestion ? undefined : 2} style={[styles.question, { color: muted }]}>
+            {row.question}
+          </Text>
+        </Pressable>
+        {row.createdAt ? <Text style={[TINY, styles.time, { color: muted }]}>{new Date(row.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+      </View>
+      {answer ? (
+        <View style={styles.body}>
+          <MarkdownView source={answer} theme={theme} />
         </View>
       ) : null}
-      {answer ? <MarkdownView source={answer} theme={theme} /> : null}
-      {failure ? <Text style={[META, { color: theme.colors.statusDanger }]}>{failure}</Text> : null}
-      {entry?.status === "cancelled" ? <Text style={[META, { color: muted }]}>Stopped</Text> : null}
-      {running ? null : (
-        <View
-          style={[styles.footer, { opacity: showActions ? 1 : 0 }]}
-          pointerEvents={showActions ? "auto" : "none"}
-        >
-          {entry?.status === "complete" && answer ? (
-            <IconButton
-              icon={copied ? "Check" : "Copy"}
-              label="Copy answer"
-              onPress={() => void copy()}
-              onFocusChange={setFocused}
-              theme={theme}
-            />
-          ) : null}
-          <IconButton icon="X" label="Dismiss" onPress={dismiss} onFocusChange={setFocused} theme={theme} />
-          {row.createdAt ? (
-            <Text style={[META, { color: muted }]}>
-              {new Date(row.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-            </Text>
-          ) : null}
-        </View>
-      )}
+      <View style={[styles.footer, STICK_BOTTOM, strip, !answer && styles.footerAlone]}>
+        <View style={styles.status}>{status}</View>
+        {running ? (
+          <StripButton icon="Square" label="Stop" onPress={dismiss} framed theme={theme} />
+        ) : (
+          <>
+            {entry?.status === "complete" && answer ? (
+              <StripButton
+                icon={copied ? "Check" : "Copy"}
+                label={copied ? "Copied" : "Copy"}
+                onPress={() => void copy()}
+                quiet={quiet}
+                onFocusChange={setFocused}
+                theme={theme}
+              />
+            ) : null}
+            <StripButton icon="X" label="Dismiss" onPress={dismiss} quiet={quiet} onFocusChange={setFocused} theme={theme} />
+          </>
+        )}
+      </View>
     </View>
   );
 }
 
 function BtwSheet({ agentId, store, theme, touch }: { agentId: string; store: BtwStore; theme: PluginTheme; touch: boolean }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  // Rows the user expanded or collapsed; the rest follow the default (newest and running ones open).
+  // Cards the user opened or folded; the rest follow the default (newest and running ones open).
   const [toggled, setToggled] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chat = snapshot.chats.get(agentId);
   const open = snapshot.openAgentId === agentId && !!chat;
   const list = chat ? rows(chat) : [];
+  const toggle = (key: string, next: boolean) => setToggled(prev => new Map(prev).set(key, next));
+  const muted = theme.colors.foregroundMuted;
+  // A plugin cannot restyle the host's title, so the sheet's one line of orientation
+  // goes in the header's leading slot, small and muted, with an empty title.
+  const caption = (
+    <Text numberOfLines={1} style={[SMALL, { color: muted }]}>
+      <Text style={{ color: theme.colors.foreground }}>/btw</Text>
+      {list.length > 1 ? ` · ${list.length}` : ""}
+      {touch ? " · not added to the chat" : " · from this chat's memory, not added to it"}
+    </Text>
+  );
   return (
-    <Modal title="" open={open} onOpenChange={next => (next ? store.open(agentId) : store.close())}>
-      <Modal.Content contentContainerStyle={[styles.content, touch && styles.sheetContent]}>
+    <Modal title="" icon={caption} open={open} onOpenChange={next => (next ? store.open(agentId) : store.close())}>
+      <Modal.Content contentContainerStyle={[styles.content, touch && styles.contentTouch]}>
         {list.map((row, index) => {
-          const running = row.kind === "pending" ? !row.ask.error : row.entry.status === "running";
-          const expanded = list.length === 1 ? null : (toggled.get(row.key) ?? (index === 0 || running));
-          return (
-            <View
+          const expanded = toggled.get(row.key) ?? (index === 0 || isRunning(row));
+          return expanded ? (
+            <OpenCard
               key={row.key}
-              style={index > 0 && [styles.divider, { borderTopColor: theme.colors.border }]}
-            >
-              <RowView
-                row={row}
-                expanded={expanded}
-                onToggle={() => setToggled(prev => new Map(prev).set(row.key, !expanded))}
-                touch={touch}
-                agentId={agentId}
-                store={store}
-                theme={theme}
-              />
-            </View>
+              row={row}
+              onFold={list.length > 1 ? () => toggle(row.key, false) : undefined}
+              touch={touch}
+              agentId={agentId}
+              store={store}
+              theme={theme}
+            />
+          ) : (
+            <FoldedCard key={row.key} row={row} onOpen={() => toggle(row.key, true)} theme={theme} />
           );
         })}
       </Modal.Content>
@@ -247,24 +339,43 @@ export function createPillIcon(store: BtwStore): ComponentType<PluginButtonIconP
   };
 }
 
+const RADIUS = 10;
+
 const styles = StyleSheet.create({
-  // The desktop dialog's header (close button only) already leaves room at the top;
-  // the bottom sheet's header has a rule under it.
-  content: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 12, gap: 0 },
-  sheetContent: { paddingTop: 8 },
-  divider: { borderTopWidth: StyleSheet.hairlineWidth, marginTop: 8, paddingTop: 8 },
-  row: { gap: 8 },
-  bubble: {
-    alignSelf: "flex-end",
-    maxWidth: "85%",
-    borderRadius: 12,
-    borderTopRightRadius: 2,
+  // The host header above already leaves room at the top on desktop; the bottom sheet's header has a rule under it.
+  content: { paddingHorizontal: 12, paddingTop: 0, paddingBottom: 12, gap: 8 },
+  contentTouch: { paddingTop: 10 },
+  flex: { flex: 1, minWidth: 0 },
+  // No overflow clipping: it would stop the strips from sticking. The strips round their own corners.
+  card: { borderWidth: 1, borderRadius: RADIUS },
+  folded: { flexDirection: "row", alignItems: "flex-start", gap: 6, paddingHorizontal: 10, paddingVertical: 6 },
+  header: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderTopLeftRadius: RADIUS - 1,
+    borderTopRightRadius: RADIUS - 1,
   },
-  question: { fontSize: 14, lineHeight: 20 },
-  collapsed: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4, marginHorizontal: -6, gap: 2 },
-  collapsedQuestion: { fontSize: 14, lineHeight: 20, fontWeight: "500" },
-  footer: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 22, marginTop: -2 },
-  iconButton: { padding: 4, borderRadius: 6 },
+  chevron: { height: 18, justifyContent: "center" },
+  question: { fontSize: 13, lineHeight: 18 },
+  time: { lineHeight: 18 },
+  body: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 },
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    minHeight: 28,
+    paddingLeft: 10,
+    paddingRight: 4,
+    paddingVertical: 2,
+    borderTopWidth: 1,
+    borderBottomLeftRadius: RADIUS - 1,
+    borderBottomRightRadius: RADIUS - 1,
+  },
+  footerAlone: { borderTopWidth: 0 },
+  status: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 5 },
+  stripButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
 });

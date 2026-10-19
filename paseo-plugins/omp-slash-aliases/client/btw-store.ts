@@ -72,6 +72,18 @@ export function isBusy(chat: ChatState): boolean {
   return chat.pending.some(ask => !ask.error) || chat.entries.some(entry => entry.status === "running");
 }
 
+/** `0:07`, `1:23`. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** `6s`, `1m 12s`. */
+export function formatDuration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 export class BtwStore {
   readonly #transport: BtwTransport;
   readonly #now: () => number;

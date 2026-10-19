@@ -1,6 +1,6 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { createPillIcon } from "./client/btw-sheet";
-import { BtwStore } from "./client/btw-store";
+import { BtwStore, formatElapsed } from "./client/btw-store";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
 
 /** Plain aliases: OMP gets the `/follow-up` form, which never cancels a running reply. */
@@ -33,8 +33,16 @@ export default function contribute(client: PluginClientContext) {
     }
     for (const [agentId, chat] of chats) {
       const count = chat.entries.length + chat.pending.length;
-      // The icon turns into a spinner while an answer runs, so the label only counts.
-      const label = count > 1 ? `btw ${count}` : "btw";
+      // While an answer runs the icon spins and the label counts up (polls tick it at least every 0.6 s).
+      const runningSince = Math.min(
+        ...chat.pending.filter(ask => !ask.error).map(ask => ask.sentAt),
+        ...chat.entries.filter(entry => entry.status === "running").map(entry => entry.createdAt),
+      );
+      const label = Number.isFinite(runningSince)
+        ? `btw ${formatElapsed(Date.now() - runningSince)}`
+        : count > 1
+          ? `btw · ${count} answers`
+          : "btw";
       const pill = pills.get(agentId);
       if (pill) {
         if (pill.label !== label) pill.registration.update({ label });
@@ -46,7 +54,7 @@ export default function contribute(client: PluginClientContext) {
         workspaceId: chat.workspaceId,
         agentId,
         button: {
-          title: "Side questions (/btw)",
+          title: "By the way (/btw)",
           icon: PillIcon,
           label,
           behavior: { kind: "action", onPress: () => store.open(agentId) },
@@ -75,7 +83,7 @@ export default function contribute(client: PluginClientContext) {
     ),
     client.addSlashCommand({
       name: "btw",
-      description: "OMP: quick side question about this chat (no interruption, not saved to the chat)",
+      description: "OMP: quick by-the-way question about this chat (no interruption, not saved to the chat)",
       argumentHint: "<question>",
       context: "agent",
       async onSubmit({ args, agent, workspace, paseo }) {
