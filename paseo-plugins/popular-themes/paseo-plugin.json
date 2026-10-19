@@ -1,7 +1,7 @@
 {
   "id": "popular-themes",
   "name": "Popular themes",
-  "description": "Official popular dark and light palettes for Paseo.",
+  "description": "Tokyo Night, Dracula, Rosé Pine, Nord, Gruvbox, One, GitHub, Solarized, Kanagawa and Everforest app themes, dark and light.",
   "media": ["screenshots/contact-sheet.webp"],
   "requirements": {
     "paseo": ">=0.11.4"

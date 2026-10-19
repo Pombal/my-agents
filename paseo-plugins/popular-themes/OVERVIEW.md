@@ -1,102 +1,103 @@
 # Popular themes
 
-## Inventory before installation (2026-10-19)
+Adds 19 app themes to **Settings → Appearance → Theme**: Tokyo Night and Tokyo Night Light,
+Dracula and Dracula Alucard, Rosé Pine and Rosé Pine Dawn, Nord, Gruvbox Dark/Light,
+One Dark/Light, GitHub Dark/Light, Solarized Dark/Light, Kanagawa Wave/Lotus, Everforest Dark/Light.
+Client-only: no server code, no DOM edits. Installing changes nothing until you pick a theme.
 
-The running Paseo app's Settings → Appearance → Theme menu contains **Light, Dark, System, Zinc, Midnight, Claude, Ghostty, Pure black, T3 Chat Dark, T3 Chat Light**. System is an automatic selection, not an additional palette. The first eight entries are built in; the final two come from the enabled local `t3-chat-theme` plugin. This inventory was read live before creating any theme contribution.
+![All 19 themes](screenshots/contact-sheet.webp)
 
-All installed plugin sources were searched for `addTheme`. The only other theme-capable installation is **Chat Polish**, currently disabled. Its presets are **One Dark Darker Mariana, Paper, Dusk**, plus a user-editable custom theme; these are not registered in the running app. Its One Dark Darker Mariana is a distinct derivative, not Atom's original One Dark. Its syntax highlighting presets are not app themes.
+Full size: [Tokyo Night](screenshots/tokyo-night.webp), [Tokyo Night Light](screenshots/tokyo-night-light.webp).
 
-**Skipped requested families: none.** None of Tokyo Night, Dracula, Rosé Pine, Nord, Gruvbox, original One Dark, GitHub, Solarized, Kanagawa, or Everforest is an existing app theme. The preexisting T3 plugin is left untouched.
+## Removing a theme
 
-## Installed themes and official sources
+Every theme is one self-contained `// Name { … }` block in `index.client.ts`. Delete the block,
+then `paseo plugin reload popular-themes` and refresh the app. If the removed theme was selected,
+Paseo falls back to its default, so pick another theme first.
 
-This is a palette port, not a complete editor-theme port. It includes one canonical dark palette and its official light counterpart per family, not every alternate dark flavor or hard/soft contrast preset. Nord's original is dark only; no invented “Nord Light” is included. One Light is Atom's official companion to One Dark; Dracula's official light companion is Alucard.
+## How Paseo uses the eight colors
 
-| Family | Settings menu entries | Official palette source |
-| --- | --- | --- |
-| Tokyo Night | Tokyo Night; Tokyo Night Light | [Original Tokyo Night palette](https://github.com/enkia/tokyo-night-vscode-theme#color-palette); supplemental neutral surfaces from [Tokyo Night Neovim](https://github.com/folke/tokyonight.nvim/tree/main/lua/tokyonight/colors) and its [generated day palette](https://github.com/folke/tokyonight.nvim/blob/main/extras/kitty/tokyonight_day.conf) |
-| Dracula | Dracula; Dracula Alucard | [Official Dracula specification: Classic, Alucard, UI and ANSI palettes](https://draculatheme.com/spec) |
-| Rosé Pine | Rosé Pine; Rosé Pine Dawn | [Official main and dawn palettes](https://github.com/rose-pine/neovim/blob/main/lua/rose-pine/palette.lua), [palette guide](https://rosepinetheme.com/palette/) |
-| Nord | Nord | [Official Nord CSS palette and role descriptions](https://github.com/nordtheme/nord/blob/develop/src/nord.css) |
-| Gruvbox | Gruvbox Dark; Gruvbox Light | [Original Gruvbox palette](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim), default medium contrast |
-| One | One Dark; One Light | Atom's [One Dark syntax](https://github.com/atom/one-dark-syntax/blob/master/styles/colors.less), [One Light syntax](https://github.com/atom/one-light-syntax/blob/master/styles/colors.less), [dark UI levels](https://github.com/atom/one-dark-ui/blob/master/styles/ui-variables-custom.less), [light UI levels](https://github.com/atom/one-light-ui/blob/master/styles/ui-variables-custom.less) |
-| GitHub | GitHub Dark; GitHub Light | [Official GitHub theme and foreground overrides](https://github.com/primer/github-vscode-theme/blob/main/src/colors.js); its pinned Primer Primitives 7.10.0 [dark](https://cdn.jsdelivr.net/npm/@primer/primitives@7.10.0/dist/json/colors/dark.json) and [light](https://cdn.jsdelivr.net/npm/@primer/primitives@7.10.0/dist/json/colors/light.json) palettes |
-| Solarized | Solarized Dark; Solarized Light | [Original Solarized palette and usage](https://github.com/altercation/solarized#usage-development) |
-| Kanagawa | Kanagawa Wave; Kanagawa Lotus | [Official Kanagawa palette](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/colors.lua) |
-| Everforest | Everforest Dark; Everforest Light | [Official Everforest medium palettes](https://github.com/sainnhe/everforest/blob/master/autoload/everforest.vim) |
+Paseo's theme API takes eight colors and expands them into the whole app. Knowing where each one
+lands is what makes a port feel right (from the installed 0.11.4 bundle; unchanged in 0.12.0):
 
-## Token mapping and readability
+| Token | Where it shows up |
+|---|---|
+| `background` | chat area, dark-theme sidebar, terminal, accent-button text |
+| `raised` | sidebar hover (dark), blockquotes, cards |
+| `control` | code blocks, table headers, inputs, menus, selected row (dark), **whole sidebar (light)** |
+| `border` | dividers and outlines, control hover, sidebar hover (light) |
+| `accent` | links, inline code in headings, filled buttons, success state |
+| `mutedForeground` | secondary text, the most used text color in the app |
+| `ring` | timestamps, composer placeholder, section labels, focus rings, usage meter, **selected sidebar row (light)** |
 
-The client uses Paseo's supported eight-color `addTheme` palette:
+So each theme maps: `background` = editor background; `control` = the theme's own highlight or
+sidebar swatch; `border` = next step on its neutral ladder; `accent` = its signature color;
+`mutedForeground` = its secondary text; `ring` = its comment/gutter tone.
 
-- `background` / `foreground`: canonical editor base and readable primary text.
-- `raised` / `control`: official panel, overlay, or nearby background swatches. Some are intentionally shared when the next surface step would compromise text or accent contrast.
-- `border`: a restrained separator from the official neutral ladder.
-- `accent`: a recognizable official blue, purple, green, or neutral. Paseo also uses this as text and as a filled control with `background`-colored text, so it must remain readable.
-- `mutedForeground`: an official secondary foreground when it reaches AA; otherwise a stronger official swatch. Original low-contrast editor comments are not suitable for small UI labels.
-- `ring`: a contrast-bearing official focus color. Paseo also reuses it for extra-muted foreground.
+**Light-theme compromise.** In light themes `ring` is both the faintest text and the selected
+sidebar row's fill, which carries primary text. One color can't be both a readable label and a
+background for dark text. `ring` is set to the darkest tone that keeps primary text on the selected
+row at about 5:1 (about 2:1 against the background). Timestamps, placeholder and section labels are
+therefore faint in light themes, faintest in Kanagawa Lotus and Everforest Light, whose mid-tone
+foregrounds leave the least room.
 
-Specific adaptations:
+## Sources and derived colors
 
-- Dracula uses official ANSI bright blue for its accent and muted text rather than the lower-contrast purple/comment colors on selected controls.
-- Rosé Pine uses `subtle` for dark secondary text, but Dawn uses `text` rather than low-contrast `muted`/`subtle`.
-- Nord uses `nord6` / `nord4` for primary / secondary text, `nord8` for accent, and caps interactive surfaces at `nord1`.
-- Gruvbox uses bright aqua in dark mode, faded blue in light mode, and stronger foreground ladder entries for secondary text.
-- One uses Atom's HSL values converted to hex; panel/control/border shades follow its official UI level formulas. One Light uses purple rather than its brighter blue for readable accent text.
-- GitHub uses its official ANSI blue as accent and the stronger unmodified Primer secondary text where the VS Code override would be too dim.
-- Solarized uses higher-contrast official monotones for UI text and accent: `base1` in dark mode and `base02` in light mode. This retains the original base backgrounds without introducing non-Solarized colors.
-- Kanagawa Wave caps controls at `sumiInk4`; Lotus uses `lotusInk2` as accent rather than lower-contrast `lotusBlue4`.
-- Everforest uses its main foreground for secondary text and, in light mode, accent, since the standard muted/green swatches do not meet AA for small UI text.
+Colors are the originals' own hex values unless the code comment on that line says `derived`
+(a straight sRGB mix of two of the theme's own swatches, used where the original has no color for
+that role).
 
-WCAG sRGB relative-luminance calculations were run for every theme. The table gives the **worst** ratio against all three contributed surfaces (`background`, `raised`, `control`), not just the easiest background. Primary, secondary, and accent text all exceed **4.5:1**; focus rings exceed **3:1**. These checks cover the contributed palette, not a claim that every inherited host status/syntax color or translucent interaction state is AA.
+| Theme | Source |
+|---|---|
+| Tokyo Night / Light | [enkia VS Code themes](https://github.com/enkia/tokyo-night-vscode-theme/tree/master/themes); ring = [folke](https://github.com/folke/tokyonight.nvim) `dark5` |
+| Dracula / Alucard | [Dracula spec](https://draculatheme.com/spec): classic, Alucard and UI background ladders |
+| Rosé Pine / Dawn | [rose-pine palette.lua](https://github.com/rose-pine/neovim/blob/main/lua/rose-pine/palette.lua) |
+| Nord | [nord.css](https://github.com/nordtheme/nord/blob/develop/src/nord.css) |
+| Gruvbox | [morhetz/gruvbox](https://github.com/morhetz/gruvbox/blob/master/colors/gruvbox.vim), medium contrast; aqua accent in both |
+| One Dark / Light | Atom [one-dark-ui](https://github.com/atom/one-dark-ui) / [one-light-ui](https://github.com/atom/one-light-ui) and syntax; dark ring = One Dark Pro comment |
+| GitHub | [Primer](https://primer.style/foundations/primitives/color) dark/light default |
+| Solarized | [altercation/solarized](https://github.com/altercation/solarized); dark raised = VS Code Solarized sidebar `#00212b` |
+| Kanagawa Wave / Lotus | [kanagawa.nvim colors.lua](https://github.com/rebelot/kanagawa.nvim/blob/master/lua/kanagawa/colors.lua) |
+| Everforest | [everforest.vim](https://github.com/sainnhe/everforest/blob/master/autoload/everforest.vim), medium |
 
-| Theme | Primary minimum | Secondary minimum | Accent minimum |
-| --- | ---: | ---: | ---: |
-| Tokyo Night | 8.32 | 6.36 | 5.33 |
-| Tokyo Night Light | 8.49 | 7.61 | 5.23 |
-| Dracula | 8.59 | 4.88 | 4.88 |
-| Dracula Alucard | 13.98 | 4.90 | 5.30 |
-| Rosé Pine | 11.51 | 4.71 | 7.25 |
-| Rosé Pine Dawn | 7.92 | 7.92 | 5.09 |
-| Nord | 8.73 | 7.45 | 5.03 |
-| Gruvbox Dark | 8.45 | 5.32 | 5.51 |
-| Gruvbox Light | 8.45 | 4.75 | 4.81 |
-| One Dark | 5.29 | 5.29 | 4.77 |
-| One Light | 9.43 | 9.43 | 5.09 |
-| GitHub Dark | 12.88 | 4.95 | 6.03 |
-| GitHub Light | 14.84 | 6.00 | 4.88 |
-| Solarized Dark | 4.86 | 4.86 | 4.86 |
-| Solarized Light | 10.61 | 10.61 | 10.61 |
-| Kanagawa Wave | 9.75 | 7.69 | 5.14 |
-| Kanagawa Lotus | 5.00 | 5.00 | 6.27 |
-| Everforest Dark | 5.57 | 5.57 | 4.70 |
-| Everforest Light | 4.66 | 4.66 | 4.66 |
+Things the API can't set keep Paseo's defaults: error red, warning/status colors, diff colors,
+terminal ANSI colors and code syntax (pick a syntax theme separately in Appearance). The menu
+swatch is always the theme's background.
 
-## Installation, selection, and removal
+## Contrast
 
-```sh
-paseo plugin install /home/cx/workspace/my-agents/paseo-plugins/popular-themes
-```
+WCAG ratios. Text columns are the worst case over `background`, `raised` and `control`.
 
-Refresh the app, then choose **Settings → Appearance → Theme**. The install is a local-directory registration, so no package build, copied dist, server component, or dependencies are needed.
+| Theme | Text | Muted | Accent | Ring on bg | Text on selected row |
+|---|---:|---:|---:|---:|---:|
+| Tokyo Night | 8.3 | 6.4 | 6.8 | 4.1 | — |
+| Tokyo Night Light | 7.7 | 5.4 | 5.5 | 1.8 | 5.1 |
+| Dracula | 11.1 | 5.8 | 5.9 | 3.0 | — |
+| Dracula Alucard | 13.6 | 4.7 | 6.0 | 2.2 | 7.1 |
+| Rosé Pine | 11.5 | 4.7 | 8.4 | 3.4 | — |
+| Rosé Pine Dawn | 7.9 | 4.6 | 5.6 | 1.8 | 4.9 |
+| Nord | 7.5 | 6.4 | 6.2 | 3.1 | — |
+| Gruvbox Dark | 8.5 | 5.3 | 7.0 | 4.0 | — |
+| Gruvbox Light | 8.5 | 4.7 | 4.4 | 1.9 | 5.3 |
+| One Dark | 7.5 | 4.9 | 5.9 | 3.7 | — |
+| One Light | 9.4 | 4.4 | 3.9 | 2.2 | 5.0 |
+| GitHub Dark | 12.9 | 4.9 | 7.5 | 4.1 | — |
+| GitHub Light | 14.8 | 5.7 | 5.2 | 2.0 | 7.9 |
+| Solarized Dark | 4.9 | 4.1 | 4.1 | 2.8 | — |
+| Solarized Light | 10.6 | 4.4 | 3.4 | 2.2 | 5.4 |
+| Kanagawa Wave | 9.7 | 7.7 | 5.9 | 3.3 | — |
+| Kanagawa Lotus | 5.0 | 3.9 | 4.6 | 1.6 | 3.8 |
+| Everforest Dark | 5.6 | 4.3 | 6.2 | 3.2 | — |
+| Everforest Light | 4.7 | 3.5 | 3.3 | 1.5 | 3.6 |
 
-Each individual variant is one independent, named `// Theme name` object block in the `themes` array in `index.client.ts`. To remove a theme, delete that entire object and its comment; nothing else imports or references it. To remove a family, delete its one or two objects. Then:
+Solarized, Kanagawa Lotus and Everforest Light are low-contrast by design; their numbers reflect
+the originals, not a mapping error. Accents of 3–4:1 (One Light blue, Solarized blue, Everforest
+Light green) are kept for identity.
 
-```sh
-paseo plugin reload popular-themes
-```
+## Live check (2026-10-19)
 
-Refresh the app. If a removed theme was selected, Paseo falls back to its default preference. Choose a retained theme first to avoid a surprise. The returned cleanup unregisters all contributions on disable/reload.
-
-## Live acceptance evidence
-
-On 2026-10-19, local installation returned `enabled: true`, `status: running`. After refreshing a dedicated paired `https://app.paseo.sh/` tab, all **19** new menu entries were present alongside the built-ins and both T3 themes. Every new theme was actually clicked in the menu; each persisted `theme: "plugin"` and its own `popular-themes/theme/<id>` selection. A screenshot was captured after every selection, and the resulting [contact sheet](screenshots/contact-sheet.webp) was visually inspected. Four full-size representative captures are also retained:
-
-- [Tokyo Night dark](screenshots/tokyo-night-dark.webp)
-- [Tokyo Night light](screenshots/tokyo-night-light.webp)
-- [Rosé Pine dark](screenshots/rose-pine-dark.webp)
-- [Rosé Pine Dawn](screenshots/rose-pine-dawn.webp)
-
-The original selection was **System** (`theme: "auto"`) with inactive remembered `pluginThemeId: "t3-chat-theme/theme/dark"`. Both values were restored through the UI, and the dedicated tab was closed. No other theme/plugin toggles were changed. The browser reported no errors during the acceptance check.
-
-The installed 0.11.4 web bundle was separately inspected for its built-in theme list; it matches the initial live inventory above. The app's syntax-theme picker is independent and was intentionally left unchanged.
+All 19 themes, plus both T3 themes, were selected in an isolated headless browser on
+`app.paseo.sh` against the local 0.11.4 daemon and screenshotted on a chat with a shell call,
+inline code, link, list, code block, table and blockquote. One switch went through the real menu
+(Gruvbox Dark, then back to **System**). Theme choice is stored per browser, so Stefan's own apps
+were never touched.

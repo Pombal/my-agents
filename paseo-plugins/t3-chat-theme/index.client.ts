@@ -15,7 +15,7 @@ export default function contribute(client: PluginClientContext) {
       border: "#27242c",
       accent: "#fbd0e8",
       mutedForeground: "#e7d0dd",
-      ring: "#d4c7e1",
+      ring: "#968d9f",
     },
   });
   const removeLight = client.addTheme({
@@ -30,7 +30,7 @@ export default function contribute(client: PluginClientContext) {
       border: "#eee1ed",
       accent: "#c12269",
       mutedForeground: "#ac1668",
-      ring: "#f7def2",
+      ring: "#eaa7cb",
     },
   });
   return () => {

@@ -1,10 +1,13 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
-// One independent block per theme. Sources and role adaptations: OVERVIEW.md.
+// One self-contained block per theme: delete a block to remove that theme.
+// Sources and the reasoning behind each token are in OVERVIEW.md.
 const themes = [
   // Tokyo Night
   {
-    id: "tokyo-night", name: "Tokyo Night", appearance: "dark",
+    id: "tokyo-night",
+    name: "Tokyo Night",
+    appearance: "dark",
     colors: {
       background: "#1a1b26",
       foreground: "#c0caf5",
@@ -13,58 +16,62 @@ const themes = [
       border: "#3b4261",
       accent: "#7aa2f7",
       mutedForeground: "#a9b1d6",
-      ring: "#7aa2f7",
+      ring: "#737aa2",
     },
   },
-
   // Tokyo Night Light
   {
-    id: "tokyo-night-light", name: "Tokyo Night Light", appearance: "light",
+    id: "tokyo-night-light",
+    name: "Tokyo Night Light",
+    appearance: "light",
     colors: {
       background: "#e6e7ed",
-      foreground: "#343b58",
-      raised: "#e6e7ed",
-      control: "#e1e2e7",
-      border: "#b4b5b9",
+      foreground: "#343b59",
+      raised: "#e1e2e8",
+      control: "#d6d8df",
+      border: "#c1c2c7",
       accent: "#2959aa",
-      mutedForeground: "#40434f",
-      ring: "#2959aa",
+      mutedForeground: "#4a5272",
+      ring: "#acb0bf",
     },
   },
-
   // Dracula
   {
-    id: "dracula", name: "Dracula", appearance: "dark",
+    id: "dracula",
+    name: "Dracula",
+    appearance: "dark",
     colors: {
       background: "#282a36",
       foreground: "#f8f8f2",
-      raised: "#343746",
-      control: "#44475a",
-      border: "#6272a4",
-      accent: "#d6acff",
-      mutedForeground: "#d6acff",
-      ring: "#bd93f9",
+      raised: "#21222c",
+      control: "#343746",
+      border: "#424450",
+      accent: "#bd93f9",
+      mutedForeground: "#adb5cb", // derived: foreground/comment 50/50
+      ring: "#6272a4",
     },
   },
-
   // Dracula Alucard
   {
-    id: "dracula-alucard", name: "Dracula Alucard", appearance: "light",
+    id: "dracula-alucard",
+    name: "Dracula Alucard",
+    appearance: "light",
     colors: {
       background: "#fffbeb",
       foreground: "#1f1f1f",
       raised: "#efeddc",
-      control: "#efeddc",
-      border: "#bcbab3",
+      control: "#ece9df",
+      border: "#dedccf",
       accent: "#644ac9",
       mutedForeground: "#6c664b",
-      ring: "#644ac9",
+      ring: "#acaaa4", // derived: Background Darker 90% + foreground 10%
     },
   },
-
   // Rosé Pine
   {
-    id: "rose-pine", name: "Rosé Pine", appearance: "dark",
+    id: "rose-pine",
+    name: "Rosé Pine",
+    appearance: "dark",
     colors: {
       background: "#191724",
       foreground: "#e0def4",
@@ -73,13 +80,14 @@ const themes = [
       border: "#403d52",
       accent: "#c4a7e7",
       mutedForeground: "#908caa",
-      ring: "#c4a7e7",
+      ring: "#6e6a86",
     },
   },
-
   // Rosé Pine Dawn
   {
-    id: "rose-pine-dawn", name: "Rosé Pine Dawn", appearance: "light",
+    id: "rose-pine-dawn",
+    name: "Rosé Pine Dawn",
+    appearance: "light",
     colors: {
       background: "#faf4ed",
       foreground: "#464261",
@@ -87,89 +95,95 @@ const themes = [
       control: "#f2e9e1",
       border: "#dfdad9",
       accent: "#286983",
-      mutedForeground: "#464261",
-      ring: "#286983",
+      mutedForeground: "#6a6684", // derived: subtle 70% + text 30%
+      ring: "#beb9c1", // derived: highlightHigh 70% + muted 30%
     },
   },
-
   // Nord
   {
-    id: "nord", name: "Nord", appearance: "dark",
+    id: "nord",
+    name: "Nord",
+    appearance: "dark",
     colors: {
       background: "#2e3440",
       foreground: "#eceff4",
       raised: "#3b4252",
-      control: "#3b4252",
+      control: "#434c5e",
       border: "#4c566a",
       accent: "#88c0d0",
       mutedForeground: "#d8dee9",
-      ring: "#88c0d0",
+      ring: "#767f90", // derived: nord3 70% + nord4 30%
     },
   },
-
   // Gruvbox Dark
   {
-    id: "gruvbox-dark", name: "Gruvbox Dark", appearance: "dark",
+    id: "gruvbox-dark",
+    name: "Gruvbox Dark",
+    appearance: "dark",
     colors: {
       background: "#282828",
       foreground: "#ebdbb2",
-      raised: "#3c3836",
+      raised: "#32302f",
       control: "#3c3836",
       border: "#504945",
       accent: "#8ec07c",
       mutedForeground: "#bdae93",
-      ring: "#83a598",
+      ring: "#928374",
     },
   },
-
   // Gruvbox Light
   {
-    id: "gruvbox-light", name: "Gruvbox Light", appearance: "light",
+    id: "gruvbox-light",
+    name: "Gruvbox Light",
+    appearance: "light",
     colors: {
       background: "#fbf1c7",
       foreground: "#3c3836",
-      raised: "#f9f5d7",
+      raised: "#f2e5bc",
       control: "#ebdbb2",
       border: "#d5c4a1",
-      accent: "#076678",
+      accent: "#427b58",
       mutedForeground: "#665c54",
-      ring: "#076678",
+      ring: "#bdae93",
     },
   },
-
   // One Dark
   {
-    id: "one-dark", name: "One Dark", appearance: "dark",
+    id: "one-dark",
+    name: "One Dark",
+    appearance: "dark",
     colors: {
       background: "#282c34",
-      foreground: "#abb2bf",
+      foreground: "#d7dae0",
       raised: "#21252b",
-      control: "#353b45",
-      border: "#181a1f",
+      control: "#3a3f4b",
+      border: "#4b5263",
       accent: "#61afef",
       mutedForeground: "#abb2bf",
-      ring: "#61afef",
+      ring: "#7f848e",
     },
   },
-
   // One Light
   {
-    id: "one-light", name: "One Light", appearance: "light",
+    id: "one-light",
+    name: "One Light",
+    appearance: "light",
     colors: {
       background: "#fafafa",
       foreground: "#383a42",
-      raised: "#ffffff",
+      raised: "#f0f0f1",
       control: "#eaeaeb",
       border: "#dbdbdc",
-      accent: "#a626a4",
-      mutedForeground: "#383a42",
-      ring: "#a626a4",
+      accent: "#4078f2",
+      mutedForeground: "#696c77",
+      ring: "#acacae", // derived: One Light UI grey darkened 16% toward mono-1
     },
   },
-
   // GitHub Dark
   {
-    id: "github-dark", name: "GitHub Dark", appearance: "dark",
+    id: "github-dark",
+    name: "GitHub Dark",
+    appearance: "dark",
     colors: {
       background: "#0d1117",
       foreground: "#e6edf3",
@@ -178,13 +192,14 @@ const themes = [
       border: "#30363d",
       accent: "#58a6ff",
       mutedForeground: "#8b949e",
-      ring: "#58a6ff",
+      ring: "#6e7681",
     },
   },
-
   // GitHub Light
   {
-    id: "github-light", name: "GitHub Light", appearance: "light",
+    id: "github-light",
+    name: "GitHub Light",
+    appearance: "light",
     colors: {
       background: "#ffffff",
       foreground: "#1f2328",
@@ -192,74 +207,79 @@ const themes = [
       control: "#f6f8fa",
       border: "#d0d7de",
       accent: "#0969da",
-      mutedForeground: "#57606a",
-      ring: "#0969da",
+      mutedForeground: "#59636e",
+      ring: "#afb8c1",
     },
   },
-
   // Solarized Dark
   {
-    id: "solarized-dark", name: "Solarized Dark", appearance: "dark",
+    id: "solarized-dark",
+    name: "Solarized Dark",
+    appearance: "dark",
     colors: {
       background: "#002b36",
       foreground: "#93a1a1",
-      raised: "#073642",
+      raised: "#00212b",
       control: "#073642",
-      border: "#586e75",
-      accent: "#93a1a1",
-      mutedForeground: "#93a1a1",
-      ring: "#2aa198",
-    },
-  },
-
-  // Solarized Light
-  {
-    id: "solarized-light", name: "Solarized Light", appearance: "light",
-    colors: {
-      background: "#fdf6e3",
-      foreground: "#073642",
-      raised: "#fdf6e3",
-      control: "#eee8d5",
-      border: "#93a1a1",
-      accent: "#073642",
-      mutedForeground: "#073642",
+      border: "#234a54", // derived: base02 65% + base01 35%
+      accent: "#268bd2",
+      mutedForeground: "#839496",
       ring: "#586e75",
     },
   },
-
+  // Solarized Light
+  {
+    id: "solarized-light",
+    name: "Solarized Light",
+    appearance: "light",
+    colors: {
+      background: "#fdf6e3",
+      foreground: "#073642",
+      raised: "#f5efdc",
+      control: "#eee8d5",
+      border: "#ddd6c1",
+      accent: "#268bd2",
+      mutedForeground: "#586e75",
+      ring: "#9faaa6", // derived: base1 with a little base2 and base02
+    },
+  },
   // Kanagawa Wave
   {
-    id: "kanagawa-wave", name: "Kanagawa Wave", appearance: "dark",
+    id: "kanagawa-wave",
+    name: "Kanagawa Wave",
+    appearance: "dark",
     colors: {
       background: "#1f1f28",
       foreground: "#dcd7ba",
-      raised: "#2a2a37",
+      raised: "#16161d",
       control: "#2a2a37",
-      border: "#54546d",
+      border: "#363646",
       accent: "#7e9cd8",
       mutedForeground: "#c8c093",
-      ring: "#7e9cd8",
+      ring: "#727169",
     },
   },
-
   // Kanagawa Lotus
   {
-    id: "kanagawa-lotus", name: "Kanagawa Lotus", appearance: "light",
+    id: "kanagawa-lotus",
+    name: "Kanagawa Lotus",
+    appearance: "light",
     colors: {
       background: "#f2ecbc",
       foreground: "#545464",
       raised: "#e5ddb0",
       control: "#dcd5ac",
-      border: "#c9cbd1",
-      accent: "#43436c",
-      mutedForeground: "#545464",
-      ring: "#43436c",
+      border: "#d5cea3",
+      accent: "#4d699b",
+      mutedForeground: "#686662", // derived: lotusGray2 70% + lotusInk1 30%
+      ring: "#b9b8c2", // derived: lotusViolet3 60% + lotusViolet1 40%
     },
   },
-
   // Everforest Dark
   {
-    id: "everforest-dark", name: "Everforest Dark", appearance: "dark",
+    id: "everforest-dark",
+    name: "Everforest Dark",
+    appearance: "dark",
     colors: {
       background: "#2d353b",
       foreground: "#d3c6aa",
@@ -267,31 +287,31 @@ const themes = [
       control: "#3d484d",
       border: "#475258",
       accent: "#a7c080",
-      mutedForeground: "#d3c6aa",
-      ring: "#a7c080",
+      mutedForeground: "#adb2a3", // derived: grey2 70% + fg 30%
+      ring: "#7a8478",
     },
   },
-
   // Everforest Light
   {
-    id: "everforest-light", name: "Everforest Light", appearance: "light",
+    id: "everforest-light",
+    name: "Everforest Light",
+    appearance: "light",
     colors: {
       background: "#fdf6e3",
       foreground: "#5c6a72",
       raised: "#f4f0d9",
       control: "#efebd4",
       border: "#e0dcc7",
-      accent: "#5c6a72",
-      mutedForeground: "#5c6a72",
-      ring: "#5c6a72",
+      accent: "#7e9023", // derived: green 70% + fg 30%
+      mutedForeground: "#6f7e7a", // derived: grey2/fg 50/50
+      ring: "#ced0bb", // derived: bg4/bg5 50/50
     },
   },
-
 ] as const;
 
 export default function contribute(client: PluginClientContext) {
   const removers = themes.map((theme) => client.addTheme(theme));
   return () => {
-    for (const remove of removers.reverse()) remove();
+    for (const remove of removers) remove();
   };
 }
