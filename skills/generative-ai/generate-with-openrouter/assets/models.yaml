@@ -113,3 +113,15 @@ models:
       params:
         prompt: "string — what to generate or how to edit the supplied images"
         images: "array of URLs or local paths — reference/edit inputs (optional)"
+
+  - id: "meta/muse-image"
+    name: "Muse Image (Meta)"
+    aliases: ["muse image"]
+    capabilities: [text-to-image, image-editing]
+    description: "Meta's agentic image model reasons before it renders, handles multi-part prompts, and supports targeted edits and multi-image reference conditioning."
+    notes: "Approx $0.01 per image (OpenRouter display price, Image Output unit; per-token equivalent 0.00000239520958083832). Served by the eval endpoint meta/muse-image-1.0-eval-20260824. No size or aspect-ratio parameter is listed; state dimensions in the prompt. Iterative editing works by passing the previous output back with a new instruction. May use web search for factual prompts."
+    input:
+      required: ["prompt"]
+      params:
+        prompt: "string — what to generate or how to edit the supplied images"
+        images: "array of URLs or local paths — reference/edit inputs (optional)"
