@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./prose.ts"
+    ]
+  }
+}

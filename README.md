@@ -57,6 +57,12 @@ A rule must name an exact `limit`, `window`, or both from `omp usage --json --pr
 }
 ```
 
+## Pi Extensions
+
+For the regular Pi harness, not OMP. Symlink a folder into `~/.pi/agent/extensions/` to enable it.
+
+- [prose](pi/extensions/prose) — `/prose` forks the conversation into readable prose, like the OMP version minus `N`/`^N`/`-sub`; the archive is a `<session>.prose.md` file beside the fork.
+
 ## Herdr Plugins
 
 Link a folder with `herdr plugin link <path>` to enable it.
