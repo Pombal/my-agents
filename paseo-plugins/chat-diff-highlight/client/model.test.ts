@@ -41,3 +41,25 @@ describe("parseDiff", () => {
     expect(keywordLines).toEqual([1]);
   });
 });
+
+describe("word edits", () => {
+  const marked = (text: string) =>
+    parseDiff(text).edits.map((edit) => `${edit.kind}:${text.slice(edit.start, edit.end)}`);
+
+  it("marks what changed between a paired removal and addition, in whole words", () => {
+    expect(marked('- const a = "true" || !isProduction;\n+ const a = "true";')).toEqual(["delEdit: || !isProduction"]);
+    expect(marked("-  return fooBar(x);\n+  return fooBaz(x, y);")).toEqual(["delEdit:fooBar(x", "addEdit:fooBaz(x, y"]);
+  });
+
+  it("pairs rows in order within a run and leaves rewrites and re-indents unmarked", () => {
+    expect(marked("-a = 1\n-b = 2\n+a = 10\n+b = 2\n+c = 3")).toEqual(["delEdit:1", "addEdit:10"]);
+    expect(marked("-    if args.verbose == True:\n+    # verbose flag is a bool")).toEqual([]);
+    expect(marked("-  x = 1\n+    x = 1")).toEqual([]);
+  });
+
+  it("pairs a removal with the addition it resembles, not just the one at the same position", () => {
+    const text = "-  fontWeight: medium,\n-  flexShrink: 1,\n+  fontWeight: normal,";
+    expect(marked(text)).toEqual(["delEdit:medium", "addEdit:normal"]);
+    expect(marked("-  searchIcon: {\n-    width: 18,\n+  grid: {")).toEqual([]);
+  });
+});

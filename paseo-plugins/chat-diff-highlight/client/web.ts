@@ -1,13 +1,14 @@
 import { Platform } from "react-native";
-import { isDiffBlock, parseDiff, type DiffModel, type TokenKind } from "./model";
+import { isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
 import { diffPalette, type DiffPalette, type Scheme } from "./palette";
 
 // Web and desktop only. Paseo renders chat code blocks as React Native Web views marked with
 // data-paseo-markdown-* attributes for its own copy-as-markdown feature (kept through the
-// react-native-enriched-markdown rewrite, PR #6973). This module never adds, removes or edits
-// React-owned nodes: token colors use the CSS Custom Highlight API (Range objects over the existing
-// text) and diff rows are background layers on the block's inline style. The copy button, text
-// selection, Find and copy-as-markdown keep working on the untouched text.
+// react-native-enriched-markdown rewrite, PR #6973; unchanged in v0.12.0's
+// components/highlighted-code-block.tsx). This module never adds, removes or edits React-owned
+// nodes: token colors and changed-word marks use the CSS Custom Highlight API (Range objects over
+// the existing text) and diff rows are background layers on the block's inline style. The copy
+// button, text selection, Find and copy-as-markdown keep working on the untouched text.
 
 // The plugin typechecks without the DOM library; declare only what this module uses.
 interface Rect {
@@ -83,13 +84,16 @@ const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 const THEME_POLL_MS = 1500;
 const TOKEN_KINDS: TokenKind[] = ["keyword", "comment", "string", "number", "literal", "function", "type", "tag", "attribute", "property", "operator", "addSign", "delSign", "header", "hunk"];
+const EDIT_KINDS: EditKind[] = ["delEdit", "addEdit"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
+
+type HighlightKind = TokenKind | EditKind;
 
 interface Block {
   code: DomElement;
   text: string;
   model: DiffModel;
-  ranges: Array<[TokenKind, DomRange]>;
+  ranges: Array<[HighlightKind, DomRange]>;
   nodes: DomText[];
   starts: number[];
 }
@@ -99,14 +103,17 @@ export function startDiffHighlighting(): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
 
   const blocks = new Map<DomElement, Block>();
-  const highlights = {} as Record<TokenKind, HighlightSet | undefined>;
+  const highlights = {} as Record<HighlightKind, HighlightSet | undefined>;
   if (CSS?.highlights && Highlight) {
-    for (const kind of TOKEN_KINDS) {
-      const highlight = new Highlight();
-      // Below Paseo's own highlights (chat Find), which use the default priority 0.
-      highlight.priority = -1;
-      CSS.highlights.set(`${PREFIX}-${kind}`, highlight);
-      highlights[kind] = highlight;
+    // Below Paseo's own highlights (chat Find), which use the default priority 0. Word marks sit
+    // under the syntax colors so the token colors stay on top of them.
+    for (const [kinds, priority] of [[EDIT_KINDS, -2], [TOKEN_KINDS, -1]] as const) {
+      for (const kind of kinds) {
+        const highlight = new Highlight();
+        highlight.priority = priority;
+        CSS.highlights.set(`${PREFIX}-${kind}`, highlight);
+        highlights[kind] = highlight;
+      }
     }
   }
   const style = document.createElement("style");
@@ -131,7 +138,10 @@ export function startDiffHighlighting(): () => void {
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
-    style.textContent = TOKEN_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { color: ${palette.tokens[kind]}; }`).join("\n");
+    style.textContent = [
+      ...TOKEN_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { color: ${palette.tokens[kind]}; }`),
+      ...EDIT_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { background-color: ${palette.edits[kind]}; }`),
+    ].join("\n");
     return true;
   };
 
@@ -161,13 +171,13 @@ export function startDiffHighlighting(): () => void {
     const lineHeight = parseFloat(getComputedStyle(block.code).lineHeight);
     const rows: Array<{ top: number; bottom: number; color: string }> = [];
     for (const line of block.model.lines) {
-      if (line.kind !== "add" && line.kind !== "del") continue;
+      const color = palette.rows[line.kind];
+      if (!color) continue;
       const rects = Array.from(rangeFor(block, line.start, line.end)?.getClientRects() ?? []).filter((r) => r.height > 0);
       if (rects.length === 0) continue;
       const leading = Number.isFinite(lineHeight) ? Math.max(0, (lineHeight - rects[0]!.height) / 2) : 0;
       const top = Math.min(...rects.map((r) => r.top)) - leading - box.top;
       const bottom = Math.max(...rects.map((r) => r.bottom)) + leading - box.top;
-      const color = line.kind === "add" ? palette.addRow : palette.delRow;
       const previous = rows[rows.length - 1];
       // Rows are contiguous: snap sub-pixel gaps so a run of changes paints as one band.
       if (previous && previous.color === color && top - previous.bottom < 2) previous.bottom = bottom;
@@ -207,7 +217,7 @@ export function startDiffHighlighting(): () => void {
       offset += textNode.data.length;
     }
     const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts };
-    for (const span of block.model.spans) {
+    for (const span of [...block.model.spans, ...block.model.edits]) {
       const highlight = highlights[span.kind];
       const range = highlight && rangeFor(block, span.start, span.end);
       if (!range) continue;
@@ -239,21 +249,29 @@ export function startDiffHighlighting(): () => void {
   });
 
   // Streaming rewrites a block's text node in place; virtualized chat mounts and unmounts blocks.
+  // Changes are collected and handled once per frame, so a fast stream re-parses a growing block
+  // at most at the display rate.
+  let mutationFrame: number | undefined;
+  const pendingMutation = new Set<DomElement>();
   const mutations = new MutationObserver((records) => {
-    const touched = new Set<DomElement>();
     for (const record of records) {
       const target = record.target.nodeType === ELEMENT_NODE ? (record.target as DomElement) : record.target.parentElement;
       const pre = target?.closest(PRE);
-      if (pre) touched.add(pre);
+      if (pre) pendingMutation.add(pre);
       if (record.type !== "childList") continue;
       for (const node of Array.from(record.addedNodes)) {
         if (node.nodeType !== ELEMENT_NODE) continue;
         const element = node as DomElement;
-        if (element.matches(PRE)) touched.add(element);
-        for (const inner of Array.from(element.querySelectorAll(PRE))) touched.add(inner);
+        if (element.matches(PRE)) pendingMutation.add(element);
+        for (const inner of Array.from(element.querySelectorAll(PRE))) pendingMutation.add(inner);
       }
     }
-    for (const pre of touched) process(pre);
+    if (pendingMutation.size === 0) return;
+    mutationFrame ??= requestAnimationFrame(() => {
+      mutationFrame = undefined;
+      for (const pre of pendingMutation) process(pre);
+      pendingMutation.clear();
+    });
   });
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
 
@@ -272,8 +290,9 @@ export function startDiffHighlighting(): () => void {
     mutations.disconnect();
     resizes.disconnect();
     if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
+    if (mutationFrame !== undefined) cancelAnimationFrame(mutationFrame);
     for (const pre of [...blocks.keys()]) clear(pre);
-    for (const kind of TOKEN_KINDS) CSS?.highlights?.delete(`${PREFIX}-${kind}`);
+    for (const kind of [...TOKEN_KINDS, ...EDIT_KINDS]) CSS?.highlights?.delete(`${PREFIX}-${kind}`);
     style.remove();
   };
 }

@@ -19,10 +19,13 @@ export type TokenKind =
 
 export type LineKind = "add" | "del" | "ctx" | "header" | "hunk" | "note";
 
-export interface Span {
+/** The changed words inside a paired removed/added line, painted as a stronger row tint. */
+export type EditKind = "delEdit" | "addEdit";
+
+export interface Span<Kind extends string = TokenKind> {
   start: number;
   end: number;
-  kind: TokenKind;
+  kind: Kind;
 }
 
 export interface DiffLine {
@@ -34,7 +37,11 @@ export interface DiffLine {
 export interface DiffModel {
   lines: DiffLine[];
   spans: Span[];
+  edits: Array<Span<EditKind>>;
 }
+
+/** Paseo stops syntax-highlighting code blocks past this size; rows and signs still color. */
+const MAX_SYNTAX_CHARS = 100_000;
 
 const DIFF_FENCES: Record<string, true> = { diff: true, patch: true, udiff: true };
 
@@ -321,8 +328,9 @@ export function parseDiff(text: string): DiffModel {
   // A diff that names its files colors each file by extension (unknown extensions stay plain);
   // a headerless mock diff is sniffed once from its code.
   const named = rows.some((line, i) => kinds[i] === "header" && headerPath(line) !== undefined);
-  const code = rows.filter((_, i) => kinds[i] !== "header" && kinds[i] !== "hunk").map((l) => l.slice(1));
-  let lang: Lang | undefined = named ? undefined : LANGS[sniffLang(code.join("\n"))];
+  const highlightSyntax = text.length <= MAX_SYNTAX_CHARS;
+  const code = highlightSyntax && !named ? rows.filter((_, i) => kinds[i] !== "header" && kinds[i] !== "hunk").map((l) => l.slice(1)) : [];
+  let lang: Lang | undefined = highlightSyntax && !named ? LANGS[sniffLang(code.join("\n"))] : undefined;
   let oldState: TokenState = {};
   let newState: TokenState = {};
   const tokenize = (body: string, at: number, state: TokenState) => {
@@ -340,7 +348,7 @@ export function parseDiff(text: string): DiffModel {
     if (kind === "header") {
       const path = headerPath(line);
       if (path) {
-        const next = langFromPath(path);
+        const next = highlightSyntax ? langFromPath(path) : undefined;
         lang = next ? LANGS[next] : undefined;
         oldState = {};
         newState = {};
@@ -370,5 +378,64 @@ export function parseDiff(text: string): DiffModel {
     tokenize(line.slice(body), start + body, newState);
     oldState = { ...newState };
   });
-  return { lines, spans };
+  return { lines, spans, edits: wordEdits(text, lines) };
+}
+
+const WORD = /[\p{L}\p{N}_$]/u;
+/** How far ahead in a run of additions a removal looks for its counterpart. */
+const PAIR_WINDOW = 8;
+
+/**
+ * Changed words of removed/added lines that pair up, as GitHub marks them. In each run of removals
+ * followed by additions, every removal pairs, in order, with the next addition that shares most of
+ * its text; the edit is what remains after the common prefix and suffix, widened to whole words.
+ * Rewritten lines stay unpaired, since marking most of a line only repeats the row color.
+ */
+function wordEdits(text: string, lines: DiffLine[]): Array<Span<EditKind>> {
+  const edits: Array<Span<EditKind>> = [];
+  for (let i = 0; i < lines.length; ) {
+    if (lines[i]!.kind !== "del") {
+      i++;
+      continue;
+    }
+    const dels: DiffLine[] = [];
+    while (lines[i]?.kind === "del") dels.push(lines[i++]!);
+    const adds: DiffLine[] = [];
+    while (lines[i]?.kind === "add") adds.push(lines[i++]!);
+    let next = 0;
+    for (const del of dels) {
+      // Bodies after the +/- sign.
+      const a = text.slice(del.start + 1, del.end);
+      for (let k = next; k < Math.min(adds.length, next + PAIR_WINDOW); k++) {
+        const add = adds[k]!;
+        const b = text.slice(add.start + 1, add.end);
+        const edit = commonEnds(a, b);
+        if (!edit) continue;
+        next = k + 1;
+        for (const [line, side, kind] of [[del, a, "delEdit"], [add, b, "addEdit"]] as const) {
+          const end = side.length - edit.suffix;
+          // Whitespace-only edits (re-indents) stay unmarked; they are invisible as a tint.
+          if (side.slice(edit.prefix, end).trim()) edits.push({ start: line.start + 1 + edit.prefix, end: line.start + 1 + end, kind });
+        }
+        break;
+      }
+    }
+  }
+  return edits;
+}
+
+/** Common prefix and suffix of two lines, on word boundaries, or undefined if they share too little. */
+function commonEnds(a: string, b: string): { prefix: number; suffix: number } | undefined {
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+  // Widen to whole words so a renamed `fooBar` → `fooBaz` marks the word, not "r"/"z".
+  while (prefix > 0 && WORD.test(a[prefix - 1]!) && (WORD.test(a[prefix] ?? "") || WORD.test(b[prefix] ?? ""))) prefix--;
+  while (suffix > 0 && WORD.test(a[a.length - suffix]!) && (WORD.test(a[a.length - suffix - 1] ?? "") || WORD.test(b[b.length - suffix - 1] ?? ""))) suffix--;
+  // Indentation is not common ground: two unrelated lines at the same depth must not pair.
+  const indent = /^\s*/.exec(a.slice(0, prefix))![0].length;
+  const common = prefix - indent + suffix;
+  const longest = Math.max(a.trim().length, b.trim().length);
+  return common > 0 && common >= longest * 0.4 ? { prefix, suffix } : undefined;
 }

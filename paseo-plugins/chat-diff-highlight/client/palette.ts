@@ -1,4 +1,4 @@
-import type { TokenKind } from "./model";
+import type { EditKind, LineKind, TokenKind } from "./model";
 
 // Colors copied from Paseo 0.11.4 so diff blocks match its own code blocks and git diff view:
 // syntax palettes from packages/highlight/src/themes.ts + colors.ts (Settings → Appearance → Syntax
@@ -74,9 +74,12 @@ const STATUS: Record<Scheme, { success: string; danger: string }> = {
 };
 
 export interface DiffPalette {
+  /** Text colors. */
   tokens: Record<TokenKind, string>;
-  addRow: string;
-  delRow: string;
+  /** Changed words inside a paired row, layered over the row tint. */
+  edits: Record<EditKind, string>;
+  /** Full-width row bands; kinds without one keep the block's own surface. */
+  rows: Partial<Record<LineKind, string>>;
 }
 
 const withAlpha = (hex: string, alpha: number) =>
@@ -104,8 +107,17 @@ export function diffPalette(syntaxTheme: string, scheme: Scheme): DiffPalette {
       header: syntax.comment,
       hunk: syntax.function,
     },
-    // Paseo's git diff view uses 0.15 / 0.1; chat blocks sit on a tinted surface, so go a step stronger.
-    addRow: withAlpha(status.success, 0.24),
-    delRow: withAlpha(status.danger, 0.18),
+    // As GitHub's darker word marks; softer on light surfaces, where muted text (comments) would
+    // otherwise lose contrast against them.
+    edits: { addEdit: withAlpha(status.success, scheme === "light" ? 0.22 : 0.3), delEdit: withAlpha(status.danger, scheme === "light" ? 0.22 : 0.3) },
+    rows: {
+      // Paseo's git diff view uses 0.15 / 0.1; chat blocks sit on a tinted surface, so a step stronger.
+      add: withAlpha(status.success, 0.24),
+      del: withAlpha(status.danger, 0.18),
+      // A faint band in the hunk color separates hunks, as GitHub's blue hunk rows do; file
+      // headers get a neutral band so each file of a multi-file diff starts visibly.
+      hunk: withAlpha(syntax.function, 0.1),
+      header: withAlpha(syntax.comment, 0.12),
+    },
   };
 }

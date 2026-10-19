@@ -47,7 +47,34 @@ diff --git a/tools/run.py b/tools/run.py
 +    "^.+\\.md$": markdownTransformer,
 ```
 
-5. Normal code blocks must stay as they are:
+5. Two files, two hunks, a long line and a missing final newline:
+
+```diff
+diff --git a/config/app.yaml b/config/app.yaml
+index 3f2a1c0..9b8e7d4 100644
+--- a/config/app.yaml
++++ b/config/app.yaml
+@@ -3,6 +3,6 @@ server:
+   host: 0.0.0.0
+-  port: 8080
++  port: 9090
+   timeout: 30 # seconds
+@@ -21,3 +21,4 @@ logging:
+   level: info
++  format: json
+-  destination: /var/log/app/application-server-with-a-rather-long-name.log # rotated nightly by logrotate
++  destination: /var/log/app/application-server-with-a-rather-long-name.log # rotated hourly by logrotate, kept 7 days
+\ No newline at end of file
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,2 +1,2 @@
+-# My App
++# My App (v2)
+ Run `npm start` to begin.
+```
+
+6. Normal code blocks must stay as they are:
 
 ```ts
 const total = items.reduce((sum, item) => sum + item.price, 0);
