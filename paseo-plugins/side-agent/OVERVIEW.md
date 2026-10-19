@@ -55,24 +55,25 @@ artifacts are refused. Absolute paths embedded in historical text are not
 rewritten; existing OMP compaction is not undone.
 
 After the completed-turn cut, the copy gets one OMP `custom_message` entry with
-`customType: "side-agent-context"`, `display: false`, and `attribution: "agent"`.
+`customType: "side-fork"`, `display: true`, and `attribution: "agent"`.
 Its fresh entry ID links through `parentId` to the copied completed assistant
 entry. Its content is:
 
 > You are a side agent forked from Paseo chat <id> (<parent title>). The conversation above belongs to the parent; earlier tasks are not yours. Work only on what the user asks next.
 
 OMP replays this entry into model context on resume without starting a turn.
-The installed Paseo OMP provider also honors `display: false`: the note produces
-**no visible timeline row or bubble**, including no expandable “Custom message”
-row. It remains visible in the raw session file. This behavior was proven against
-the authoritative `~/.local/bin/omp` binary (18.11.0), not inferred solely from
-the npm source.
+Paseo shows it as a **collapsed, expandable synthetic tool row** before the next
+user message. The UI humanizes `side-fork` to **Side fork**; expanding it reveals
+the note text. This is context metadata, not an executed tool or model turn.
+The imported turn's “Worked for” footer may include the note timestamp even
+though the child remains idle with `LastUsage: null`. Resume behavior was proven
+against the authoritative `~/.local/bin/omp` binary (18.11.0).
 
 Paseo imports the copied file as a new OMP agent with the
 `paseo.parent-agent-id` label and applies the parent's current runtime settings.
 With a task, it sends **only the task text**, without a duplicated fork note.
 **Without a task it sends nothing at all**: the imported child opens idle with
-no new user/assistant message or model turn, but with the hidden side-context
+no new user/assistant message or model turn, but with the visible side-context
 entry ready for the first prompt. The parent is never resumed or written by
 this operation. Full mode inherits native conversation/tool-output memory,
 not just a transcript attachment; long histories can be slower and more costly.
@@ -167,12 +168,14 @@ Screenshots in `screenshots/` replace the old file-pointer-mode evidence:
   Ready, using the attached chat history.
 - `no-task-fork-followup.png`: that child then recalls a parent-only codeword
   without tools.
-- `no-task-full-idle.png`: refreshed hidden-note proof; `/side --full` opens idle
-  with no new user/assistant message, no model turn, and no visible note.
+- `no-task-full-idle.png`: `/side --full` opens idle with a collapsed **Side fork**
+  row at the end of imported history, without starting a model turn.
+- `no-task-full-note-expanded.png`: expanding that row reveals the context note.
 - `no-task-full-identity.png`: the first prompt identifies the child as a side
-  agent forked from its parent, without tools.
-- `no-task-full-followup.png`: the same child then recalls `cobalt-wren-706`
-  without tools; the hidden note still has no timeline row.
+  agent forked from its parent, without tools; the note row remains in history.
+- `full-note-before-task.png`: with a task, the note row precedes the task message.
+- `no-task-full-followup.png`: earlier memory-regression proof; the full child
+  recalls `cobalt-wren-706` without tools.
 
 Optional-task regression testing also used OMP Claude Haiku 4.5. Bare `/side`
 and `/side --fork` acknowledged with `Ready.`. Before its first follow-up, the
@@ -182,13 +185,12 @@ answered `silver-oriole-508` on follow-up with zero tool calls. With-task fork a
 full checks returned `FORK_TASK_OK` and `FULL_TASK_OK`; right-pane reuse remained
 at two visible panes.
 
-The hidden-note regression confirmed the taskless full child identifies itself
-as a side agent forked from parent `00a4869f-afd8-4417-8760-af548db4e8c6`, then
-recalls `cobalt-wren-706`, with zero tool calls. The with-task copy received only
-the task text and returned `HIDDEN_FULL_TASK_OK`. Both copies contained exactly
-one new hidden context note. Parent SHA-256 stayed
-`3deaffb64edfe098f6e21bb36205823ef9d3144dc4ac9161cafb6cb8d3e98a2f`
-before and after both launches and follow-ups. No fallback or DOM prefill was needed.
+The visible-note regression used OMP Claude Haiku 4.5. Before its first prompt,
+the taskless child was idle with `LastUsage: null`; its collapsed **Side fork**
+row expanded to the exact context note. It then identified itself as a side
+agent forked from parent `425afb11-5787-49e6-a2e4-be763c282edc`, with no tools.
+The with-task copy showed the row before the task and returned
+`VISIBLE_NOTE_TASK_OK`. Both copies were archived and their test files removed.
 
 The random token appeared **only in the parent's tool output**, not its user,
 assistant, or reasoning messages. Session inspection found zero new tool calls

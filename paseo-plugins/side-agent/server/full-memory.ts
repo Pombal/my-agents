@@ -52,11 +52,11 @@ export async function copyCompletedSession(source: string, contextNote: string):
   if (!parentEntryId) throw new Error("Completed OMP turn has no entry ID.");
   let noteId: string;
   do { noteId = randomUUID().slice(0, 8); } while (entries.some(entry => entry.id === noteId));
-  // OMP replays custom_message entries into model context. display:false hides
-  // this in both OMP and Paseo; appending it does not invoke a model turn.
+  // OMP replays this into model context. Paseo displays it as an expandable
+  // side-fork row; appending it does not invoke a model turn.
   entries.push({
     type: "custom_message", id: noteId, parentId: parentEntryId, timestamp,
-    customType: "side-agent-context", content: contextNote, display: false, attribution: "agent",
+    customType: "side-fork", content: contextNote, display: true, attribution: "agent",
   });
   const destination = join(dirname(source), `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
   await writeFile(destination, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n", { flag: "wx", mode: 0o600 });
