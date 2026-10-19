@@ -19,22 +19,6 @@ const themes = [
       ring: "#737aa2",
     },
   },
-  // Tokyo Night Light
-  {
-    id: "tokyo-night-light",
-    name: "Tokyo Night Light",
-    appearance: "light",
-    colors: {
-      background: "#e6e7ed",
-      foreground: "#343b59",
-      raised: "#e1e2e8",
-      control: "#d6d8df",
-      border: "#c1c2c7",
-      accent: "#2959aa",
-      mutedForeground: "#4a5272",
-      ring: "#acb0bf",
-    },
-  },
   // Dracula
   {
     id: "dracula",
@@ -51,22 +35,6 @@ const themes = [
       ring: "#6272a4",
     },
   },
-  // Dracula Alucard
-  {
-    id: "dracula-alucard",
-    name: "Dracula Alucard",
-    appearance: "light",
-    colors: {
-      background: "#fffbeb",
-      foreground: "#1f1f1f",
-      raised: "#efeddc",
-      control: "#ece9df",
-      border: "#dedccf",
-      accent: "#644ac9",
-      mutedForeground: "#6c664b",
-      ring: "#acaaa4", // derived: Background Darker 90% + foreground 10%
-    },
-  },
   // Rosé Pine
   {
     id: "rose-pine",
@@ -81,22 +49,6 @@ const themes = [
       accent: "#c4a7e7",
       mutedForeground: "#908caa",
       ring: "#6e6a86",
-    },
-  },
-  // Rosé Pine Dawn
-  {
-    id: "rose-pine-dawn",
-    name: "Rosé Pine Dawn",
-    appearance: "light",
-    colors: {
-      background: "#faf4ed",
-      foreground: "#464261",
-      raised: "#fffaf3",
-      control: "#f2e9e1",
-      border: "#dfdad9",
-      accent: "#286983",
-      mutedForeground: "#6a6684", // derived: subtle 70% + text 30%
-      ring: "#beb9c1", // derived: highlightHigh 70% + muted 30%
     },
   },
   // Nord
@@ -129,22 +81,6 @@ const themes = [
       accent: "#8ec07c",
       mutedForeground: "#bdae93",
       ring: "#928374",
-    },
-  },
-  // Gruvbox Light
-  {
-    id: "gruvbox-light",
-    name: "Gruvbox Light",
-    appearance: "light",
-    colors: {
-      background: "#fbf1c7",
-      foreground: "#3c3836",
-      raised: "#f2e5bc",
-      control: "#ebdbb2",
-      border: "#d5c4a1",
-      accent: "#427b58",
-      mutedForeground: "#665c54",
-      ring: "#bdae93",
     },
   },
   // One Dark
@@ -259,22 +195,6 @@ const themes = [
       ring: "#727169",
     },
   },
-  // Kanagawa Lotus
-  {
-    id: "kanagawa-lotus",
-    name: "Kanagawa Lotus",
-    appearance: "light",
-    colors: {
-      background: "#f2ecbc",
-      foreground: "#545464",
-      raised: "#e5ddb0",
-      control: "#dcd5ac",
-      border: "#d5cea3",
-      accent: "#4d699b",
-      mutedForeground: "#686662", // derived: lotusGray2 70% + lotusInk1 30%
-      ring: "#b9b8c2", // derived: lotusViolet3 60% + lotusViolet1 40%
-    },
-  },
   // Everforest Dark
   {
     id: "everforest-dark",
@@ -289,22 +209,6 @@ const themes = [
       accent: "#a7c080",
       mutedForeground: "#adb2a3", // derived: grey2 70% + fg 30%
       ring: "#7a8478",
-    },
-  },
-  // Everforest Light
-  {
-    id: "everforest-light",
-    name: "Everforest Light",
-    appearance: "light",
-    colors: {
-      background: "#fdf6e3",
-      foreground: "#5c6a72",
-      raised: "#f4f0d9",
-      control: "#efebd4",
-      border: "#e0dcc7",
-      accent: "#7e9023", // derived: green 70% + fg 30%
-      mutedForeground: "#6f7e7a", // derived: grey2/fg 50/50
-      ring: "#ced0bb", // derived: bg4/bg5 50/50
     },
   },
 ] as const;
