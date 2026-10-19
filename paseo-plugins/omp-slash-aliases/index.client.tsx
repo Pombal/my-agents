@@ -1,6 +1,6 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { createPillIcon } from "./client/btw-sheet";
-import { BtwStore, isBusy } from "./client/btw-store";
+import { BtwStore } from "./client/btw-store";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
 
 /** Plain aliases: OMP gets the `/follow-up` form, which never cancels a running reply. */
@@ -33,7 +33,8 @@ export default function contribute(client: PluginClientContext) {
     }
     for (const [agentId, chat] of chats) {
       const count = chat.entries.length + chat.pending.length;
-      const label = isBusy(chat) ? "BTW…" : count > 1 ? `BTW · ${count}` : "BTW";
+      // The icon turns into a spinner while an answer runs, so the label only counts.
+      const label = count > 1 ? `btw ${count}` : "btw";
       const pill = pills.get(agentId);
       if (pill) {
         if (pill.label !== label) pill.registration.update({ label });

@@ -4,7 +4,7 @@ OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction
 
 - `/tan`, `/omfg` and `/queue` are composer aliases. OMP receives the `/follow-up` form (`/follow-up /tan …`, `/follow-up /omfg …`, `/follow-up <message>`), which Paseo sends out of band. The extension's input hook then runs OMP's real controller.
 - `/btw <question>` asks OMP's own side-question engine, the same one behind OMP's RPC `btw` command. It uses the native prompt and the chat's full memory, including a reply that is still streaming. Nothing is added to the conversation, and the main reply keeps running. The client calls the plugin's daemon side (`btw.ask`), which sends `/follow-up /btw …`. The extension streams the answer to `$PASEO_HOME/omp-btw/<agentId>/<id>.json`. `PASEO_AGENT_ID` is the routing key, so an answer can only reach its own chat. The daemon side reads those files, and clients poll them (0.6 s while something is open or running, 4 s otherwise).
-- The answer shows in a **Side questions** sheet that opens as soon as you send `/btw`: a centred dialog on wide layouts, a bottom sheet on phones. It shows "Sending…" and then "Thinking…", streams the answer as Markdown (headings, lists, code, tables, links), and ends with **Copy** and **Dismiss**. **Stop** cancels an answer that is still running. A `BTW` pill in that chat's composer reopens the sheet (`BTW…` while running, `BTW · n` for several answers). Dismissing an answer hides it on every client. Answers are also saved in OMP's own /btw history for the session.
+- The answer shows in a sheet that opens as soon as you send `/btw`: a centred dialog on wide layouts, a bottom sheet on phones. It has no title, only Paseo's close button. Your question sits on the right as a small chat bubble; the answer below it is Paseo chat Markdown at chat size (15 px prose, 12 px code; headings, lists, code, tables, links). While it runs, one muted line under the question shows a spinner, "Sending…" or "Thinking…" until text arrives, and **Stop**, so Stop stays in reach while a long answer streams below. Copy, Dismiss and the time sit in a row of small icons under a finished answer: on desktop they appear while the pointer is over that answer or a button has keyboard focus, and on phones and native apps they stay visible. Copy shows a tick and puts the raw Markdown on the clipboard. Newest answers come first. With several answers, the newest one (and any still running) is open and the older ones collapse to two lines (the question, then the start of the answer). Tap a collapsed one to open it, or tap an open question to collapse it. A `btw` pill in that chat's composer reopens the sheet: its icon spins while an answer runs, and it reads `btw n` when there are several answers. Dismissing an answer hides it on every client. Answers are also saved in OMP's own /btw history for the session.
 - The plugin hides the `/follow-up /btw …` message from the timeline, because it is plumbing and not a conversation turn.
 - Before sending, the plugin checks that the chat's live OMP process has the `/btw` handler. An agent started before the extension had `/btw` would otherwise pass the question to the model as an ordinary message. In that case you get: "This OMP agent started before /btw was installed. Reload or restart the agent" (`paseo agent reload <id>`, or close and reopen the chat).
 
@@ -16,6 +16,8 @@ Other providers get the original slash command unchanged. Plugin commands win co
 
 - `/btw`: one question at a time per chat. This is OMP's own rule; a second question shows "A /btw question is still running; cancel it first". There are no follow-ups inside a side conversation yet; OMP's engine supports them, but this UI does not. If an OMP process dies mid-answer, the answer shows as interrupted after 10 minutes. Answers and markers are kept for 7 days.
 - Paseo's message-navigation rail (the small marks at the left edge) still counts the hidden `/follow-up /btw` message. Until a freshly loaded app has loaded its plugins, that message is briefly visible. `paseo logs` also shows it.
+- Desktop web: once the sheet is open, the pill's "Side questions (/btw)" tooltip can show next to it. The sheet is rendered inside the pill (the only per-chat plugin UI), so React passes hover events from the sheet up to the pill's tooltip trigger. The plugin cannot turn the tooltip off.
+- The desktop dialog is Paseo's standard plugin dialog, at most 520 px wide. A plugin cannot widen it.
 - `/tan` has no MCP tools. Paseo 0.11.4 shows only the first line of the tangent's completion notice (`omp/system-notice.js`). The main agent receives the full result and usually acts on it, as in the screenshots below.
 - `/omfg` shows OMP's save-location question but not its draft-rule panel; check the saved file. Generation can take a while.
 - This depends on OMP internals (controller and `rpc-btw` modules) and on Paseo 0.11.4 behaviour (`/follow-up` out of band, `PASEO_AGENT_ID` in the provider environment).
@@ -24,7 +26,15 @@ Disable with `paseo plugin disable omp-slash-aliases`. To keep the plugin but dr
 
 ## Development
 
-`npm install`, `npm test` (vitest), `npm run typecheck`. The tests cover the Markdown parser, ask/answer correlation and routing across chats (`client/btw-store.test.ts`), the file contract with the extension's real writer (`server/btw-outbox.test.ts`), and the live-process readiness check. `paseo plugin reload omp-slash-aliases` applies edits.
+`npm install`, `npm test` (vitest), `npm run typecheck`. The tests cover the Markdown parser and its one-line preview, ask/answer correlation and routing across chats (`client/btw-store.test.ts`), the file contract with the extension's real writer (`server/btw-outbox.test.ts`), and the live-process readiness check. `paseo plugin reload omp-slash-aliases` applies edits.
+
+## Redesign proof (2026-10-19, web app, OMP + Claude Haiku 5.5)
+
+Throwaway agent "BTW redesign test" (codeword VIOLET-HERON-42) in `~/tmp-archive/paseo-btw-test`. It was archived and deleted afterwards.
+
+- Before: `btw-before-desktop-streaming.webp`, `btw-before-desktop-two-answers.webp`, `btw-before-phone.webp`.
+- After, tested live: `btw-after-desktop-streaming-dark.webp` (an answer streaming under its question, with a spinner and Stop, and older answers collapsed), `btw-after-desktop-answers-dark.webp` (eight answers, the newest open and hovered to show its actions), `btw-after-desktop-markdown-light.webp` (an older answer expanded: numbered list, code block, inline code), `btw-after-phone-dark.webp` and `btw-after-phone-light.webp` (390 px bottom sheet with the icons always shown).
+- Copy put the raw Markdown on the clipboard (read back from the page) and the icon turned into a tick. Dismissing two answers took the pill from `btw 5` to `btw 3`. The X closed the sheet, and it did not reopen.
 
 ## Live proof (2026-10-19, web app, Claude Haiku 5.5 on Stefan's Anthropic subscription)
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInline, parseMarkdown } from "./markdown";
+import { parseInline, parseMarkdown, plainText } from "./markdown";
 
 describe("parseInline", () => {
   it("styles bold, italic, strike and code runs", () => {
@@ -93,5 +93,13 @@ describe("parseMarkdown", () => {
     expect(parseMarkdown("- long item\n  wraps here")).toEqual([
       { type: "item", marker: "•", depth: 0, spans: [{ text: "long item wraps here" }] },
     ]);
+  });
+});
+
+describe("plainText", () => {
+  it("flattens Markdown into one preview line", () => {
+    expect(plainText("## Plan\n\n1. Parse **EXIF**\n2. Rename\n\n```toml\nclap = \"4\"\n```\nDone `now`.")).toBe(
+      'Plan 1. Parse EXIF 2. Rename clap = "4" Done now.',
+    );
   });
 });

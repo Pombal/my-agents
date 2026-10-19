@@ -212,3 +212,26 @@ function sameStyle(a: Span, b: Span): boolean {
     a.url === b.url
   );
 }
+
+/** The answer as one line of plain text, for a collapsed answer's preview. */
+export function plainText(source: string): string {
+  return parseMarkdown(source)
+    .map(block => {
+      switch (block.type) {
+        case "code":
+          return block.text;
+        case "table":
+          return [block.header, ...block.rows].map(row => row.map(cell => cell.map(span => span.text).join("")).join(" ")).join(" ");
+        case "rule":
+          return "";
+        case "item":
+          return `${block.marker} ${block.spans.map(span => span.text).join("")}`;
+        default:
+          return block.spans.map(span => span.text).join("");
+      }
+    })
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
