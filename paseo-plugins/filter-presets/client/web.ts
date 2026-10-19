@@ -26,20 +26,22 @@ export function writeSelection(id: string): void {
   try { localStorage.setItem(storageKey, id); } catch { /* Private browsing can deny storage. */ }
 }
 
+export interface WorkspaceRef { id: string; projectId: string }
+
 export interface SidebarFilter {
-  apply(hostId: string, projects: Project[], hidden: Project[]): void;
+  apply(hostId: string, projects: Project[], hidden: Project[], workspaces: WorkspaceRef[]): void;
   remove(): void;
 }
 
 export function createSidebarFilter(): SidebarFilter {
   if (Platform.OS !== "web" || typeof document === "undefined") {
-    return { apply(_hostId: string, _projects: Project[], _hidden: Project[]) {}, remove() {} };
+    return { apply() {}, remove() {} };
   }
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "filter-presets");
   document.head.appendChild(style);
   return {
-    apply(hostId: string, projects: Project[], hidden: Project[]) {
+    apply(hostId: string, projects: Project[], hidden: Project[], workspaces: WorkspaceRef[]) {
       const hiddenIds = new Set(hidden.map((project) => project.projectId));
       const selectors = new Set<string>();
       for (const project of hidden) {
@@ -53,6 +55,12 @@ export function createSidebarFilter(): SidebarFilter {
           // Hide the enclosing project group, not just its header. No host style is mutated.
           selectors.add(`[role="group"]:has([data-testid=${testId}])`);
         }
+      }
+      // "Group by status" lists workspace rows without project groups; hide those rows one by one.
+      for (const workspace of workspaces) {
+        if (!hiddenIds.has(workspace.projectId)) continue;
+        const testId = JSON.stringify(`sidebar-workspace-row-${hostId}:${workspace.id}`);
+        selectors.add(`[data-testid=${testId}]`);
       }
       style.textContent = selectors.size ? [...selectors].join(",\n") + " { display: none !important; }" : "";
     },
