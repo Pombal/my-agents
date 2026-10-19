@@ -40,17 +40,19 @@ export function agentInScope(agent: AgentRecord, scope: ScopeFilter): boolean {
   return scope.targets.some((target) => isSameOrInside(target, agent.cwd));
 }
 
-const TITLE_MAX = 120;
 const LONE_TAG = /^<\/?[\w-]+>$/;
 
-/** First meaningful prompt line; wrapper lines such as `<chat-history-summary>` are skipped. */
+/**
+ * First meaningful prompt line, whole: wrapper lines such as `<chat-history-summary>` are
+ * skipped, and the UI ellipsizes by width.
+ */
 export function titleFromPrompt(prompt: string | null): string | null {
-  const line = prompt
-    ?.split("\n")
-    .map((part) => part.trim())
-    .find((part) => part.length > 0 && !LONE_TAG.test(part));
-  if (!line) return null;
-  return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1)}…` : line;
+  return (
+    prompt
+      ?.split("\n")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0 && !LONE_TAG.test(part)) ?? null
+  );
 }
 
 /** Newest activity first; ties broken by key so the order is stable. */

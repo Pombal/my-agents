@@ -151,7 +151,8 @@ describe("titleFromPrompt", () => {
     );
   });
 
-  it("caps long lines", () => {
-    expect(titleFromPrompt("a".repeat(500))).toHaveLength(120);
+  it("keeps the whole line; only the UI ellipsizes by width", () => {
+    const line = `${"long first prompt line ".repeat(30)}end`;
+    expect(titleFromPrompt(`${line}\nsecond line`)).toBe(line);
   });
 });

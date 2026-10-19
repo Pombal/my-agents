@@ -7,10 +7,24 @@ Two sources, newest activity first:
   A session any Paseo agent (live or archived, any folder) already owns is never listed twice;
   the footer counts those ("23 terminal sessions are already in Paseo and not repeated").
 
-Each row: title (Paseo agent name or OMP session title, else the first prompt line), relative
-time on the right, a source tag, local date and time (`2026-10-17 19:14`), and outside the
-listed folder the subfolder or `~/…` path. The right edge says what a click does: **Restore**
-(Paseo) or **Import** (OMP); phone-sized layouts show only the icon.
+Each row is two lines on a fixed grid: the provider mark beside the title, relative time at the
+right; below, a source tag, local date and time (`2026-10-17 19:14`), outside the listed folder
+the subfolder or `~/…` path, and at the right what a click does: **Restore** (Paseo) or
+**Import** (OMP; phone-sized layouts show only the icon). Rows, scope buttons, search clear,
+refresh, Switch and the section header react to hover (tint, pointer cursor; a row's action turns
+accent) and press, and show a focus ring when reached by keyboard (not after a click).
+
+Provider marks: Paseo's plugin SDK does not expose its provider icons, so the built-in marks
+(Claude, Codex, OMP, Pi, OpenCode, Copilot) are copied as SVG strings into
+`client/provider-marks.ts` (from getpaseo/paseo at 4a5716360); plugin providers use the daemon's
+provider-snapshot `iconSvg` (e.g. Antigravity); anything else gets Paseo's Bot, like the app.
+The Bot carries `provider` and `serverId` props, so Stefan's `provider-icons` plugin repaints it
+(`omp-nilo` → Nilo logo). Marks render as SVG images, which only the web app (and Desktop) can
+draw; native phone apps show Bot. OMP terminal rows show a terminal icon.
+
+Titles are never shortened by the plugin beyond width ellipsis. Paseo itself cuts the provisional
+title of an agent created from a prompt to the first 60 characters of its first line
+(`create-agent-title.js`), and stores it that way.
 
 ## Where
 
@@ -63,21 +77,22 @@ scanner alone on drimgar-compendium (522 files) 414 ms cold, 7 ms warm.
 
 ## Proof (live web app, 2026-10-19, `screenshots/`)
 
-- `workspace-paseo-plugins.webp`: index › Paseo Plugins, 13 archived agents of that workspace only.
-- `same-folder-collapsed.webp` → `same-folder-expanded.webp`: the 100 terminal sessions of
-  `~/agentspace/index`, collapsed under the list, then expanded with Import rows.
-- `workspace-mainframe.webp`: index › Mainframe has no archived agents (its 2 agents are live),
-  so the empty state shows above the same 100-session section.
-- `search-workspace-diff.webp`: search "diff" on Mainframe: no agent matches, the section opens
-  with the one matching terminal session.
-- `folder-scope-index.webp`, `project-scope-index.webp`: Folder and Project scopes for index.
-- `compact-workspace.webp`, `compact-same-folder-expanded.webp`, `compact-switch-workspace.webp`:
-  phone-sized web layout (dark system theme), section expanded, Switch sheet.
+- `desktop-dark-workspace.webp`: index › Paseo Plugins (dark plugin theme), one-line toolbar;
+  the `review the proposed final diff` row is `omp-nilo`, repainted by provider-icons.
+- `desktop-light-workspace-hover.webp`: nilo-wayfinder › Subagents, light theme: OMP, Claude and
+  Codex marks, hovered row with the accent Restore.
+- `desktop-dark-focus-ring.webp`: keyboard focus on the Project scope button.
+- `desktop-dark-terminal-sessions.webp`: the 103 terminal sessions expanded, hovered Import row,
+  a long first prompt ellipsized by width.
+- `phone-light-workspace.webp`, `phone-dark-terminal-sessions.webp`: phone-sized web, search on
+  its own line.
+- `desktop-dark-claude-row.webp` → `restored-claude-agent.webp`: a throwaway Claude Haiku agent,
+  archived, restored by a click; its Paseo tab shows the same Claude mark. Agent, workspace,
+  project and folder were deleted afterwards.
 - `reopened-paseo-agent.webp`, `reopened-omp-session.webp` (first version, same reopen code):
-  an archived agent restored and an OMP-only session imported (3.1 s) in a throwaway folder; both
-  then left the list. The proof agents, workspaces, project and files were deleted afterwards.
-  Earlier counts matched an independent brute-force scan (index 114 = 14 + 100, 20 hidden;
-  Infra - Ofis 31 = 5 + 26, 17 hidden; nilo project 656 OMP only, 9 hidden).
+  an archived agent restored and an OMP-only session imported (3.1 s). Earlier counts matched an
+  independent brute-force scan (index 114 = 14 + 100, 20 hidden; Infra - Ofis 31 = 5 + 26,
+  17 hidden; nilo project 656 OMP only, 9 hidden).
 
 ## Limits
 

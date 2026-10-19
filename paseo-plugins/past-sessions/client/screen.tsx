@@ -3,14 +3,15 @@ import { usePaseo } from "@getpaseo/plugin/client";
 import { FlatList, Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { ScopeSchema, type Scope } from "../shared/rpc";
+import { Interactive } from "./interactive";
 import { PastSessionsList } from "./past-sessions-list";
 
 /** What the sidebar row reopens: the screen's last workspace and scope, until the app reloads. */
 export const lastScreenParams: { workspaceId?: string; scope?: Scope } = {};
 
-export function PastSessionsScreen({ theme, layout, params, navigation }: PluginScreenProps) {
+export function PastSessionsScreen({ theme, layout, host, params, navigation }: PluginScreenProps) {
   const paseo = usePaseo();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chosenId, setChosenId] = useState<string | undefined>(params.workspaceId);
@@ -34,22 +35,13 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
   }
   const { colors } = theme;
   const gutter = layout.compact ? 14 : 20;
+  const focusRing = { outlineColor: colors.accent, outlineStyle: "solid", outlineWidth: 2 } as const;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Choose workspace"
-        testID="past-sessions-folder-picker"
-        onPress={() => setPickerOpen(true)}
-        style={({ pressed }) => [
-          styles.picker,
-          { paddingHorizontal: gutter, borderBottomColor: colors.border },
-          pressed ? { backgroundColor: colors.surface1 } : null,
-        ]}
-      >
+      <View style={[styles.header, { paddingHorizontal: gutter, borderBottomColor: colors.border }]}>
         <Icon name="LayoutGrid" size={16} color={colors.foregroundMuted} />
-        <View style={styles.pickerBody}>
+        <View style={styles.body}>
           <Text style={{ color: colors.foregroundMuted, fontSize: 11 }} numberOfLines={1}>
             {workspace ? workspace.projectDisplayName : " "}
           </Text>
@@ -57,11 +49,23 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
             {workspace ? workspace.name : workspaces.isError ? "Workspaces unavailable" : "Loading workspaces…"}
           </Text>
         </View>
-        <View style={[styles.change, { borderColor: colors.border }]}>
+        <Interactive
+          accessibilityRole="button"
+          accessibilityLabel="Switch workspace"
+          testID="past-sessions-folder-picker"
+          onPress={() => setPickerOpen(true)}
+          style={({ hovered, pressed, focused }) => [
+            styles.switch,
+            { borderColor: hovered ? colors.foregroundMuted : colors.border },
+            hovered ? { backgroundColor: colors.surface1 } : null,
+            pressed ? { backgroundColor: colors.surface2 } : null,
+            focused ? focusRing : null,
+          ]}
+        >
           <Text style={{ color: colors.foreground, fontSize: 12 }}>Switch</Text>
           <Icon name="ChevronsUpDown" size={13} color={colors.foregroundMuted} />
-        </View>
-      </Pressable>
+        </Interactive>
+      </View>
       {workspace ? (
         <PastSessionsList
           key={workspace.id}
@@ -69,6 +73,7 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
           scope={scope}
           onScopeChange={setScope}
           theme={theme}
+          serverId={host.id}
           compact={layout.compact}
           navigation={navigation}
         />
@@ -89,20 +94,22 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
             renderItem={({ item }) => {
               const selected = item.id === workspace?.id;
               return (
-                <Pressable
+                <Interactive
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   onPress={() => {
                     setChosenId(item.id);
                     setPickerOpen(false);
                   }}
-                  style={({ pressed }) => [
+                  style={({ hovered, pressed, focused }) => [
                     styles.option,
                     { borderTopColor: colors.border },
-                    selected || pressed ? { backgroundColor: colors.surface1 } : null,
+                    selected || hovered ? { backgroundColor: colors.surface1 } : null,
+                    pressed ? { backgroundColor: colors.surface2 } : null,
+                    focused ? { ...focusRing, outlineOffset: -2 } : null,
                   ]}
                 >
-                  <View style={styles.pickerBody}>
+                  <View style={styles.body}>
                     <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "500" }} numberOfLines={1}>
                       {item.name}
                     </Text>
@@ -111,7 +118,7 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
                     </Text>
                   </View>
                   {selected ? <Icon name="Check" size={16} color={colors.accent} /> : null}
-                </Pressable>
+                </Interactive>
               );
             }}
           />
@@ -122,20 +129,20 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
 }
 
 const styles = StyleSheet.create({
-  picker: {
+  header: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  pickerBody: { flex: 1, minWidth: 0, gap: 1 },
-  change: {
+  body: { flex: 1, minWidth: 0, gap: 1 },
+  switch: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    height: 30,
     borderRadius: 7,
     borderWidth: StyleSheet.hairlineWidth,
   },

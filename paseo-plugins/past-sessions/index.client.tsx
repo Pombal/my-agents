@@ -7,6 +7,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { PastSessionsList } from "./client/past-sessions-list";
 import { lastScreenParams, PastSessionsScreen } from "./client/screen";
+import { startFocusModality } from "./client/web";
 import type { Scope } from "./shared/rpc";
 
 const SCREEN_ID = "browse";
@@ -22,7 +23,7 @@ function SidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   );
 }
 
-function WorkspacePanel({ workspaceId, theme, layout, navigation }: PluginWorkspacePanelProps) {
+function WorkspacePanel({ workspaceId, theme, layout, host, navigation }: PluginWorkspacePanelProps) {
   const [scope, setScope] = useState<Scope>("workspace");
   return (
     <PastSessionsList
@@ -30,6 +31,7 @@ function WorkspacePanel({ workspaceId, theme, layout, navigation }: PluginWorksp
       scope={scope}
       onScopeChange={setScope}
       theme={theme}
+      serverId={host.id}
       compact={layout.compact}
       navigation={navigation}
     />
@@ -38,6 +40,7 @@ function WorkspacePanel({ workspaceId, theme, layout, navigation }: PluginWorksp
 
 export default function contribute(client: PluginClientContext) {
   const cleanups = [
+    startFocusModality(),
     client.addScreen({ id: SCREEN_ID, title: "Past sessions", Component: PastSessionsScreen }),
     client.addSidebarHeaderItem({ id: SCREEN_ID, title: "Past sessions", Component: SidebarItem }),
     client.addWorkspacePanel({
