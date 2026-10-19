@@ -1,6 +1,8 @@
 version: 2
 updated: "2026-10-19"
 preferences: |
+  - "Sound effects: always fal-ai/elevenlabs/sound-effects/v2 (alias 'elevenlabs sfx'); use loop=true for ambiences. Chosen by Stefan over Sonilo, Mirelo and CassetteAI SFX after a 3-take listening test (2026-10-11)."
+  - "Music: cassetteai/music-generator (alias 'cassetteai')."
   Add your preferences here, e.g.:
   - "User prefers fal-ai/nano-banana-2 for quality"
   - "User prefers fal-ai/flux-2/klein/9b for fast generation"
@@ -586,3 +588,128 @@ endpoints:
         num_images: "integer — number of images to generate (range: 1-10; default: 1)"
         output_format: "enum: jpeg | png | webp (default: webp)"
         sync_mode: "boolean — return the image as a data URI not persisted in request history (default: false)"
+
+  - id: "fal-ai/elevenlabs/sound-effects/v2"
+    aliases: ["elevenlabs sound effects", "elevenlabs sfx", "eleven sfx", "sound effects v2"]
+    category: "text-to-audio"
+    description: "ElevenLabs Sound Effects v2: text-to-sound-effect generation, with optional seamless looping."
+    notes: "$0.002 per second of output (a 2 s sound costs $0.004; the 22 s maximum costs $0.044). Leave duration_seconds unset to let the model pick from the prompt. loop=true makes ambience and loops repeat seamlessly. Output is one audio file (MP3 by default)."
+    input:
+      required: ["text"]
+      batch: null
+      params:
+        text: "string — description of the sound effect to generate"
+        duration_seconds: "number — length in seconds (range: 0.5-22; default: chosen from the prompt)"
+        prompt_influence: "number — how closely to follow the prompt; higher means less variation (range: 0-1; default: 0.3)"
+        loop: "boolean — make a sound that loops smoothly (default: false)"
+        output_format: "enum: mp3_22050_32 | mp3_44100_32 | mp3_44100_64 | mp3_44100_96 | mp3_44100_128 | mp3_44100_192 | pcm_8000 | pcm_16000 | pcm_22050 | pcm_24000 | pcm_44100 | pcm_48000 | ulaw_8000 | alaw_8000 | opus_48000_32 | opus_48000_64 | opus_48000_96 | opus_48000_128 | opus_48000_192 (default: mp3_44100_128)"
+
+  - id: "cassetteai/music-generator"
+    aliases: ["cassetteai", "cassette music"]
+    category: "text-to-music"
+    description: "CassetteAI music generator: text-to-music tracks of 10-180 s, 44.1 kHz stereo WAV."
+    notes: "$0.02 per output minute (a 30 s loop costs $0.01; 3 min costs $0.06). Fast: about 2 s for 30 s of audio. Put genre, instruments, mood, key, and tempo (BPM) in the prompt. No loop or vocals parameters; loops need trimming or crossfading in post."
+    input:
+      required: ["prompt", "duration"]
+      batch: null
+      params:
+        prompt: "string — music description; include genre, instruments, mood, key, and tempo (e.g. 'Key: D Minor, Tempo: 90 BPM')"
+        duration: "integer — length in seconds (range: 10-180)"
+
+  - id: "cassetteai/sound-effects-generator"
+    aliases: ["cassetteai sfx", "cassette sound effects"]
+    category: "text-to-audio"
+    description: "CassetteAI sound-effects generator: text-to-SFX clips of 1-30 s."
+    notes: "$0.01 per generation, flat, regardless of length. Only prompt and integer duration; no seed or loop."
+    input:
+      required: ["prompt", "duration"]
+      batch: null
+      params:
+        prompt: "string — description of the sound effect"
+        duration: "integer — length in seconds (range: 1-30)"
+
+  - id: "sonilo/v1.1/text-to-sound-effects"
+    aliases: ["sonilo sfx", "sonilo sound effects"]
+    category: "text-to-audio"
+    description: "Sonilo v1.1 text-to-sound-effects, 0.5-180 s, with an inaudible provenance watermark."
+    notes: "$0.0018 per second of output per sample (about 10% below ElevenLabs SFX v2). Default format is aac; prefer mp3 or wav for games. No seed or loop."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — description of the sound"
+        duration: "number — length in seconds (range: 0.5-180; default: 8)"
+        audio_format: "enum: wav | mp3 | aac | flac (default: aac)"
+
+  - id: "mirelo-ai/sfx1.6/text-to-audio"
+    aliases: ["mirelo sfx", "mirelo", "mirelo 1.6"]
+    category: "text-to-audio"
+    description: "Mirelo SFX 1.6 text-to-audio, with a dedicated seamless-loop ambience mode."
+    notes: "$0.01 per second of output, apparently billed per sample, so keep num_samples at 1 (the runner pins it). ambience=true makes a seamlessly loopable tile (min 1 s); double_output concatenates it to 2x length."
+    input:
+      required: ["text_prompt"]
+      batch: "num_samples"
+      params:
+        text_prompt: "string — description of the sound"
+        duration: "number — length in seconds (range: 0.1-60, min 1 with ambience; default: 10)"
+        ambience: "boolean — generate a seamlessly loopable ambience tile (default: false)"
+        double_output: "boolean — with ambience, concatenate the loop with itself (default: false)"
+        num_samples: "integer — variations per request (range: 1-4; default: 2)"
+        seed: "integer — seed; -1 or unset for random"
+        upload_audio_format: "enum: wav | mp3 | aac | flac (default: wav)"
+
+  - id: "fal-ai/elevenlabs/music"
+    aliases: ["elevenlabs music", "eleven music"]
+    category: "text-to-music"
+    description: "ElevenLabs Music: text-to-music up to 10 minutes, optional composition plan, guaranteed-instrumental flag."
+    notes: "$0.60 per output minute, rounded UP to whole minutes (a 30 s track bills as 1 minute, $0.60). Length 3-600 s via music_length_ms."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — description of the music"
+        music_length_ms: "integer — length in ms (range: 3000-600000; default: chosen from the prompt)"
+        force_instrumental: "boolean — guarantee an instrumental track (default: false)"
+        composition_plan: "object — section-by-section plan (alternative to prompt)"
+        respect_sections_durations: "boolean — enforce composition_plan section durations strictly (default: true)"
+        output_format: "enum: mp3_44100_128 (default) | mp3_44100_192 | pcm_44100 | opus_48000_128 | ... (codec_samplerate_bitrate)"
+
+  - id: "fal-ai/ace-step/prompt-to-audio"
+    aliases: ["ace-step", "ace step music"]
+    category: "text-to-music"
+    description: "ACE-Step v1 prompt-to-audio music generation, 5-240 s, with an instrumental flag."
+    notes: "$0.0002 per second of audio ($0.012/min). Not independently ranked. Writes its own tags and lyrics from the prompt unless instrumental=true."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — style description; used to derive tags and lyrics"
+        duration: "number — length in seconds (range: 5-240; default: 60)"
+        instrumental: "boolean — instrumental version (default: false)"
+        number_of_steps: "integer — inference steps (range: 3-60; default: 27)"
+        guidance_scale: "number — CFG scale (range: 0-200; default: 15)"
+        seed: "integer — seed (default: random)"
+
+  - id: "fal-ai/lyria3"
+    aliases: ["lyria 3", "lyria 3 clip"]
+    category: "text-to-music"
+    description: "Google Lyria 3: 30-second music clips from a prompt (optionally an inspiration image), MP3."
+    notes: "$0.04 per clip. No duration or instrumental parameters: state 'instrumental, no vocals' in the prompt. Negative prompts are not supported."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — genre, mood, instrumentation, tempo, vocal style"
+        image_url: "string — optional inspiration image (URL or local path)"
+
+  - id: "fal-ai/lyria3/pro"
+    aliases: ["lyria 3 pro"]
+    category: "text-to-music"
+    description: "Google Lyria 3 Pro: full tracks up to about 3 minutes from a prompt (optionally an inspiration image), MP3."
+    notes: "$0.08 per track regardless of length. Ranked near the top of Artificial Analysis' instrumental leaderboard (Elo 1078). No duration parameter: state the length in the prompt."
+    input:
+      required: ["prompt"]
+      batch: null
+      params:
+        prompt: "string — genre, mood, instrumentation, tempo, vocal style, length"
+        image_url: "string — optional inspiration image (URL or local path)"
