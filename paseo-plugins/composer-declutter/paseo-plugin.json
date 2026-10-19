@@ -1,0 +1,5 @@
+{
+  "id": "composer-declutter",
+  "name": "Composer declutter",
+  "requirements": { "paseo": ">=0.11.4" }
+}

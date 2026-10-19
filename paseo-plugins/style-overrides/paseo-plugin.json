@@ -1,0 +1,8 @@
+{
+  "id": "style-overrides",
+  "name": "Personal style overrides",
+  "media": ["screenshots/sidebar-before.webp", "screenshots/sidebar-after.webp"],
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}

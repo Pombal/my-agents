@@ -1,0 +1,6 @@
+{
+  "id": "t3-chat-theme",
+  "requirements": {
+    "paseo": ">=0.11.4"
+  }
+}
