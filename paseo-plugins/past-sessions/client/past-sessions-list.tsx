@@ -38,10 +38,11 @@ const SCOPES: { value: Scope; label: string; hint: string }[] = [
   { value: "project", label: "Project", hint: "Everything in the project, its subfolders and worktrees" },
 ];
 
-const DENSITIES: { value: Density; icon: string; label: string }[] = [
-  { value: "comfortable", icon: "Rows2", label: "Comfortable: two lines of the last reply" },
-  { value: "compact", icon: "Rows4", label: "Compact: one line per session" },
-];
+/** The density toggle shows what a click switches to. */
+const NEXT_DENSITY: Record<Density, { value: Density; icon: string; label: string }> = {
+  comfortable: { value: "compact", icon: "Rows4", label: "Switch to compact: one line per session" },
+  compact: { value: "comfortable", icon: "Rows2", label: "Switch to comfortable: two lines of the last reply" },
+};
 
 // Paseo's default type ramp (Interface size 14): 14/20 for titles, 12/17 for everything else.
 const BASE = { fontSize: 14, lineHeight: 20 } as const;
@@ -58,14 +59,13 @@ function createStyles(theme: PluginTheme, compact: boolean) {
   const segmentGroup = { flexDirection: "row", padding: 2, borderRadius: 12, backgroundColor: colors.surface2 } as const;
   return StyleSheet.create({
     root: { flex: 1, minHeight: 0, backgroundColor: colors.surface0 },
-    // The bottom padding keeps scrolled rows from touching the context line.
+    // The bottom padding keeps scrolled rows from touching the toolbar.
     header: { paddingHorizontal: gutter, paddingTop: 12, paddingBottom: 6 },
     toolbar: { flexDirection: "row", alignItems: "center", gap: 8 },
     focusRing,
     focusRingInset: { ...focusRing, outlineOffset: -2 },
     segments: { ...segmentGroup, flexShrink: 0 },
     segment: { height: 24, paddingHorizontal: 8, borderRadius: 10, justifyContent: "center" },
-    densityOption: { height: 24, paddingHorizontal: 6, borderRadius: 10, justifyContent: "center" },
     segmentActive: { backgroundColor: colors.surface0 },
     segmentText: { ...SMALL, color: colors.foregroundMuted },
     segmentTextHot: { color: colors.foreground },
@@ -90,11 +90,8 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     // The container shows focus; the browser's own ring inside it would double the border.
     searchInput: { flex: 1, ...BASE, color: colors.foreground, paddingVertical: 0, outlineWidth: 0 },
     clear: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-    context: { ...muted, marginTop: 8 },
     warning: { ...SMALL, color: colors.statusWarning, marginTop: 4 },
-    label: { ...muted, fontWeight: "500", paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 6 },
-    labelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-    labelInRow: { flexShrink: 1 },
+    externalRow: { flexDirection: "row", justifyContent: "flex-end" },
     externalControl: { flexDirection: "row", alignItems: "center", gap: 2, paddingRight: gutter - 6, paddingTop: 4 },
     externalButton: { flexDirection: "row", alignItems: "center", gap: 5, height: 24, paddingHorizontal: 6, borderRadius: 6 },
     externalText: { ...muted, flexShrink: 1 },
@@ -446,7 +443,8 @@ function ExternalControl(props: {
   );
 }
 
-function contextLine(data: PastSessionsListing, scope: Scope): string {
+/** What a scope covers, as the scope button's tooltip. */
+function scopeHint(data: PastSessionsListing, scope: Scope): string {
   const folder = tildify(data.folder, data.home);
   if (scope === "workspace") return `Archived agents of ${data.workspaceName} · ${folder}`;
   if (scope === "folder") return `Everything that ran in ${folder}`;
@@ -576,7 +574,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             key={option.value}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
-            accessibilityHint={option.hint}
+            accessibilityHint={data ? scopeHint(data, option.value) : option.hint}
             testID={`past-sessions-scope-${option.value}`}
             onPress={() => onScopeChange(option.value)}
             style={({ focused }) => [
@@ -586,7 +584,12 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             ]}
           >
             {({ hovered }) => (
-              <Text style={[styles.segmentText, active || hovered ? styles.segmentTextHot : null]}>{option.label}</Text>
+              <Text
+                ref={tooltip(data ? scopeHint(data, option.value) : option.hint)}
+                style={[styles.segmentText, active || hovered ? styles.segmentTextHot : null]}
+              >
+                {option.label}
+              </Text>
             )}
           </Interactive>
         );
@@ -594,31 +597,26 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     </View>
   );
 
-  const densitySwitch = (
-    <View style={styles.segments} accessibilityRole="radiogroup" accessibilityLabel="Density">
-      {DENSITIES.map((option) => {
-        const active = option.value === density;
-        return (
-          <Interactive
-            key={option.value}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: active }}
-            accessibilityLabel={option.label}
-            testID={`past-sessions-density-${option.value}`}
-            onPress={() => setDensity(option.value)}
-            style={({ focused }) => [
-              styles.densityOption,
-              active ? styles.segmentActive : null,
-              focused ? styles.focusRing : null,
-            ]}
-          >
-            {({ hovered }) => (
-              <Icon name={option.icon} size={15} color={active || hovered ? theme.colors.foreground : muted} />
-            )}
-          </Interactive>
-        );
-      })}
-    </View>
+  const nextDensity = NEXT_DENSITY[density];
+  const densityToggle = (
+    <Interactive
+      accessibilityRole="button"
+      accessibilityLabel={nextDensity.label}
+      testID="past-sessions-density"
+      onPress={() => setDensity(nextDensity.value)}
+      style={({ hovered, pressed, focused }) => [
+        styles.iconButton,
+        hovered ? styles.iconButtonHovered : null,
+        pressed ? styles.iconButtonPressed : null,
+        focused ? styles.focusRing : null,
+      ]}
+    >
+      {({ hovered }) => (
+        <View ref={tooltip(nextDensity.label)}>
+          <Icon name={nextDensity.icon} size={15} color={hovered ? theme.colors.foreground : muted} />
+        </View>
+      )}
+    </Interactive>
   );
 
   const search = (
@@ -630,7 +628,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
         onChangeText={setQuery}
         onFocus={() => setSearchFocused(true)}
         onBlur={() => setSearchFocused(false)}
-        placeholder="Search titles and folders"
+        placeholder={data ? `Search ${data.entries.length + data.sameFolder.length} sessions` : "Search sessions"}
         placeholderTextColor={muted}
         autoCorrect={false}
         autoCapitalize="none"
@@ -681,15 +679,10 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       <View style={styles.toolbar}>
         {segments}
         {compact ? <View style={styles.spacer} /> : search}
-        {densitySwitch}
+        {densityToggle}
         {refresh}
       </View>
       {compact ? <View style={styles.searchRow}>{search}</View> : null}
-      {data ? (
-        <Text style={styles.context} numberOfLines={compact ? 2 : 1}>
-          {contextLine(data, scope)}
-        </Text>
-      ) : null}
       {data?.warnings.map((warning) => (
         <Text key={warning} style={styles.warning} numberOfLines={2}>
           {warning}
@@ -713,8 +706,6 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   } else if (!data) {
     body = <StateMessage styles={styles} theme={theme} icon="History" title="Reading sessions…" busy />;
   } else {
-    const mainCount = data.entries.length;
-    const label = scope === "workspace" ? `Archived agents · ${mainCount}` : `Paseo agents and terminal sessions · ${mainCount}`;
     const renderItem = ({ item, index }: { item: ListItem; index: number }) => {
       if (item.kind === "empty") {
         const message = emptyMessage(scope, query);
@@ -782,16 +773,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
         renderItem={renderItem}
         initialNumToRender={30}
         keyboardShouldPersistTaps="handled"
-        ListHeaderComponent={
-          externalControl ? (
-            <View style={styles.labelRow}>
-              <Text style={[styles.label, styles.labelInRow]}>{label}</Text>
-              {externalControl}
-            </View>
-          ) : mainCount > 0 ? (
-            <Text style={styles.label}>{label}</Text>
-          ) : null
-        }
+        ListHeaderComponent={externalControl ? <View style={styles.externalRow}>{externalControl}</View> : null}
         ListFooterComponent={
           hidden > 0 ? (
             <Text style={styles.footer} testID="past-sessions-footer">

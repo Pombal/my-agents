@@ -1,14 +1,16 @@
 Lists the past sessions of a Paseo workspace, its folder or its project and reopens them in
-Paseo (Paseo 0.11.4).
+Paseo (built on 0.11.4; checked live on 0.12.0).
 
-Two sources, newest activity first:
+Three sources, newest activity first:
 - **Paseo**: archived Paseo agents.
 - **OMP terminal**: OMP sessions that no Paseo agent owns, e.g. old terminal or herdr sessions.
   A session any Paseo agent (live or archived, any folder) already owns is never listed twice;
   the footer counts those ("23 terminal sessions are already in Paseo and not repeated").
+- **Claude Code & Codex**, on demand (Folder and Project scopes): see below.
 
-Rows follow design 6 from `~/www/webshare/pages/past-sessions-mocks-2/`, in two densities picked
-with the switch next to refresh (saved on the host as plugin settings, so it survives reloads):
+Rows follow design 6 from `~/www/webshare/pages/past-sessions-mocks-2/`, in two densities. One
+icon button next to refresh toggles them; its icon and tooltip show the density a click switches
+to. The choice is saved on the host as plugin settings, so it survives reloads:
 - **Comfortable** (default): provider mark; title, then a folder chip for rows outside the
   workspace folder (last path segment, full path as tooltip), then at the right
   `terminal · 2 d ago` (the word only on terminal sessions; no word = Paseo agent); below, up to
@@ -52,6 +54,12 @@ of an agent created from a prompt to the first 60 characters of its first line
 - In a workspace, Command Center (⌘K / Ctrl+K) → **Past sessions for this workspace** opens the
   list as a tab for exactly that workspace (Explorer location allowed too).
 
+## Toolbar
+
+Scope buttons, search (its placeholder counts the listed sessions, "Search 141 sessions"), the
+density toggle, refresh. On phones the search box gets its own line. What a scope covers ("Archived
+agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, not a line of text.
+
 ## Scopes
 
 - **Workspace** (default): archived agents whose Paseo workspace is this one, even when other
@@ -74,6 +82,23 @@ Click a row to reopen it:
 The plugin SDK's `PaseoApi` (0.11.4) has no import/unarchive calls, so the daemon-side handler runs
 the `paseo` CLI installed next to the daemon's Node; the CLI talks to the same daemon API.
 
+## Claude Code & Codex sessions
+
+In Folder and Project scopes, **+ Claude Code & Codex** at the top right of the list adds Claude
+Code and Codex sessions that Paseo never opened, marked `claude code` / `codex`. The daemon lists
+them (`fetchRecentProviderSessions`, the same call as Paseo's own import picker): one unscoped
+listing per provider, filtered to the scope here, kept until its refresh button or a daemon restart.
+Sessions a Paseo agent owns are skipped. Click imports through the session id. Not remembered:
+each visit starts with the button off.
+
+Timing (live, 2026-10-19): first listing 2.0 s (Infra - Ofis folder; the daemon starts a Codex
+app-server per call); forced refresh 1.2 s; other scopes and workspaces after that 0.4–0.6 s, from
+the cache. The rest of the list doesn't wait for it.
+
+Limit: the daemon returns at most 200 sessions per provider, machine-wide, newest first. On
+2026-10-19 the machine had 201 Claude Code and 119 Codex transcripts, so the oldest Claude Code
+sessions already fall off.
+
 ## Which OMP sessions
 
 Session folders come from the daemon's provider config: `omp` → `~/.omp/agent/sessions`; a
@@ -94,6 +119,17 @@ listed sessions 78 ms cold, 2 ms warm; scanner alone on drimgar-compendium (522 
 cold, 7 ms warm.
 
 ## Proof (live web app, 2026-10-19, `screenshots/`)
+
+- `desktop-dark-folder-toolbar.webp`: toolbar with the single density toggle and no description
+  line, Folder scope, Infra - Ofis › Assorted.
+- `desktop-dark-folder-external-compact.webp`: Compact, Claude Code & Codex shown (3), a
+  `claude code` row mixed in by time.
+- `phone-dark-folder-external.webp`: phone width, index › Paseo Plugins Folder scope with 18
+  Claude Code & Codex sessions, search on its own line.
+- Scope tooltips and the toggle's label were read from the page's `title` attributes; the toggle
+  saved `compact` and the reload kept it; set back to Comfortable afterwards.
+
+Earlier, before the toolbar change:
 
 - `desktop-dark-workspace-recap.webp`: Workspace scope, index › Paseo Plugins; the hovered row
   shows the Recap preview and Restore; the collapsed terminal section below.
@@ -129,7 +165,7 @@ cold, 7 ms warm.
   Short automated sessions (e.g. "Reply with just: ok" probes) are listed like any other.
 - Switch lists active Paseo workspaces only. Live agents are not listed (they are in the sidebar).
 - Session folders set via `PI_CODING_AGENT_SESSION_DIR`, `sessionDir` settings or `XDG_DATA_HOME`
-  are not read. Non-OMP provider sessions (Claude Code, Codex) only appear once Paseo owns them.
+  are not read. Claude Code and Codex sessions: see the 200 limit above.
 - A preview needs an assistant reply in the transcript's last 64 KB; a session that ends in a
   long tool run shows an older reply or *No reply*. Tooltips (full path, absolute time) and hover
   exist only on web/desktop.
