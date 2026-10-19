@@ -1,11 +1,53 @@
 version: 2
-updated: "2026-09-01"
+updated: "2026-10-19"
 preferences: |
   Add your preferences here, e.g.:
   - "User prefers fal-ai/nano-banana-2 for quality"
   - "User prefers fal-ai/flux-2/klein/9b for fast generation"
 
 endpoints:
+  - id: "fal-ai/seedvr/upscale/video"
+    aliases: ["seedvr video", "seedvr2 video"]
+    category: "video-to-video"
+    description: "SeedVR2 temporally consistent generative video upscaling."
+    notes: "$0.001 per output megapixel (width × height × frames). Use target mode for direct 1080p; low noise_scale for fidelity. Schema checked 2026-10-19."
+    input:
+      required: ["video_url"]
+      batch: null
+      params:
+        video_url: "string — source video URL or local path"
+        upscale_mode: "enum: target | factor (default: factor)"
+        upscale_factor: "number — 1-10 (default: 2)"
+        target_resolution: "enum: 720p | 1080p | 1440p | 2160p (default: 1080p)"
+        seed: "integer — reproducible random seed"
+        noise_scale: "number — 0-1, step 0.001 (default: 0.1)"
+        output_format: "enum: X264 (.mp4) | VP9 (.webm) | PRORES4444 (.mov) | GIF (.gif) (default: X264 (.mp4))"
+        output_quality: "enum: low | medium | high | maximum (default: high)"
+        output_write_mode: "enum: fast | balanced | small (default: balanced)"
+        sync_mode: "boolean — return inline media instead of history (default: false)"
+
+  - id: "fal-ai/flashvsr/upscale/video"
+    aliases: ["flashvsr video"]
+    category: "video-to-video"
+    description: "FlashVSR generative video upscaling with tile blending and color correction."
+    notes: "$0.0005 per output megapixel (width × height × frames). Fractional upscale_factor supports direct target sizing; no creative/noise control is exposed. Schema checked 2026-10-19."
+    input:
+      required: ["video_url"]
+      batch: null
+      params:
+        video_url: "string — source video URL or local path"
+        upscale_factor: "number — 1-4 (default: 2)"
+        seed: "integer — reproducible random seed"
+        acceleration: "enum: regular | high | full (default: regular; regular is best quality)"
+        color_fix: "boolean — color correction (default: true)"
+        quality: "integer — tile overlap/blending quality 0-100 (default: 70)"
+        preserve_audio: "boolean — copy original audio (default: false)"
+        output_format: "enum: X264 (.mp4) | VP9 (.webm) | PRORES4444 (.mov) | GIF (.gif) (default: X264 (.mp4))"
+        output_quality: "enum: low | medium | high | maximum (default: high)"
+        output_write_mode: "enum: fast | balanced | small (default: balanced)"
+        sync_mode: "boolean — return inline media instead of history (default: false)"
+        enable_safety_checker: "boolean — safety screening (default: true)"
+
   - id: "fal-ai/flux-2/klein/9b"
     aliases: ["flux klein", "flux-2 klein", "klein"]
     category: "text-to-image"
