@@ -1,24 +1,38 @@
-Adds composer aliases `/tan <work>`, `/omfg <correction>` and `/queue <message>` for Paseo's `omp` provider, without cancelling the current reply. `/tan` and `/omfg` are sent through `/follow-up`; `/queue` sends its message through `/follow-up`. See the tangent-answer limitation below before relying on `/tan`.
+OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction>`, `/queue <message>` and `/btw <question>`. None of them cancels a running reply. All of them need the OMP extension `headless-builtins` (`~/workspace/my-agents/.omp/extensions/headless-builtins/`, symlinked into `~/.omp/agent/extensions/`).
 
-Client-only, using Paseo's public slash-command API (0.11.4+): web, desktop, iOS and Android. Refresh/reopen an already-open app after installation. No setting is required. Disable with `paseo plugin disable omp-slash-aliases`.
+## How
 
-Other providers receive the original slash command unchanged. Paseo's own built-in client commands still win collisions. The plugin requires text arguments; it does not run with attachments (a Paseo API limitation), so send these commands without attachments.
+- `/tan`, `/omfg` and `/queue` are composer aliases. OMP receives the `/follow-up` form (`/follow-up /tan …`, `/follow-up /omfg …`, `/follow-up <message>`), which Paseo sends out of band. The extension's input hook then runs OMP's real controller.
+- `/btw <question>` asks OMP's own side-question engine, the same one behind OMP's RPC `btw` command. It uses the native prompt and the chat's full memory, including a reply that is still streaming. Nothing is added to the conversation, and the main reply keeps running. The client calls the plugin's daemon side (`btw.ask`), which sends `/follow-up /btw …`. The extension streams the answer to `$PASEO_HOME/omp-btw/<agentId>/<id>.json`. `PASEO_AGENT_ID` is the routing key, so an answer can only reach its own chat. The daemon side reads those files, and clients poll them (0.6 s while something is open or running, 4 s otherwise).
+- The answer shows in a **Side questions** sheet that opens as soon as you send `/btw`: a centred dialog on wide layouts, a bottom sheet on phones. It shows "Sending…" and then "Thinking…", streams the answer as Markdown (headings, lists, code, tables, links), and ends with **Copy** and **Dismiss**. **Stop** cancels an answer that is still running. A `BTW` pill in that chat's composer reopens the sheet (`BTW…` while running, `BTW · n` for several answers). Dismissing an answer hides it on every client. Answers are also saved in OMP's own /btw history for the session.
+- The plugin hides the `/follow-up /btw …` message from the timeline, because it is plumbing and not a conversation turn.
+- Before sending, the plugin checks that the chat's live OMP process has the `/btw` handler. An agent started before the extension had `/btw` would otherwise pass the question to the model as an ordinary message. In that case you get: "This OMP agent started before /btw was installed. Reload or restart the agent" (`paseo agent reload <id>`, or close and reopen the chat).
 
-Requires OMP's existing `headless-builtins` extension and OMP 18.11.0's follow-up input hooks. `/tan` uses OMP's real background tangent controller but has no MCP tools. **Paseo 0.11.4 hides the tangent's answer:** it shows only “Background job … has completed”, not the remaining result text. The answer reaches the parent OMP session and is retained in its transcript, but the app does not expose it. The installed provider's `omp/system-notice.js` maps these notices to their first line; an alias cannot repair that renderer.
+Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, a timeline transformer and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.
 
-`/omfg` uses OMP's real rule controller and can save persistent rules. The app shows the save-location question, but not OMP's draft-rule panel. Choose a project location only when appropriate; inspect the saved file to review its contents. Dismiss cancels saving. Generation can take time while Paseo still says idle.
+Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
 
-This does not implement `/btw` or `/goal`: those need changes to OMP's headless extension/provider integration, not composer aliases. OMP internal controller or RPC changes could break these routes; this plugin does not patch OMP or restart the daemon.
+## Limits
 
-## Live proof (2026-10-19)
+- `/btw`: one question at a time per chat. This is OMP's own rule; a second question shows "A /btw question is still running; cancel it first". There are no follow-ups inside a side conversation yet; OMP's engine supports them, but this UI does not. If an OMP process dies mid-answer, the answer shows as interrupted after 10 minutes. Answers and markers are kept for 7 days.
+- Paseo's message-navigation rail (the small marks at the left edge) still counts the hidden `/follow-up /btw` message. Until a freshly loaded app has loaded its plugins, that message is briefly visible. `paseo logs` also shows it.
+- `/tan` has no MCP tools. Paseo 0.11.4 shows only the first line of the tangent's completion notice (`omp/system-notice.js`). The main agent receives the full result and usually acts on it, as in the screenshots below.
+- `/omfg` shows OMP's save-location question but not its draft-rule panel; check the saved file. Generation can take a while.
+- This depends on OMP internals (controller and `rpc-btw` modules) and on Paseo 0.11.4 behaviour (`/follow-up` out of band, `PASEO_AGENT_ID` in the provider environment).
 
-Tested in the paired web app with a disposable OMP agent, `4f0260b3-a65e-4b36-8ecf-914a62f43793`, in `/home/cx/tmp-archive/paseo-slash-test`. Nemotron 3.5 Lightning (Free) worked at zero reported cost; GLM 5.2 Free returned “model unavailable” and that first agent was archived.
+Disable with `paseo plugin disable omp-slash-aliases`. To keep the plugin but drop the OMP side, remove the `headless-builtins` symlink from `~/.omp/agent/extensions/`. Without it, the commands reach the model as plain text.
 
-- Before installing: `/follow-up /tan …` dispatched and returned `TAN_IDLE_OK` at 08:18:24 UTC. During a running reply, `/follow-up /tan …` returned `TAN_BUSY_OK`; the main reply still finished `MAIN_BUSY_FINISHED`, then the queued `hello` received a greeting.
-- From the actual composer after installing: plain `/tan …` returned `TAN_COMPOSER_IDLE_OK` in OMP at 08:20:20; plain `/queue …` returned `QUEUE_COMPOSER_IDLE_OK` at 08:20:35.
-- During a real `sleep 30` tool call, plain `/tan`, `/queue` and `/omfg` were submitted from the composer. OMP delivered `TAN_COMPOSER_BUSY_OK` at 08:21:14; the uninterrupted main reply finished `COMPOSER_MAIN_FINISHED` at 08:21:15; only then was the queued message consumed and answered `QUEUE_COMPOSER_BUSY_OK` at 08:21:17. No aborted main turn.
-- Busy `/omfg` generated a real rule, showed the save-location question, and saved `hello-instead-of-hi.md` under the scratch project's `.omp/rules`, confirmed in the timeline. Idle `/omfg` also showed the real save-location question; Dismiss was used. No global rule was created; the scratch rule was removed after testing.
-- Provider-forwarding callback checks: all three commands forward unchanged for Claude, Codex and `omp-nilo`; only `omp` rewrites to `/follow-up`. All three registrations clean up. Other providers were not exercised against live models.
-- Screenshots: `screenshots/omfg-busy-choice.png` shows the real save-location question during the busy test; `screenshots/composer-busy-results.png` shows the main completion, queued reply, saved-rule confirmation and later idle question; `screenshots/omfg-idle-choice.png` captures the idle save question.
+## Development
 
-The underlying OMP transcript with full tangent results is `/home/cx/.omp/agent/sessions/-tmp-archive-paseo-slash-test/2026-10-19T08-18-07-145Z_01a1533d-46a9-7639-9f62-4c9e47877f34.jsonl`. Both throwaway Paseo agents and their workspace were archived. Web was tested live; desktop/phone coverage is from the public cross-client API, not device testing.
+`npm install`, `npm test` (vitest), `npm run typecheck`. The tests cover the Markdown parser, ask/answer correlation and routing across chats (`client/btw-store.test.ts`), the file contract with the extension's real writer (`server/btw-outbox.test.ts`), and the live-process readiness check. `paseo plugin reload omp-slash-aliases` applies edits.
+
+## Live proof (2026-10-19, web app, Claude Haiku 5.5 on Stefan's Anthropic subscription)
+
+These were throwaway agents "BTW test A" (codeword AMBER-FALCON-31) and "BTW test B" (TEAL-OTTER-77) in `~/tmp-archive/paseo-btw-test`, archived afterwards.
+
+- Idle: `/btw What is this chat's codeword? …` in B opened the sheet, showed the pending state, then rendered "**Codeword: TEAL-OTTER-77**" and a bullet list. Copy put the raw Markdown on the clipboard. `screenshots/btw-idle-answer.webp`
+- Busy: during A's `sleep 25` tool call, `/btw While you work: …` answered "The codeword is AMBER-FALCON-31. I tried to run `sleep 25`…" while the reply was still running (`screenshots/btw-busy-answer.webp`). The main turn then finished `MAIN_DONE` after 28 s, uncancelled (`screenshots/btw-busy-conversation-after.webp`). A's OMP session file contains only the codeword turn, the sleep turn and `MAIN_DONE`, with no btw message.
+- Two chats at once: `/btw PARALLEL: reply with only this chat's codeword.` was sent to A and B 19 ms apart. A's outbox got `AMBER-FALCON-31` and B's got `TEAL-OTTER-77`. B's sheet showed only B's two answers (`screenshots/btw-two-chats-chat-b.webp`). Dismiss removed an answer, and the pill went from `BTW · 2` to `BTW`.
+- `/tan Reply with exactly TAN_REGRESSION_OK` from the composer dispatched `bg_1`, completed, and the main agent replied `TAN_REGRESSION_OK` (`screenshots/tan-regression.webp`, taken just after a reload, before plugins loaded, so the `/btw` sends are still visible there). `/omfg` and `/queue` were not retested after the rewrite. Their aliases send byte-identical text, and the extension runs the same controllers, now in the background.
+
+Earlier proof of the aliases (before `/btw`): `composer-alias.png`, `composer-busy-results.png`, `omfg-busy-choice.png`, `omfg-idle-choice.png`.
