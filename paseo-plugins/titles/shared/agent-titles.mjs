@@ -1,43 +1,51 @@
-// Agent policy only: workspace naming can have its own policy and lifecycle later.
+// Agent-tab naming policy, pure and runtime-free. Workspace titles would get a
+// sibling module with their own rules; nothing here assumes agents are the only target.
+
+// Mirrors Paseo 0.11.4's provisional agent title (create-agent-title.js):
+// first nonblank prompt line, whitespace collapsed, clamped to 60 characters.
 export function defaultTitle(prompt) {
-  const line = prompt.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+  const line = prompt.split(/\r?\n/).map(part => part.trim()).find(Boolean);
   return line?.replace(/\s+/g, " ").slice(0, 60).trim() || null;
 }
 
-export function isDefaultTitle(title, prompt) {
-  const expected = defaultTitle(prompt);
-  return expected !== null && title === expected;
+const WORD = /^[\p{L}\p{N}][\p{L}\p{N}'’+.#-]*$/u;
+
+// A title in our own format: one word, or two. Longer names (Paseo's default
+// first-prompt line, or a hand-written phrase) are never "kept" by a check.
+export function isShortTitle(title) {
+  const words = title?.trim().split(/\s+/) ?? [];
+  return words.length >= 1 && words.length <= 2 && words.every(word => WORD.test(word));
 }
 
-export function observeTitle(state, current) {
-  if (state.initial === undefined) {
-    if (current !== null) state.initial = current;
-  } else if (state.initial !== current) state.renamed = true;
-}
-
+// Model answer → { kind: "keep" } | { kind: "rename", title }. Anything else throws;
+// over-long or decorated titles are rejected rather than silently truncated.
 export function parseDecision(text) {
-  const value = JSON.parse(text.trim().replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```$/, ""));
-  if (value.action === "keep") return { action: "keep" };
-  if (value.action !== "rename" || typeof value.title !== "string") throw new Error("Invalid title decision");
-  const words = value.title.trim().split(/\s+/);
-  if (words.length < 1 || words.length > 2 || !words.every(word => /^[\p{L}\p{N}][\p{L}\p{N}'’+.#-]*$/u.test(word))) {
-    throw new Error("Title must contain one word, or two meaningful words");
+  const json = text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+  let value;
+  try { value = JSON.parse(json); } catch { throw new Error(`Model answered with something other than JSON: ${text.trim().slice(0, 80)}`); }
+  if (value?.keep === true) return { kind: "keep" };
+  const raw = typeof value?.title === "string" ? value.title.trim().replace(/[.]$/, "") : "";
+  if (!isShortTitle(raw)) throw new Error(`Model suggested an unusable title: ${JSON.stringify(value?.title ?? null)}`);
+  // Title Case without flattening identifiers: "dark mode" → "Dark Mode", but iOS, eBPF and OAuth stay as written.
+  const title = raw.split(/\s+/).map(word => word === word.toLocaleLowerCase() ? word[0].toLocaleUpperCase() + word.slice(1) : word).join(" ");
+  return { kind: "rename", title };
+}
+
+// Each message keeps its beginning and end, so one long reply stays bounded.
+const MAX_MESSAGE = 1200;
+
+// Provider-neutral excerpt for the model. Tool calls, reasoning and plugin
+// items are dropped; one turn's assistant messages merge into a single bounded
+// entry, so a busy agentic turn cannot push the user's request out of view.
+export function conversationContext(items, maxMessages = 12) {
+  const messages = [];
+  for (const item of items) {
+    if ((item.type !== "user_message" && item.type !== "assistant_message") || !item.text?.trim()) continue;
+    const previous = messages.at(-1);
+    if (item.type === "assistant_message" && previous?.role === "Assistant") previous.text += `\n${item.text.trim()}`;
+    else messages.push({ role: item.type === "user_message" ? "User" : "Assistant", text: item.text.trim() });
   }
-  const title = words.map(word => word[0].toLocaleUpperCase() + word.slice(1)).join(" ");
-  if (title.length > 60) throw new Error("Title is too long");
-  return { action: "rename", title };
-}
-
-export function conversationContext(items, maxChars = 12000) {
-  const messages = items.filter(item => (item.type === "user_message" || item.type === "assistant_message") && item.text?.trim());
-  // Bound each message so one verbose assistant cannot crowd out the newest
-  // user request. Preserve each message's beginning and ending when shortened.
-  return messages.slice(-16).map(item => {
-    const text = item.text.length > 1500 ? `${item.text.slice(0, 750)}\n[…middle omitted…]\n${item.text.slice(-750)}` : item.text;
-    return `${item.type === "user_message" ? "User" : "Assistant"}: ${text}`;
-  }).join("\n\n").slice(-maxChars);
-}
-
-export function metadataAgent(title) {
-  return /^(?:branch name|agent title|workspace (?:title|metadata)|checkout (?:title|metadata)) generator$/i.test(title ?? "");
+  return messages.slice(-maxMessages)
+    .map(({ role, text }) => `${role}: ${text.length > MAX_MESSAGE ? `${text.slice(0, MAX_MESSAGE / 2)}\n[…]\n${text.slice(-MAX_MESSAGE / 2)}` : text}`)
+    .join("\n\n");
 }

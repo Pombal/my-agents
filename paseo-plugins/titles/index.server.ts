@@ -1,85 +1,94 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { randomUUID } from "node:crypto";
-import { retitle } from "./shared/rpc";
-import { conversationContext, isDefaultTitle, metadataAgent, observeTitle } from "./shared/agent-titles.mjs";
+import type { PaseoAgentHandle } from "@getpaseo/client";
+import { basename } from "node:path";
+import { retitle, type RetitleResult } from "./shared/rpc";
+import { conversationContext, defaultTitle, isShortTitle } from "./shared/agent-titles.mjs";
 import { decideTitle } from "./server/model";
 import { renameAgent } from "./server/rename";
 
 export default function contribute(server: PluginServerContext) {
-  const candidates = new Map<string, { unsubscribe: () => void; renamed: boolean; initial: string | null | undefined }>();
+  // Agents created while the plugin runs, still waiting for their first completed
+  // turn. Membership is the one-shot ticket: taking it out is the only attempt.
+  const awaitingFirstTurn = new Set<string>();
   const busy = new Set<string>();
   let disposed = false;
-  const forget = (id: string) => { candidates.get(id)?.unsubscribe(); candidates.delete(id); };
-  const created = server.on("agent.created", ({ agent }, { paseo }) => {
-    // create hooks exclude internal agents. A config title means an explicit
-    // name, even if it happens to equal the first prompt. Never adopt old agents.
-    if (agent.title || metadataAgent(agent.title)) return;
-    const state = { unsubscribe: () => {}, renamed: false, initial: undefined as string | null | undefined };
-    state.unsubscribe = paseo.agents.ref(agent.id).subscribe(update => {
-      if (update.kind !== "upsert") return;
-      observeTitle(state, update.agent.title);
-    });
-    candidates.set(agent.id, state);
-  });
-  const ended = server.on("agent.turn_ended", async ({ agent, outcome, timeline }, { paseo }) => {
-    const state = candidates.get(agent.id);
-    if (!state || outcome.kind !== "completed") return;
-    forget(agent.id); // Exactly one attempt, never an automatic re-check/retry.
-    if (busy.has(agent.id) || state.renamed || metadataAgent(agent.title)) return;
-    busy.add(agent.id);
-    const started = Date.now();
-    try {
-      const handle = paseo.agents.ref(agent.id);
-      const snapshot = await handle.refresh();
-      const firstPrompt = timeline.find(item => item.type === "user_message");
-      if (!snapshot || snapshot.agent.archivedAt || firstPrompt?.type !== "user_message" || !isDefaultTitle(snapshot.agent.title, firstPrompt.text)) return;
-      const original = snapshot.agent.title;
-      state.initial = original;
-      const watch = handle.subscribe(update => {
-        if (update.kind === "upsert") observeTitle(state, update.agent.title);
-      });
-      try {
-        const decision = await decideTitle(original, conversationContext(timeline), true);
-        if (!disposed && !state.renamed && decision.action === "rename") {
-          if (await renameAgent(agent.id, original, decision.title)) console.info(`titles: automatic ${agent.id}: ${original} → ${decision.title} (${Date.now() - started}ms)`);
-        }
-      } finally { watch(); }
-    } catch (error) { console.warn("titles: automatic title skipped", error); }
-    finally { busy.delete(agent.id); }
-  });
-  const archived = server.on("agent.archived", ({ agent }) => forget(agent.id));
-  server.handle(retitle, async ({ agentId }, { paseo }) => {
-    if (busy.has(agentId)) throw new Error("A title check is already running for this tab");
-    forget(agentId); // An explicit trigger permanently consumes automatic eligibility.
+
+  const exclusive = async <T>(agentId: string, work: () => Promise<T>) => {
+    if (busy.has(agentId)) throw new Error("Already retitling this tab");
     busy.add(agentId);
+    try { return await work(); } finally { busy.delete(agentId); }
+  };
+
+  const offCreated = server.on("agent.created", ({ agent }) => {
+    // The hook carries only an explicitly configured title; Paseo's first-prompt
+    // default is applied later. An explicit creation name is a hand-chosen name.
+    if (!agent.title) awaitingFirstTurn.add(agent.id);
+  });
+  const offArchived = server.on("agent.archived", ({ agent }) => { awaitingFirstTurn.delete(agent.id); });
+  const offClosed = server.on("agent.closed", ({ agent }) => { awaitingFirstTurn.delete(agent.id); });
+
+  const offTurnEnded = server.on("agent.turn_ended", ({ agent, outcome, timeline }, { paseo }) => {
+    if (outcome.kind !== "completed" || !awaitingFirstTurn.delete(agent.id)) return;
+    const prompt = timeline.find(item => item.type === "user_message");
+    const expected = prompt?.type === "user_message" ? defaultTitle(prompt.text) : null;
+    if (!expected) return;
     const started = Date.now();
-    try {
+    void exclusive(agent.id, async () => {
+      // Only Paseo's untouched default qualifies; any other name was chosen by hand.
+      const snapshot = await paseo.agents.ref(agent.id).refresh();
+      if (!snapshot || snapshot.agent.archivedAt) return "agent gone";
+      if (snapshot.agent.title !== expected) return `kept hand-chosen ${JSON.stringify(snapshot.agent.title)}`;
+      const decision = await decideTitle({ mode: "name", workspace: basename(agent.cwd), title: null, conversation: conversationContext(timeline) });
+      if (decision.kind !== "rename") return "no clear subject yet; default kept";
+      if (disposed) return "plugin stopped";
+      const result = await renameAgent(agent.id, expected, decision.title);
+      return result === "renamed" ? `→ ${decision.title}` : `skipped (${result})`;
+    }).then(
+      note => console.info(`titles: first turn ${agent.id}: ${note} in ${Date.now() - started} ms`),
+      error => console.warn(`titles: first turn ${agent.id} failed:`, error instanceof Error ? error.message : error),
+    );
+  });
+
+  // Expected failures come back as an outcome, not an exception: the plugin RPC
+  // wraps thrown errors in transport detail that is noise in a toast.
+  server.handle(retitle, async ({ agentId }, { paseo }) => {
+    awaitingFirstTurn.delete(agentId); // An explicit check replaces the automatic one.
+    const started = Date.now();
+    const result = await exclusive(agentId, async (): Promise<RetitleResult> => {
       const handle = paseo.agents.ref(agentId);
       const snapshot = await handle.refresh();
-      if (!snapshot || snapshot.agent.archivedAt) throw new Error("This tab is no longer available");
-      const original = snapshot.agent.title;
-      const items = [];
-      let page = await handle.timeline.refetch({ direction: "tail", limit: 100, projection: "canonical" });
-      for (let count = 0; count < 5; count++) {
-        if (page.error) throw new Error(page.error);
-        items.unshift(...page.entries.map(entry => entry.item));
-        if (!page.hasOlder || !page.startCursor || items.filter(item => item.type === "user_message").length >= 6) break;
-        page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, limit: 100, projection: "canonical" });
-      }
-      const context = conversationContext(items);
-      if (!context) throw new Error("This tab has no conversation to title yet");
-      const decision = await decideTitle(original, context, false);
-      if (disposed) throw new Error("Titles was disabled during generation");
-      let message = `Title kept: ${original ?? "Untitled"}`;
-      if (decision.action === "rename" && decision.title !== original) {
-        if (!(await renameAgent(agentId, original, decision.title))) throw new Error("Title changed during the check; your newer name was preserved");
-        message = `Renamed: ${original ?? "Untitled"} → ${decision.title}`;
-      }
-      const result = { message, latencyMs: Date.now() - started };
-      await handle.timeline.append({ type: "plugin", id: randomUUID(), kind: "title-result", version: 1, data: result });
-      console.info(`titles: ${agentId}: ${message} (${result.latencyMs}ms)`);
-      return result;
-    } finally { busy.delete(agentId); }
+      if (!snapshot || snapshot.agent.archivedAt) return { outcome: "failed", message: "This tab no longer exists" };
+      const current = snapshot.agent.title ?? null;
+      const conversation = conversationContext(await recentTimeline(handle));
+      if (!conversation) return { outcome: "failed", message: "Nothing to title yet" };
+      // Only titles already in the short format can be kept; Paseo's long default
+      // or a hand-written phrase is replaced (explicit triggers may override names).
+      const mode = isShortTitle(current) ? "check" : "name";
+      const decision = await decideTitle({ mode, workspace: basename(snapshot.agent.cwd), title: current, conversation });
+      if (disposed) return { outcome: "failed", message: "Titles was disabled meanwhile" };
+      if (decision.kind === "keep" && mode === "name") return { outcome: "unclear" };
+      if (decision.kind === "keep" || decision.title === current) return { outcome: "kept", title: current ?? "" };
+      const renamed = await renameAgent(agentId, current, decision.title);
+      if (renamed === "gone") return { outcome: "failed", message: "This tab no longer exists" };
+      if (renamed === "changed") return { outcome: "failed", message: "The tab was renamed meanwhile; that name stays" };
+      return { outcome: "renamed", title: decision.title };
+    }).catch((error): RetitleResult => ({ outcome: "failed", message: error instanceof Error ? error.message : String(error) }));
+    console.info(`titles: retitle ${agentId}: ${JSON.stringify(result)} in ${Date.now() - started} ms`);
+    return result;
   });
-  return () => { disposed = true; created(); ended(); archived(); for (const id of candidates.keys()) forget(id); };
+
+  return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); awaitingFirstTurn.clear(); };
+}
+
+// Enough recent history to see the latest subjects: pages back until six user
+// turns are in view, at most 500 items.
+async function recentTimeline(handle: PaseoAgentHandle) {
+  const items = [];
+  let page = await handle.timeline.refetch({ direction: "tail", limit: 100, projection: "canonical" });
+  for (let pages = 1; ; pages++) {
+    if (page.error) throw new Error(page.error);
+    items.unshift(...page.entries.map(entry => entry.item));
+    if (pages >= 5 || !page.hasOlder || !page.startCursor || items.filter(item => item.type === "user_message").length >= 6) return items;
+    page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, limit: 100, projection: "canonical" });
+  }
 }

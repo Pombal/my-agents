@@ -1,85 +1,143 @@
 # Titles
 
-Short agent/tab titles. No workspace-title rules and no tab/workspace icons.
+Short agent-tab titles: one word (two only when one word means nothing), Title
+Case. No workspace titles, no tab or workspace icons.
 
-## What happens automatically
+## What happens on its own
 
-For a **new agent created while this plugin is running**, after its first completed turn, Titles makes one title-generation attempt. It aims for **one subject word**, permitting two only for an inseparable concept, and normalizes Title Case. It checks the current title against Paseo 0.11.4's exact default-title rule: first nonblank prompt line, whitespace collapsed, trimmed to 60 characters.
+A **new** agent (created while Titles is running, without an explicit name) gets
+one title attempt after its **first completed turn**, but only if its name is
+still Paseo's default, the first prompt line. Paseo 0.11.4 derives that default by
+taking the first nonblank line, collapsing whitespace and cutting it to 60
+characters; Titles mirrors that rule exactly. Anything else counts as a name
+chosen by hand and is left alone: a creation name, a rename before the turn
+ends, or a rename while Claude is thinking (the rename is a compare-and-set
+against the default).
 
-Explicit creation names and hand-renamed tabs are protected. Title changes observed before/during generation permanently disqualify that automatic attempt, even if the name is changed back. The name is fetched again immediately before applying a generated title. Internal agents are excluded by Paseo's lifecycle hooks; known metadata-generator names are also excluded. The model calls made by this plugin never create Paseo agents.
+That's all it does on its own. There are no re-checks, timers or retries.
+Agents that already existed (or were mid-first-turn) when the plugin was
+loaded, reloaded or enabled are never adopted. A failed or cancelled turn
+doesn't count as the first completed turn. If the first conversation has no
+subject yet ("hi", "quick question"), the default stays.
 
-**No automatic re-checks, timers or retries.** Failed/canceled turns do not count as the first completed turn. Agents predating installation/enable/reload are not adopted. An unfinished agent's automatic eligibility is intentionally not restored across plugin reloads/restarts; use a manual trigger instead.
+## Retitle on demand
 
-## Manual triggers
+Three triggers run the same check:
 
-All three run the same keep-or-rename check against the current title and recent conversation. These explicit actions may replace a hand-written name.
+- **Ctrl+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
+- **Ctrl+K / ⌘K → Retitle this tab.**
+- **`/retitle`** in the composer (phones too). It's a plugin command, so nothing is sent to the agent.
 
-- **Ctrl+Alt+T** in a focused agent pane on web/desktop. The listener prevents the browser's default action and propagation, preserves the composer draft, ignores repeat/IME/AltGr events, and does nothing for terminals, dialogs or an ambiguous unfocused split layout. It remembers the last clicked/focused pane and targets its selected agent tab, not an arbitrary sidebar selection.
-- **Command Center** (⌘K / Ctrl+K): **Retitle this tab**.
-- **`/retitle`** in the agent composer, including phones. Select the completion if shown, then submit. It is a plugin command, **not a user message sent to the coding agent**.
+Claude Haiku decides whether the current title still names what the **latest
+user message** is about. Earlier messages only provide context. If the title
+still fits, it stays, even when Claude would have worded it differently; if the
+subject has moved on, the tab is renamed. A title longer than two words, such as
+Paseo's default or a hand-written phrase, is always replaced, because explicit
+triggers may override hand-chosen names.
 
-Feedback is a brief web toast plus a durable, plugin-rendered conversation notice: `Title kept: X` / `Renamed: X → Y`, with elapsed seconds. Native clients use the same public slash-command, RPC and timeline-renderer APIs; no DOM dependency in those paths. Command Center requires a built-in glyph, so its item uses `Type`; this does not introduce tab icons.
+### Feedback
 
-### Shortcut conflicts — checked, not assumed
+Nothing goes into the conversation. While Claude thinks (2–5 s), a small
+**Retitling…** pill with a spinner sits above the composer. Then one Paseo
+toast reports the outcome:
 
-The running app's **Keyboard shortcuts** panel lists **Cycle theme — Ctrl+Alt+T** on non-Mac. The fork agrees (`packages/app/src/keyboard/keyboard-shortcuts.ts`, theme-cycle bindings): non-Mac Ctrl+Alt+T; Mac **Cmd+Alt+T**.
-
-To honor the requested key, Titles **deliberately shadows non-Mac theme cycling only when an agent pane can be identified**. Use the Appearance settings to change themes, or disable Titles to restore the built-in shortcut there. Mac Ctrl+Alt+T does not conflict with Paseo's Cmd+Alt+T theme key.
-
-Many Linux desktops reserve Ctrl+Alt+T for opening a terminal. A compositor/window-manager shortcut can consume it before Paseo receives it: rebind that OS shortcut, or use Command Center or `/retitle`. Browsers do not generally reserve this exact combination, but browser extensions/custom bindings can intercept it. AltGr layouts are left alone to avoid consuming text input.
-
-## Model and context
-
-Uses the installed **Claude Code CLI**, `--model haiku` (resolved live here as **Claude Haiku 5.5**), through Stefan's existing Claude subscription login. Haiku is the low-cost fast Claude option available on this installation. The public plugin API does not expose Paseo's internal structured-generation service, so a direct no-tools CLI call avoids visible/archived helper agents altogether.
-
-Calls run with `--safe-mode`, `--no-session-persistence`, no tools, no MCP servers, an explicit metadata-only system prompt, and no inherited Anthropic API-key/third-party-routing environment. No usage-billed API keys, OpenRouter or Cursor. No persistent helper chat is written to Claude history. CLI startup/subscription availability still affect latency; the call times out after 20 seconds and never automatically retries.
-
-Conversation comes from the **provider-neutral Paseo daemon timeline**, not OMP files. A manual check fetches up to five 100-item pages until it finds six user turns, removes tools/reasoning/plugin notices, then includes up to 16 recent user/assistant messages and 12,000 characters. Each message is bounded so a long assistant reply cannot crowd out the newest user subject. Recent user turns explicitly outweigh earlier subjects. Very long conversations are intentionally summarized by this bounded excerpt, not fully reread. Automatic generation uses the completed-turn lifecycle timeline.
-
-Malformed model decisions and titles longer than two words are rejected rather than silently truncated. Whether a two-word concept is necessary is a model judgment; one-word preference is strongly prompted, not a semantic rule the parser can prove.
-
-Renaming uses the installed daemon SDK's local authenticated `updateAgent` RPC because the public `PaseoApi` lacks rename. Local-loopback daemon configurations are supported. Disable stops new actions and prevents in-flight generation from applying a title after shutdown; a request already accepted by the daemon cannot be undone.
-
-## Live acceptance evidence
-
-Verified in the hosted web app against installed Paseo 0.11.4 on 2026-10-19:
-
-| Screenshot | Proof |
+| Outcome | Toast |
 | --- | --- |
-| `screenshots/01-automatic-one-word.png` | A new Haiku agent's first reply resulted in **Photosynthesis**. |
-| `screenshots/02-shortcut-kept.png` | Ctrl+Alt+T kept **Photosynthesis**, with **2.0 s** feedback. |
-| `screenshots/03-shortcut-drift-renamed.png` | After switching the conversation to volcanoes, title stayed unchanged until Ctrl+Alt+T renamed **Photosynthesis → Volcanoes**, **2.3 s**. |
-| `screenshots/04-command-center-item.png` | Registered **Retitle this tab** item in Ctrl+K. |
-| `screenshots/05-command-center-result.png` | Command Center kept **Volcanoes**, **2.1 s**. |
-| `screenshots/06-slash-command.png` | `/retitle` plugin completion. |
-| `screenshots/07-slash-result.png` | `/retitle` kept **Volcanoes**, **2.0 s**; the command did not appear as a user/assistant exchange. |
-| `screenshots/08-manual-name-preserved.png` | Renamed the default to **My Galaxy Notes** while its first turn deliberately paused; after its completed first reply the manual name remained. |
-| `screenshots/09-built-in-shortcut-conflict.png` | Running app lists Ctrl+Alt+T as Cycle theme. |
-| `screenshots/10-final-automatic-composting.png` | Final-code automatic generation produced **Composting**, **2.517 s** from completed-turn handling through rename. |
-| `screenshots/11-phone-width-slash-result.png` | 390×844 touch/mobile web layout: tapped Send on `/retitle`, kept **Composting**, **2.0 s**, and no agent message was sent. |
+| Renamed | ✓ `Renamed to Cold Brew` |
+| Kept | ⓘ `“Swallow” still fits` |
+| No subject yet | ⓘ `No clear subject yet; title unchanged` |
+| Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
+| Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
 
-Manual check timings include timeline fetch, model generation and rename when needed, measured by the plugin. The first automatic examples were captured before total automatic timing logging was added (their logged 27/139 ms were rename RPC time only, not generation latency); the final **Composting** automatic check took **2.517 s** end to end. An additional shortcut check confirmed the unsent composer draft stayed exactly `Unsent draft must survive` (2.1 s). Desktop and native-phone hardware were not separately driven; phone-width touch web was exercised, and native uses the public command/notice APIs rather than the DOM shortcut. All four temporary acceptance agents were archived after screenshots.
+Pressing a trigger again while a check is running does nothing; the pill shows
+that a check is already under way. Two clients retitling the same tab at once
+get `Already retitling this tab`.
+
+### Ctrl+Alt+T and Paseo's "Cycle theme"
+
+On non-Mac systems Paseo binds **Ctrl+Alt+T to Cycle theme**. Its keyboard
+listener is registered before any plugin's, so a plugin **cannot shadow it**:
+pressing Ctrl+Alt+T retitles the tab *and* switches the theme. (The previous
+version of this plugin claimed to shadow it; it didn't.) Titles notices when
+that happened and says so once per session:
+
+- **Desktop app:** open Settings → Shortcuts, find *Cycle theme* and choose **Clear**. After that, Ctrl+Alt+T only retitles.
+- **Browser (app.paseo.sh):** shortcuts can't be edited there, so Ctrl+Alt+T keeps cycling the theme. Use Ctrl+K → *Retitle this tab* or `/retitle` instead.
+- **Mac:** no clash, because Paseo uses Cmd+Alt+T for the theme.
+
+Many Linux desktops also bind Ctrl+Alt+T to "open terminal". Their window
+manager gets the key before the app does.
+
+## Model
+
+The plugin runs the installed **Claude Code CLI** with `--model haiku` through
+Stefan's subscription login, so no API keys are used: the
+`ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables are stripped. The call uses
+`--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
+retries. It takes about 2.5–5 s end to end, depending on CLI startup.
+
+The prompt (`server/model.ts`) asks for one distinctive noun that tells this
+tab apart from the other tabs in the same workspace. It rules out generic words
+(Help, Question, Fix, Bug, Task…) and the workspace or project name itself,
+since every tab there shares it. It also keeps identifiers' own casing (iOS,
+eBPF). Live examples: *Lockfile*, *SD Card*, *Cold Brew*, *Altitude*. In
+offline prompt trials it produced *Sourdough*, *Flicker*, *Reconnect* and
+*Rsync*, and kept *Volcanoes* for a follow-up about Vesuvius. Answers are
+strict JSON. Anything over two words, decorated, or otherwise malformed is
+rejected rather than truncated.
+
+The model sees a provider-neutral excerpt of the Paseo timeline: the last 12
+user and assistant messages. Each agentic turn's assistant messages are merged
+into one entry, and each entry is capped at 1,200 characters, keeping its start
+and end, so a long or tool-heavy turn can't push the user's request out.
+
+Renaming uses the daemon SDK's local `updateAgent` RPC over the loopback
+endpoint, which is the same call as `paseo agent update --name`. The public
+plugin API has no rename operation.
+
+## Live verification (2026-10-19, hosted web app, daemon 0.11.4)
+
+| Screenshot | Shows |
+| --- | --- |
+| `01-first-turn-title.png` | New Haiku agent about Raspberry Pi SD-card corruption → **SD Card** after its first reply (3.0 s). |
+| `02-retitling-pill.png` | The **Retitling…** pill while Claude thinks. |
+| `03-ctrl-alt-t-renamed.png` | Ctrl+Alt+T on a hand-named tab ("My Coffee Notes") whose latest question was about cold brew → **Cold Brew**, plus the one-time Cycle-theme warning. |
+| `04-command-center-item.png` | Ctrl+K → *Retitle this tab*. |
+| `05-command-center-kept.png` | Same subject → `“Cold Brew” still fits`. |
+| `06-slash-command.png`, `07-slash-result.png` | `/retitle` on desktop web → kept, nothing posted to the chat. |
+| `08-renamed-meanwhile.png` | Renamed via CLI while the check ran → compare-and-set refused, hand name kept. |
+| `09…11-phone-*.png` | 390×844 touch layout: `/retitle` completion, pill, kept toast. |
+| `12-hand-name-preserved.png` | Renamed to "Umbrella Keeper Notes" while the first turn was still running; after the turn the log reads `kept hand-chosen "Umbrella Keeper Notes"`. |
+
+Also seen live: an earlier drift test renamed *Lockfile* → *Altitude* after a
+question about Everest. The keyboard test confirmed Paseo's theme cycle fires
+too (see above). A missing CLI was checked by running `decideTitle` with an
+empty `PATH`, which gave `Claude CLI not found on the daemon's PATH`. The
+desktop app and the native phone app weren't driven. Native uses the same
+slash-command, pill and toast APIs, with no DOM code. All test agents were
+archived.
+
+Haiku isn't fully deterministic. In one of about 15 checks it renamed a
+fitting title (*Monty Python* → *Swallow*, also reasonable).
 
 ## Install, reload, disable
 
-Installed directly from this directory and running. **Refresh the Paseo app** to load the client contribution.
-
 ```sh
 paseo plugin install ~/workspace/my-agents/paseo-plugins/titles
-paseo plugin reload titles
-paseo plugin logs titles
+paseo plugin reload titles      # after edits; then refresh the app
+paseo plugin logs titles        # one line per first-turn attempt and per retitle
 paseo plugin disable titles
 ```
 
-Re-enable with `paseo plugin enable titles`, then refresh the app. Disabling leaves existing names and old feedback notices intact. It does not rename anything back.
+## Code layout and tests
 
-## Tests and layout
+- `shared/agent-titles.mjs`: pure agent-title policy (default-title rule, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
+- `server/model.ts`: prompt and Claude CLI call.
+- `server/rename.ts`: compare-and-set rename over the local daemon RPC.
+- `index.server.ts`: first-turn lifecycle, the `retitle` RPC, per-tab exclusivity.
+- `index.client.tsx`: the three triggers, the pill and the toast.
 
-```sh
-cd ~/workspace/my-agents/paseo-plugins/titles
-npm test
-```
-
-Final `npm test`: **7 tests passed, 0 failed**. Covers exact default detection, irreversible manual-rename detection (including rename-back), keep-versus-rename parsing, title word/character constraints, provider-neutral context filtering/bounds, newest-user preservation under verbose replies, and metadata-agent exclusion.
-
-`shared/agent-titles.mjs` owns agent-specific naming policy and pure tests; `server/model.ts` owns the subscription call; `server/rename.ts` owns the missing public rename operation; `index.server.ts` owns agent lifecycle/manual orchestration; `index.client.tsx` owns triggers and feedback. A future workspace policy can live alongside the agent policy without mixing its lifecycle or title rules into this one. No workspace generation is implemented.
+`npm test` runs 7 tests on the pure policy: the default-title rule, which
+titles count as short, keep-versus-rename parsing with identifier-safe Title
+Case, rejection of bad answers, excerpt filtering, merging of agentic turns,
+and bounds on long replies.
