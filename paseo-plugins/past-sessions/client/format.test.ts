@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { absoluteTime, folderLabel, relativeTime } from "./format";
+import { absoluteTime, folderLabel, relativeTime, tildify } from "./format";
 
 // Local wall-clock times, so the expectations hold in any time zone.
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 9, day, hour, minute).getTime();
@@ -36,9 +36,17 @@ describe("absoluteTime", () => {
 });
 
 describe("folderLabel", () => {
-  it("shows subfolders relative to the listed folder and others in full", () => {
-    expect(folderLabel("/w/index", "/w/index")).toBe(".");
-    expect(folderLabel("/w/index/.scratch/a", "/w/index")).toBe(".scratch/a");
-    expect(folderLabel("/w/indexer", "/w/index")).toBe("/w/indexer");
+  it("hides the listed folder, shows subfolders relative to it and anything else from ~", () => {
+    expect(folderLabel("/home/cx/index", "/home/cx/index", "/home/cx")).toBeNull();
+    expect(folderLabel("/home/cx/index/.scratch/a", "/home/cx/index", "/home/cx")).toBe(".scratch/a");
+    expect(folderLabel("/home/cx/indexer", "/home/cx/index", "/home/cx")).toBe("~/indexer");
+    expect(folderLabel("/mnt/vault", "/home/cx/index", "/home/cx")).toBe("/mnt/vault");
+  });
+});
+
+describe("tildify", () => {
+  it("shortens only real home children", () => {
+    expect(tildify("/home/cx", "/home/cx")).toBe("~");
+    expect(tildify("/home/cxx/a", "/home/cx")).toBe("/home/cxx/a");
   });
 });

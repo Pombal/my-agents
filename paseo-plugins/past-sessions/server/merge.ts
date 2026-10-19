@@ -1,4 +1,4 @@
-import type { PastSession } from "../shared/rpc";
+import type { PastSession, Scope } from "../shared/rpc";
 import type { OmpSession } from "./omp-sessions";
 import { isSameOrInside } from "./slug";
 
@@ -18,20 +18,26 @@ export interface AgentRecord {
 }
 
 export interface ScopeFilter {
-  /** Resolved folders; with `includeSubfolders` anything below them matches too. */
-  targets: string[];
-  includeSubfolders: boolean;
+  mode: Scope;
+  /** Workspaces whose agents always match: the current one, or every one in the project. */
   workspaceIds: string[];
-  /** Project scope only: agents placed in this project match wherever their cwd is. */
+  /** Resolved folders (folder and project modes); in project mode anything below them matches. */
+  targets: string[];
+  /** Project mode: agents Paseo placed in this project match wherever their cwd is. */
   projectKey: string | null;
 }
 
+/**
+ * Workspace mode trusts only the agent's workspace, so agents of sibling workspaces in the same
+ * folder stay out. Folder and project modes also match by cwd, which catches agents whose
+ * workspace was archived since.
+ */
 export function agentInScope(agent: AgentRecord, scope: ScopeFilter): boolean {
   if (agent.workspaceId && scope.workspaceIds.includes(agent.workspaceId)) return true;
+  if (scope.mode === "workspace") return false;
+  if (scope.mode === "folder") return scope.targets.includes(agent.cwd);
   if (scope.projectKey && agent.projectKey === scope.projectKey) return true;
-  return scope.includeSubfolders
-    ? scope.targets.some((target) => isSameOrInside(target, agent.cwd))
-    : scope.targets.includes(agent.cwd);
+  return scope.targets.some((target) => isSameOrInside(target, agent.cwd));
 }
 
 const TITLE_MAX = 120;
@@ -47,16 +53,31 @@ export function titleFromPrompt(prompt: string | null): string | null {
   return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1)}…` : line;
 }
 
+/** Newest activity first; ties broken by key so the order is stable. */
+function byNewest(a: PastSession, b: PastSession): number {
+  if (a.at === b.at) return a.key.localeCompare(b.key);
+  return a.at < b.at ? 1 : -1;
+}
+
+export interface MergedPastSessions {
+  /** The main list. Workspace mode: archived agents only; other modes: both sources. */
+  entries: PastSession[];
+  /** Workspace mode only: the folder's OMP sessions Paseo never opened. */
+  sameFolder: PastSession[];
+  /** OMP sessions skipped because a Paseo agent (live or archived, anywhere) owns them. */
+  hiddenKnownToPaseo: number;
+}
+
 /**
- * Archived Paseo agents in scope, plus OMP sessions no Paseo agent (live or archived,
- * any folder) has opened. An OMP session is "known" when an agent's session refs contain
- * its id or its file path. Newest activity first.
+ * Archived Paseo agents in scope, plus OMP sessions (already filtered to the scope's folders)
+ * that no Paseo agent owns. An OMP session is owned when an agent's session refs contain its
+ * id or its file path.
  */
 export function mergePastSessions(input: {
   agents: AgentRecord[];
   ompSessions: OmpSession[];
   scope: ScopeFilter;
-}): { entries: PastSession[]; hiddenKnownToPaseo: number } {
+}): MergedPastSessions {
   const known = new Set(input.agents.flatMap((agent) => agent.sessionRefs));
   const ompByRef = new Map<string, OmpSession>();
   for (const session of input.ompSessions) {
@@ -64,11 +85,11 @@ export function mergePastSessions(input: {
     ompByRef.set(session.file, session);
   }
 
-  const entries: PastSession[] = [];
+  const archived: PastSession[] = [];
   for (const agent of input.agents) {
     if (!agent.archivedAt || !agentInScope(agent, input.scope)) continue;
     const session = agent.sessionRefs.map((ref) => ompByRef.get(ref)).find(Boolean);
-    entries.push({
+    archived.push({
       key: `paseo:${agent.id}`,
       source: "paseo",
       title:
@@ -93,19 +114,23 @@ export function mergePastSessions(input: {
     const previous = newestOmp.get(session.sessionId);
     if (!previous || previous.mtime < session.mtime) newestOmp.set(session.sessionId, session);
   }
-  for (const session of newestOmp.values()) {
-    entries.push({
-      key: `omp:${session.sessionId}`,
-      source: "omp",
-      title: session.title || titleFromPrompt(session.firstPrompt) || "Empty session",
-      cwd: session.cwd,
-      at: session.mtime,
-      provider: session.provider,
-      sessionId: session.sessionId,
-      file: session.file,
-    });
-  }
+  const terminal: PastSession[] = [...newestOmp.values()].map((session) => ({
+    key: `omp:${session.sessionId}`,
+    source: "omp",
+    title: session.title || titleFromPrompt(session.firstPrompt) || "Empty session",
+    cwd: session.cwd,
+    at: session.mtime,
+    provider: session.provider,
+    sessionId: session.sessionId,
+    file: session.file,
+  }));
 
-  entries.sort((a, b) => (a.at === b.at ? a.key.localeCompare(b.key) : a.at < b.at ? 1 : -1));
-  return { entries, hiddenKnownToPaseo };
+  if (input.scope.mode === "workspace") {
+    return {
+      entries: archived.sort(byNewest),
+      sameFolder: terminal.sort(byNewest),
+      hiddenKnownToPaseo,
+    };
+  }
+  return { entries: [...archived, ...terminal].sort(byNewest), sameFolder: [], hiddenKnownToPaseo };
 }

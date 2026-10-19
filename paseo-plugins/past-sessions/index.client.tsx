@@ -23,7 +23,7 @@ function SidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
 }
 
 function WorkspacePanel({ workspaceId, theme, layout, navigation }: PluginWorkspacePanelProps) {
-  const [scope, setScope] = useState<Scope>("folder");
+  const [scope, setScope] = useState<Scope>("workspace");
   return (
     <PastSessionsList
       workspaceId={workspaceId}

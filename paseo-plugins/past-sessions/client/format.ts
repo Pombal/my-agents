@@ -33,8 +33,15 @@ export function absoluteTime(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** `cwd` shown relative to `folder` ("." for the folder itself); absolute when outside it. */
-export function folderLabel(cwd: string, folder: string): string {
-  if (cwd === folder) return ".";
-  return cwd.startsWith(`${folder}/`) ? cwd.slice(folder.length + 1) : cwd;
+/** `cwd` relative to `folder` (null for the folder itself); `~/…` or absolute when outside it. */
+export function folderLabel(cwd: string, folder: string, home: string): string | null {
+  if (cwd === folder) return null;
+  return cwd.startsWith(`${folder}/`) ? cwd.slice(folder.length + 1) : tildify(cwd, home);
+}
+
+/** `/home/cx/agentspace/index` → `~/agentspace/index`. */
+export function tildify(target: string, home: string): string {
+  if (!home) return target;
+  if (target === home) return "~";
+  return target.startsWith(`${home}/`) ? `~${target.slice(home.length)}` : target;
 }

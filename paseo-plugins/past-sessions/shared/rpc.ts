@@ -1,7 +1,8 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
-export const ScopeSchema = z.enum(["folder", "project"]);
+/** `workspace`: this workspace's archived agents; `folder`: its folder; `project`: the whole project. */
+export const ScopeSchema = z.enum(["workspace", "folder", "project"]);
 export type Scope = z.infer<typeof ScopeSchema>;
 
 export const PastSessionSchema = z.object({
@@ -23,11 +24,17 @@ export const listPastSessions = defineRpc({
   name: "past-sessions.list",
   input: z.object({ workspaceId: z.string(), scope: ScopeSchema }),
   output: z.object({
+    workspaceName: z.string(),
+    /** The daemon user's home, so paths can be shown as `~/…`. */
+    home: z.string(),
     folder: z.string(),
     projectRoot: z.string(),
     projectName: z.string(),
     scope: ScopeSchema,
+    /** The main list, newest first. */
     entries: z.array(PastSessionSchema),
+    /** Workspace scope only: OMP sessions in the folder that Paseo never opened. */
+    sameFolder: z.array(PastSessionSchema),
     stats: z.object({
       elapsedMs: z.number(),
       ompDirsScanned: z.number(),
@@ -38,6 +45,8 @@ export const listPastSessions = defineRpc({
     warnings: z.array(z.string()),
   }),
 });
+
+export type PastSessionsListing = z.output<typeof listPastSessions.output>;
 
 export const reopenPastSession = defineRpc({
   name: "past-sessions.reopen",

@@ -3,18 +3,18 @@ import { usePaseo } from "@getpaseo/plugin/client";
 import { FlatList, Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ScopeSchema, type Scope } from "../shared/rpc";
 import { PastSessionsList } from "./past-sessions-list";
 
-/** What the sidebar row reopens: the screen's last folder and scope, until the app reloads. */
+/** What the sidebar row reopens: the screen's last workspace and scope, until the app reloads. */
 export const lastScreenParams: { workspaceId?: string; scope?: Scope } = {};
 
 export function PastSessionsScreen({ theme, layout, params, navigation }: PluginScreenProps) {
   const paseo = usePaseo();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [chosenId, setChosenId] = useState<string | undefined>(params.workspaceId);
-  const [scope, setScope] = useState<Scope>(ScopeSchema.catch("folder").parse(params.scope));
+  const [scope, setScope] = useState<Scope>(ScopeSchema.catch("workspace").parse(params.scope));
   const workspaces = useQuery({
     queryKey: ["workspaces-by-activity"],
     queryFn: async () =>
@@ -32,33 +32,39 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
     lastScreenParams.workspaceId = workspace.id;
     lastScreenParams.scope = scope;
   }
-  const muted = theme.colors.foregroundMuted;
+  const { colors } = theme;
+  const gutter = layout.compact ? 14 : 20;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }}>
+    <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel="Choose workspace"
         testID="past-sessions-folder-picker"
         onPress={() => setPickerOpen(true)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingHorizontal: layout.compact ? 12 : 16,
-          paddingVertical: 10,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-        }}
+        style={({ pressed }) => [
+          styles.picker,
+          { paddingHorizontal: gutter, borderBottomColor: colors.border },
+          pressed ? { backgroundColor: colors.surface1 } : null,
+        ]}
       >
-        <Icon name="Folder" size={16} color={muted} />
-        <Text style={{ color: theme.colors.foreground, fontSize: 14, flexShrink: 1 }} numberOfLines={1}>
-          {workspace ? `${workspace.projectDisplayName} › ${workspace.name}` : "Loading workspaces…"}
-        </Text>
-        <Text style={{ color: muted, fontSize: 12 }}>Change</Text>
-        <Icon name="ChevronDown" size={14} color={muted} />
+        <Icon name="LayoutGrid" size={16} color={colors.foregroundMuted} />
+        <View style={styles.pickerBody}>
+          <Text style={{ color: colors.foregroundMuted, fontSize: 11 }} numberOfLines={1}>
+            {workspace ? workspace.projectDisplayName : " "}
+          </Text>
+          <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "600" }} numberOfLines={1}>
+            {workspace ? workspace.name : workspaces.isError ? "Workspaces unavailable" : "Loading workspaces…"}
+          </Text>
+        </View>
+        <View style={[styles.change, { borderColor: colors.border }]}>
+          <Text style={{ color: colors.foreground, fontSize: 12 }}>Switch</Text>
+          <Icon name="ChevronsUpDown" size={13} color={colors.foregroundMuted} />
+        </View>
       </Pressable>
       {workspace ? (
         <PastSessionsList
+          key={workspace.id}
           workspaceId={workspace.id}
           scope={scope}
           onScopeChange={setScope}
@@ -67,11 +73,11 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
           navigation={navigation}
         />
       ) : workspaces.isError ? (
-        <Text style={{ color: theme.colors.statusDanger, padding: 16 }}>{String(workspaces.error)}</Text>
+        <Text style={{ color: colors.statusDanger, padding: gutter }}>{String(workspaces.error)}</Text>
       ) : null}
       <Modal
-        title="Choose a workspace"
-        icon={<Icon name="Folder" size={18} color={theme.colors.foreground} />}
+        title="Switch workspace"
+        icon={<Icon name="LayoutGrid" size={18} color={colors.foreground} />}
         open={pickerOpen}
         onOpenChange={setPickerOpen}
       >
@@ -80,32 +86,65 @@ export function PastSessionsScreen({ theme, layout, params, navigation }: Plugin
             style={{ flex: 1, minHeight: 0 }}
             data={entries}
             keyExtractor={(candidate) => candidate.id}
-            renderItem={({ item }) => (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setChosenId(item.id);
-                  setPickerOpen(false);
-                }}
-                style={({ pressed }) => ({
-                  paddingHorizontal: 16,
-                  paddingVertical: 10,
-                  gap: 2,
-                  backgroundColor:
-                    item.id === workspace?.id || pressed ? theme.colors.surface1 : "transparent",
-                })}
-              >
-                <Text style={{ color: theme.colors.foreground, fontSize: 14 }} numberOfLines={1}>
-                  {item.projectDisplayName} › {item.name}
-                </Text>
-                <Text style={{ color: muted, fontSize: 12 }} numberOfLines={1}>
-                  {item.workspaceDirectory ?? item.projectRootPath}
-                </Text>
-              </Pressable>
-            )}
+            renderItem={({ item }) => {
+              const selected = item.id === workspace?.id;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    setChosenId(item.id);
+                    setPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.option,
+                    { borderTopColor: colors.border },
+                    selected || pressed ? { backgroundColor: colors.surface1 } : null,
+                  ]}
+                >
+                  <View style={styles.pickerBody}>
+                    <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "500" }} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={{ color: colors.foregroundMuted, fontSize: 12 }} numberOfLines={1}>
+                      {item.projectDisplayName} · {item.workspaceDirectory ?? item.projectRootPath}
+                    </Text>
+                  </View>
+                  {selected ? <Icon name="Check" size={16} color={colors.accent} /> : null}
+                </Pressable>
+              );
+            }}
           />
         </Modal.Content>
       </Modal>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  picker: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  pickerBody: { flex: 1, minWidth: 0, gap: 1 },
+  change: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+});

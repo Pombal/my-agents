@@ -3,16 +3,23 @@ import { mergePastSessions, titleFromPrompt, type AgentRecord, type ScopeFilter 
 import type { OmpSession } from "./omp-sessions";
 
 const folder = "/home/cx/agentspace/index";
-const folderScope: ScopeFilter = { targets: [folder], includeSubfolders: false, workspaceIds: ["wks_index"], projectKey: null };
+const workspaceScope: ScopeFilter = { mode: "workspace", targets: [folder], workspaceIds: ["wks_plugins"], projectKey: null };
+const folderScope: ScopeFilter = { ...workspaceScope, mode: "folder" };
+const projectScope: ScopeFilter = {
+  mode: "project",
+  targets: [folder],
+  workspaceIds: ["wks_plugins", "wks_mainframe"],
+  projectKey: "proj_index",
+};
 
 function agent(overrides: Partial<AgentRecord> & { id: string }): AgentRecord {
   return {
     title: null,
     cwd: folder,
     provider: "omp",
-    workspaceId: "wks_index",
+    workspaceId: "wks_plugins",
     projectKey: "proj_index",
-    archivedAt: null,
+    archivedAt: "2026-10-02T00:00:00.000Z",
     updatedAt: "2026-10-01T00:00:00.000Z",
     lastUserMessageAt: null,
     sessionRefs: [],
@@ -33,23 +40,70 @@ function omp(overrides: Partial<OmpSession> & { sessionId: string }): OmpSession
   };
 }
 
-describe("mergePastSessions", () => {
+const keys = (entries: { key: string }[]) => entries.map((entry) => entry.key).sort();
+
+describe("mergePastSessions scopes", () => {
+  // Two workspaces share the index folder, as Paseo Plugins and Mainframe do on axalon.
+  const agents = [
+    agent({ id: "plugins-archived" }),
+    agent({ id: "plugins-live", archivedAt: null }),
+    agent({ id: "mainframe-archived", workspaceId: "wks_mainframe" }),
+    // A workspace's agent may run in a subfolder; its workspace still claims it.
+    agent({ id: "plugins-subfolder", cwd: `${folder}/.scratch` }),
+    // An agent of a workspace that was archived since: only cwd ties it to the folder.
+    agent({ id: "orphan", workspaceId: "wks_gone", projectKey: null }),
+  ];
+  const ompSessions = [omp({ sessionId: "terminal", firstPrompt: "Old herdr session" })];
+
+  it("workspace: only this workspace's archived agents; the folder's OMP sessions go to sameFolder", () => {
+    const result = mergePastSessions({ agents, ompSessions, scope: workspaceScope });
+    expect(keys(result.entries)).toEqual(["paseo:plugins-archived", "paseo:plugins-subfolder"]);
+    expect(keys(result.sameFolder)).toEqual(["omp:terminal"]);
+  });
+
+  it("folder: every archived agent in the folder, sibling workspaces and orphans included, mixed with OMP", () => {
+    const result = mergePastSessions({ agents, ompSessions, scope: folderScope });
+    expect(keys(result.entries)).toEqual([
+      "omp:terminal",
+      "paseo:mainframe-archived",
+      "paseo:orphan",
+      "paseo:plugins-archived",
+      "paseo:plugins-subfolder",
+    ]);
+    expect(result.sameFolder).toEqual([]);
+  });
+
+  it("project: subfolders, every project workspace, and agents Paseo placed in the project", () => {
+    const elsewhere = agent({ id: "worktree", cwd: "/home/cx/.paseo/worktrees/abc", workspaceId: "wks_gone" });
+    const unrelated = agent({ id: "unrelated", cwd: "/tmp/x", workspaceId: "wks_other", projectKey: "proj_other" });
+    const result = mergePastSessions({ agents: [...agents, elsewhere, unrelated], ompSessions: [], scope: projectScope });
+    expect(keys(result.entries)).toEqual([
+      "paseo:mainframe-archived",
+      "paseo:orphan",
+      "paseo:plugins-archived",
+      "paseo:plugins-subfolder",
+      "paseo:worktree",
+    ]);
+  });
+});
+
+describe("mergePastSessions dedup and order", () => {
   it("hides OMP sessions any Paseo agent already owns, by session id or by file path", () => {
     const result = mergePastSessions({
       agents: [
-        agent({ id: "live", sessionRefs: ["s-live"] }),
-        agent({ id: "archived", archivedAt: "2026-10-02T00:00:00.000Z", sessionRefs: ["s-archived"] }),
+        agent({ id: "live", archivedAt: null, sessionRefs: ["s-live"] }),
+        agent({ id: "archived", sessionRefs: ["s-archived"] }),
         agent({ id: "imported", cwd: "/elsewhere", workspaceId: "wks_other", sessionRefs: ["/f/by-path.jsonl"] }),
       ],
       ompSessions: [
         omp({ sessionId: "s-live" }),
         omp({ sessionId: "s-archived" }),
         omp({ sessionId: "s-path", file: "/f/by-path.jsonl" }),
-        omp({ sessionId: "s-only", firstPrompt: "Fresh terminal session" }),
+        omp({ sessionId: "s-only" }),
       ],
       scope: folderScope,
     });
-    expect(result.entries.map((entry) => entry.key).sort()).toEqual(["omp:s-only", "paseo:archived"]);
+    expect(keys(result.entries)).toEqual(["omp:s-only", "paseo:archived"]);
     expect(result.hiddenKnownToPaseo).toBe(3);
   });
 
@@ -60,17 +114,17 @@ describe("mergePastSessions", () => {
         omp({ sessionId: "dup", file: "/old/x_dup.jsonl", mtime: "2026-09-01T00:00:00.000Z" }),
         omp({ sessionId: "dup", file: "/new/x_dup.jsonl", mtime: "2026-10-01T00:00:00.000Z" }),
       ],
-      scope: folderScope,
+      scope: workspaceScope,
     });
-    expect(result.entries).toHaveLength(1);
-    expect(result.entries[0]?.file).toBe("/new/x_dup.jsonl");
+    expect(result.sameFolder).toHaveLength(1);
+    expect(result.sameFolder[0]?.file).toBe("/new/x_dup.jsonl");
   });
 
   it("sorts newest activity first across both sources", () => {
     const result = mergePastSessions({
       agents: [
-        agent({ id: "a-old", archivedAt: "x", lastUserMessageAt: "2026-09-01T00:00:00.000Z" }),
-        agent({ id: "a-new", archivedAt: "x", lastUserMessageAt: "2026-10-03T00:00:00.000Z" }),
+        agent({ id: "a-old", lastUserMessageAt: "2026-09-01T00:00:00.000Z" }),
+        agent({ id: "a-new", lastUserMessageAt: "2026-10-03T00:00:00.000Z" }),
       ],
       ompSessions: [omp({ sessionId: "o-mid", mtime: "2026-10-02T00:00:00.000Z" })],
       scope: folderScope,
@@ -78,34 +132,15 @@ describe("mergePastSessions", () => {
     expect(result.entries.map((entry) => entry.key)).toEqual(["paseo:a-new", "omp:o-mid", "paseo:a-old"]);
   });
 
-  it("dates and titles an archived agent from its OMP file when it has no title", () => {
+  it("dates and titles an untitled archived agent from its OMP file", () => {
     const result = mergePastSessions({
-      agents: [
-        agent({ id: "a", archivedAt: "x", updatedAt: "2026-10-09T00:00:00.000Z", sessionRefs: ["s1"] }),
-      ],
+      agents: [agent({ id: "a", updatedAt: "2026-10-09T00:00:00.000Z", sessionRefs: ["s1"] })],
       ompSessions: [omp({ sessionId: "s1", firstPrompt: "Fix the build\nmore", mtime: "2026-10-05T00:00:00.000Z" })],
-      scope: folderScope,
+      scope: workspaceScope,
     });
     expect(result.entries).toEqual([
       expect.objectContaining({ key: "paseo:a", title: "Fix the build", at: "2026-10-05T00:00:00.000Z" }),
     ]);
-  });
-
-  it("limits folder scope to the folder's agents and widens project scope to subfolders and project agents", () => {
-    // OMP sessions arrive already filtered by OmpSessionIndex; only agents are scoped here.
-    const agents = [
-      agent({ id: "sub", archivedAt: "x", cwd: `${folder}/.scratch`, workspaceId: null }),
-      agent({ id: "worktree", archivedAt: "x", cwd: "/home/cx/.paseo/worktrees/abc", workspaceId: "wks_gone" }),
-    ];
-    const inFolder = mergePastSessions({ agents, ompSessions: [], scope: folderScope });
-    expect(inFolder.entries).toEqual([]);
-
-    const inProject = mergePastSessions({
-      agents,
-      ompSessions: [],
-      scope: { targets: [folder], includeSubfolders: true, workspaceIds: ["wks_index"], projectKey: "proj_index" },
-    });
-    expect(inProject.entries.map((entry) => entry.key).sort()).toEqual(["paseo:sub", "paseo:worktree"]);
   });
 });
 

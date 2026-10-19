@@ -143,23 +143,26 @@ export async function listHandler(
     })),
   );
 
-  const { entries, hiddenKnownToPaseo } = mergePastSessions({
+  const { entries, sameFolder, hiddenKnownToPaseo } = mergePastSessions({
     agents,
     ompSessions: sessions,
     scope: {
+      mode: input.scope,
       targets,
-      includeSubfolders,
       workspaceIds: includeSubfolders ? projectWorkspaces.map((candidate) => candidate.id) : [workspace.id],
       projectKey: includeSubfolders ? projectKey : null,
     },
   });
 
   return {
+    workspaceName: workspace.name,
+    home,
     folder,
     projectRoot: workspace.projectRootPath,
     projectName: workspace.projectDisplayName,
     scope: input.scope,
     entries,
+    sameFolder,
     stats: {
       elapsedMs: Math.round(performance.now() - started),
       ompDirsScanned: stats.dirsScanned,
