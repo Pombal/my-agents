@@ -80,7 +80,9 @@ Keyboard layouts where Ctrl+Alt acts as AltGr are skipped (AltGraph check).
 
 The plugin runs the installed **Claude Code CLI** with `--model haiku` through
 Stefan's subscription login, so no API keys are used: the
-`ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables are stripped. The call uses
+`ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables are stripped. If the daemon's service
+PATH omits `~/.local/bin`, Titles adds it for this Claude subprocess so native
+Claude installations still work. The call uses
 `--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
 retries. It takes about 2.5–5 s end to end, depending on CLI startup.
 

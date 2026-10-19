@@ -11,7 +11,7 @@ Create a visible child of the current Paseo agent:
 An existing agent is required; the task is optional. Without a task, the title is
 `Side: <parent title>` (shortened). With a task, the title uses its first words.
 The child gets the parent's
-provider/model, mode, thinking option, feature values, and working directory.
+provider/model, mode, thinking option (including the provider's active default), feature values, and working directory.
 It appears in the parent's sub-agents strip. Shared cwd means shared files, not
 an isolated worktree. **No finish message is sent into the parent:** check the
 side agent's tab. Sending a synthetic notice would start another parent turn.

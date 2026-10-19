@@ -23,7 +23,11 @@ right edge. Unloading the plugin removes the stylesheet. The server entry only r
 settings.
 
 Hooks and their limits: thinking, mode and provider toggles use Paseo test IDs
-(`agent-thinking-selector`, `mode-control`, `agent-feature-*`). Dictation and Voice mode have
+(`agent-thinking-selector`, `mode-control`, `agent-feature-*`). In Paseo 0.12's compact web
+layout, thinking is a readout inside the model button rather than a separate control.
+The thinking switch hides that second text node too, leaving the model picker available.
+This readout depends on the child structure of `combined-model-selector`.
+Dictation and Voice mode have
 no test IDs, so they match Paseo's accessibility labels ("Start dictation", "Enable Voice mode")
 in all nine UI languages it ships. A Paseo update that renames these makes the control simply
 stay visible. Voice hiding uses CSS `:has()` to drop its wrapper.

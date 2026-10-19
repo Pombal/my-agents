@@ -12,7 +12,7 @@ OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction
   - Newest cards come first. The newest card and any running one are open; older cards fold to their header (the question, then the start of the answer). Tap a folded card to open it, or tap the chevron of an open card to fold it.
 
   A `btw` pill in that chat's composer reopens the sheet (tooltip "By the way (/btw)"). While an answer runs, its icon spins and it counts up (`btw 0:07`). With several answers it reads `btw · 4 answers`. Dismissing an answer hides it on every client, and Stop cancels and removes a running answer. Answers are also saved in OMP's own /btw history for the session.
-- The plugin hides the `/follow-up /btw …` message from the timeline, because it is plumbing and not a conversation turn.
+- The plugin hides the `/follow-up /btw …` message and Paseo 0.12's normalized `/btw …` echo from the timeline, because they are plumbing and not a conversation turn.
 - Before sending, the plugin checks that the chat's live OMP process has the `/btw` handler. An agent started before the extension had `/btw` would otherwise pass the question to the model as an ordinary message. In that case you get: "This OMP agent started before /btw was installed. Reload or restart the agent" (`paseo agent reload <id>`, or close and reopen the chat).
 
 Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, a timeline transformer and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.

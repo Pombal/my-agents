@@ -12,6 +12,7 @@ export default function contribute(server: PluginServerContext) {
     const result = await paseo.agents.ref(parentId).refresh();
     if (!result || result.agent.archivedAt) throw new Error("The parent agent is no longer available.");
     const parent = result.agent;
+    const thinkingOptionId = parent.thinkingOptionId ?? parent.effectiveThinkingOptionId;
     const featureValues = Object.fromEntries((parent.features ?? []).map(feature => [feature.id, feature.value]));
     const title = `Side: ${(task || parent.title?.trim() || "Untitled chat").replace(/\s+/g, " ").slice(0, 64)}`;
     const prompt = task
@@ -35,7 +36,7 @@ export default function contribute(server: PluginServerContext) {
           config: {
             provider: parent.model ? `${parent.provider}/${parent.model}` : parent.provider,
             ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}),
-            ...(parent.thinkingOptionId ? { thinkingOptionId: parent.thinkingOptionId } : {}),
+            ...(thinkingOptionId ? { thinkingOptionId } : {}),
             featureValues,
           },
           attachments: [attachment],
@@ -54,7 +55,7 @@ export default function contribute(server: PluginServerContext) {
       importedId = child.id;
       await daemon.updateAgent(child.id, { name: title });
       await daemon.applyAgentConfig(child.id, {
-        modelId: parent.model, thinkingOptionId: parent.thinkingOptionId ?? null,
+        modelId: parent.model, thinkingOptionId: thinkingOptionId ?? null,
         ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}), featureValues,
       });
       if (task) await daemon.sendAgentMessage(child.id, task);

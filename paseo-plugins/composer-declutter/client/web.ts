@@ -34,7 +34,8 @@ const labelled = (labels: readonly string[]) =>
   `:is(${labels.map((label) => `[aria-label="${label}"]`).join(", ")})`;
 
 const RULES: Record<keyof Preferences, string> = {
-  hideThinking: '[data-testid="agent-thinking-selector"]',
+  // 0.12 compact layouts fold the thinking readout into the model button's second text node.
+  hideThinking: ':is([data-testid="agent-thinking-selector"], [data-testid="combined-model-selector"] > div > div:nth-child(2) > [dir="auto"]:nth-child(2))',
   hideMode: '[data-testid="mode-control"]',
   hideFastMode: '[data-testid="agent-feature-fast_mode"]',
   hideOtherFeatures: '[data-testid^="agent-feature-"]:not([data-testid="agent-feature-fast_mode"])',

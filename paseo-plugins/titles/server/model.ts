@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { parseDecision } from "../shared/agent-titles.mjs";
 
 const TIMEOUT_MS = 20_000;
@@ -27,6 +28,10 @@ export type TitleRequest = { mode: "name" | "check"; workspace: string; title: s
 // customizations or saved session, and never an inherited API key or 3P routing.
 export async function decideTitle(request: TitleRequest) {
   const env = { ...process.env };
+  // Service-launched daemons may omit Claude's native install directory from PATH.
+  const nativeBin = join(homedir(), ".local", "bin");
+  const path = (env.PATH ?? "").split(delimiter);
+  if (!path.includes(nativeBin)) env.PATH = [...path, nativeBin].join(delimiter);
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDECODE$|CLAUDE_CODE_OAUTH_TOKEN$)/.test(key)) delete env[key];
   }

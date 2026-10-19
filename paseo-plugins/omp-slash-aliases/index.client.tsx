@@ -10,8 +10,8 @@ const ALIASES = [
   { name: "queue", description: "OMP: queue a message after the current turn", argumentHint: "<message>", send: (args: string) => `/follow-up ${args}` },
 ] as const;
 
-/** What the client sends for `/btw <question>`; hidden from the timeline below. */
-const BTW_SEND_PREFIX = "/follow-up /btw ";
+/** Paseo can echo the queued message with or without its transport prefix. */
+const BTW_SEND = /^(?:\/follow-up )?\/btw /;
 
 export default function contribute(client: PluginClientContext) {
   const store = new BtwStore({
@@ -97,7 +97,7 @@ export default function contribute(client: PluginClientContext) {
     client.addTimelineTransformer({
       id: "hide-btw-send",
       query: { itemType: "user_message" },
-      transform: ({ item }) => (item.text.startsWith(BTW_SEND_PREFIX) ? { items: [] } : undefined),
+      transform: ({ item }) => (BTW_SEND.test(item.text) ? { items: [] } : undefined),
     }),
   ];
 
