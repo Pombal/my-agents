@@ -21,6 +21,26 @@ rows keep their 44px touch size.
 `sidebar-hover-selected.webp`: a hovered row (kebab menu showing) under the selected one.
 `sidebar-row-menu.webp`: the workspace menu opened from a compact row.
 
+**Wrap long lines in the file pane** (2026-10-19). Files opened in a Paseo pane wrap long
+lines instead of scrolling sideways, at every window width. Paseo itself only wraps rendered
+markdown files. Chat code blocks and diffs are untouched (the rule targets only
+`data-testid="file-source-editor"`). The CSS is exactly CodeMirror's own wrapping class, and
+CodeMirror decides it is wrapping from that computed style, so line jumps (`file:120` links),
+cursor, selection and Find behave as with Paseo's built-in markdown wrapping.
+
+| Before | After | 600px window |
+| --- | --- | --- |
+| ![](screenshots/file-pane-wrap-before.webp) | ![](screenshots/file-pane-wrap-after.webp) | ![](screenshots/file-pane-wrap-narrow.webp) |
+
+Live proof (2026-10-19, Paseo 0.12.0 daemon + app.paseo.sh): a 300-line test file with
+lines up to 2,400 characters. No sideways scroll (content 759px in a 759px pane; 17,199px
+without the tweak). CodeMirror's `view.lineWrapping` reports `true`. Jumping to lines 40, 120,
+250 and to tall lines 143, 225, 287 from the top (the same `scrollIntoView` call Paseo uses
+for `path:line` links) put each line in the middle of the pane with the cursor on it. Scrolling
+to the bottom reaches the last line. Find highlighted the right word inside a wrapped line.
+After `paseo plugin reload` with a file already open, CodeMirror notices the change on the
+next scroll.
+
 ## Adding, changing or removing a tweak (for agents)
 
 All CSS lives in the `overrides` string in `client/overrides.ts`: one block per tweak, each starting
@@ -59,9 +79,9 @@ style element is removed live). Enable again: `… plugin enable style-overrides
 
 ## Limits
 
-- The selectors depend on Paseo's sidebar `data-testid`s. A Paseo upgrade that renames them makes
-  the tweak silently stop applying. It does not break anything; just remeasure and update the
-  selectors.
+- The selectors depend on Paseo's `data-testid`s (sidebar rows, `file-source-editor`). A Paseo
+  upgrade that renames them makes a tweak silently stop applying. It does not break anything;
+  just remeasure and update the selectors. Sidebar test IDs re-checked on 0.12.0 (2026-10-19).
 - The phone app (native, not web) is unaffected by design.
 
 ## Live proof (2026-10-19, app.paseo.sh against the 0.11.4 daemon, dark theme)
