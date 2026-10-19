@@ -29,13 +29,13 @@ describe("image input", () => {
 
 describe("mapping resolution", () => {
   test("uses exact ids, not inherited ids, labels, or prefix matching", () => {
-    const entries = [{ provider: "omp-nilo", image: icon, name: "nilo.svg" }];
+    const entries = [{ provider: "omp-nilo", image: icon, name: "nilo.svg", style: "original" as const }];
     expect(resolveMapping(entries, "omp-nilo")?.image).toBe(icon);
     for (const id of ["omp", "omp-nilo-other", "Oh My Pi (nilo)"]) expect(resolveMapping(entries, id)).toBeUndefined();
   });
   test("upserts a built-in provider without duplicates or mutating the previous document", () => {
-    const before = [{ provider: "omp-nilo", image: icon, name: "nilo.svg" }, { provider: "claude", image: rasters[0], name: "old.png" }];
-    const after = putMapping(before, { provider: "claude", image: rasters[2], name: "new.webp" });
+    const before = [{ provider: "omp-nilo", image: icon, name: "nilo.svg", style: "original" as const }, { provider: "claude", image: rasters[0], name: "old.png", style: "original" as const }];
+    const after = putMapping(before, { provider: "claude", image: rasters[2], name: "new.webp", style: "monochrome" });
     expect(after).toHaveLength(2);
     expect(resolveMapping(after, "claude")?.name).toBe("new.webp");
     expect(resolveMapping(before, "claude")?.name).toBe("old.png");

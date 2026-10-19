@@ -14,6 +14,7 @@ export const preferences = defineSettings({
         const error = validateImage(value);
         if (error) ctx.addIssue({ code: "custom", message: error });
       }),
+      style: z.enum(["original", "monochrome"]).default("original"),
     })).max(32).default([]),
   }).refine((value) => new Set(value.mappings.map((entry) => entry.provider)).size === value.mappings.length, "Each provider can have only one mapping."),
 });

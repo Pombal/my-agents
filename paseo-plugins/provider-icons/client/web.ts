@@ -1,12 +1,12 @@
 import { Platform } from "react-native";
 import type { Preferences } from "../shared/preferences";
 import { MAX_IMAGE_BYTES, resolveMapping, validateImage } from "../shared/images";
-import { resolveHost, resolveProvider, type IconScope } from "../shared/identity";
+import { hostFromPath, hostFromScopes, ownerFromTestId, providerFromScopes, type Directory, type IconScope } from "../shared/identity";
 
 // Web-only DOM interop, deliberately outside the shared/native modules.
 declare const location: { pathname: string };
 interface WebNode {
-  style: { display: string };
+  style: { display: string; setProperty(name: string, value: string): void; removeProperty(name: string): void };
   textContent: string | null;
   type: string;
   accept: string;
@@ -17,14 +17,21 @@ interface WebNode {
   setAttribute(name: string, value: string): void;
   getAttribute(name: string): string | null;
   removeAttribute(name: string): void;
+  closest(selector: string): WebNode | null;
   remove(): void;
   click(): void;
 }
 interface Fiber { memoizedProps: IconScope | null; type: unknown; return: Fiber | null }
 declare const document: {
-  head: WebNode; body: WebNode;
+  head: WebNode; body: WebNode; visibilityState: string;
   createElement(tag: string): WebNode;
   querySelectorAll(selector: string): Iterable<WebNode>;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+};
+declare const window: {
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
 };
 declare const FileReader: new () => {
   result: unknown;
@@ -37,117 +44,163 @@ declare const Image: new () => {
   onerror: (() => void) | null; onload: (() => void) | null;
 };
 declare const MutationObserver: new (callback: () => void) => {
-  observe(node: WebNode, options: { subtree: boolean; childList: boolean; characterData: boolean; attributes: boolean; attributeFilter: string[] }): void;
+  observe(node: WebNode, options: { subtree: boolean; childList: boolean; attributes: boolean; attributeFilter: string[] }): void;
   disconnect(): void;
 };
 declare const requestAnimationFrame: (callback: () => void) => number;
 declare const cancelAnimationFrame: (id: number) => void;
 
+const isWeb = Platform.OS === "web" && typeof document !== "undefined";
+
 export async function pickImage(): Promise<{ image: string; name: string } | null> {
-  if (Platform.OS !== "web" || typeof document === "undefined") throw new Error("Choose images from the web or desktop app.");
+  if (!isWeb) throw new Error("Choose images from the web or desktop app.");
   const { promise, resolve, reject } = Promise.withResolvers<{ image: string; name: string } | null>();
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".svg,.png,.webp,.jpg,.jpeg,image/svg+xml,image/png,image/webp,image/jpeg";
-    input.setAttribute("aria-label", "Choose provider icon image");
-    input.style.display = "none";
-    document.body.appendChild(input);
-    input.oncancel = () => { input.remove(); resolve(null); };
-    input.onchange = () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (!file) { resolve(null); return; }
-      if (file.size > MAX_IMAGE_BYTES) { reject(new Error("Image exceeds 128 KiB. Use a small icon.")); return; }
-      const reader = new FileReader();
-      reader.onerror = () => reject(new Error("Could not read image."));
-      reader.onload = () => {
-        const image = String(reader.result);
-        const error = validateImage(image);
-        if (error) { reject(new Error(error)); return; }
-        const preview = new Image();
-        preview.onerror = () => reject(new Error("The browser could not decode this image."));
-        preview.onload = () => {
-          if (!preview.naturalWidth || !preview.naturalHeight || preview.naturalWidth > 4096 || preview.naturalHeight > 4096) {
-            reject(new Error("Use an image no larger than 4096 × 4096 pixels."));
-          } else resolve({ image, name: file.name });
-        };
-        preview.src = image;
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".svg,.png,.webp,.jpg,.jpeg,image/svg+xml,image/png,image/webp,image/jpeg";
+  input.setAttribute("aria-label", "Choose provider icon image");
+  input.style.display = "none";
+  document.body.appendChild(input);
+  input.oncancel = () => { input.remove(); resolve(null); };
+  input.onchange = () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) { resolve(null); return; }
+    if (file.size > MAX_IMAGE_BYTES) { reject(new Error(`${file.name} is larger than 128 KiB.`)); return; }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+    reader.onload = () => {
+      const image = String(reader.result);
+      const error = validateImage(image);
+      if (error) { reject(new Error(error)); return; }
+      const preview = new Image();
+      preview.onerror = () => reject(new Error(`The browser could not decode ${file.name}.`));
+      preview.onload = () => {
+        if (!preview.naturalWidth || !preview.naturalHeight || preview.naturalWidth > 4096 || preview.naturalHeight > 4096) {
+          reject(new Error("Use an image no larger than 4096 × 4096 pixels."));
+        } else resolve({ image, name: file.name });
       };
-      reader.readAsDataURL(file);
+      preview.src = image;
     };
-    input.click();
+    reader.readAsDataURL(file);
+  };
+  input.click();
   return promise;
 }
 
+/** Runs `callback` whenever this window regains focus, so edits made in another window show up. */
+export function onWindowFocus(callback: () => void): () => void {
+  if (!isWeb) return () => {};
+  const visible = () => { if (document.visibilityState === "visible") callback(); };
+  window.addEventListener("focus", callback);
+  document.addEventListener("visibilitychange", visible);
+  return () => {
+    window.removeEventListener("focus", callback);
+    document.removeEventListener("visibilitychange", visible);
+  };
+}
+
+const MARK = "data-provider-icons";
+const MARK_HOST = "data-provider-icons-host";
+const TINT = "--provider-icons-tint";
+
 export function startIcons() {
-  const agents = new Map<string, string>();
-  const labels = new Map<string, string>();
+  const directory = { agents: new Map<string, string>(), providers: new Set<string>(), labels: new Map<string, string>() } satisfies Directory;
   let values: Preferences = { mappings: [] };
+  let hostId: string | undefined;
   let frame = 0;
   let disposed = false;
-  let hostId: string | undefined;
-  if (Platform.OS !== "web" || typeof document === "undefined") {
+  if (!isWeb) {
     return { update(_values: Preferences, _host?: string) {}, agent(_id: string, _provider: string) {}, provider(_id: string, _label: string) {}, dispose() {} };
   }
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "provider-icons");
   document.head.appendChild(style);
+
+  /** Provider glyphs: Paseo's own provider marks (no Lucide class) and its Bot/PackagePlus fallbacks. */
+  function isGlyph(svg: WebNode) {
+    const cssClass = svg.getAttribute("class") ?? "";
+    const width = Number(svg.getAttribute("width"));
+    return width > 0 && width <= 64 && width === Number(svg.getAttribute("height")) &&
+      (!/\blucide\b/.test(cssClass) || /\blucide-(?:bot|package-plus)\b/.test(cssClass));
+  }
+
+  function ownerOf(svg: WebNode): { provider?: string; host?: string } {
+    const tagged = svg.closest("[data-testid]");
+    const tier1 = tagged ? ownerFromTestId(tagged.getAttribute("data-testid") ?? "", directory, tagged.getAttribute("aria-label")) : undefined;
+    if (tier1?.host) return tier1;
+    // React keeps each host node's owner chain under `__reactFiber$<random>`; read it, never write it.
+    const key = Object.keys(svg).find((name) => name.startsWith("__reactFiber$"));
+    let fiber: Fiber | null | undefined = key ? (svg as unknown as Record<string, Fiber | undefined>)[key] : undefined;
+    const scopes: IconScope[] = [];
+    for (let depth = 0; fiber && depth < 70; depth++, fiber = fiber.return) {
+      const props = fiber.memoizedProps;
+      if (!props || typeof fiber.type === "string") continue;
+      scopes.push(props);
+      if (props.serverId || props.agent?.serverId) break;
+    }
+    return {
+      provider: tier1?.provider ?? providerFromScopes(scopes, directory),
+      host: hostFromScopes(scopes) ?? hostFromPath(location.pathname),
+    };
+  }
+
   function scan() {
     frame = 0;
     if (disposed) return;
+    const ownHost = encodeURIComponent(hostId ?? "");
     for (const svg of document.querySelectorAll("svg")) {
-      const cssClass = svg.getAttribute("class") ?? "";
-      // Lucide actions inside provider rows must retain their own glyphs.
-      const width = Number(svg.getAttribute("width"));
-      const height = Number(svg.getAttribute("height"));
-      const eligible = width > 0 && width <= 64 && width === height &&
-        (!/\blucide\b/.test(cssClass) || /\blucide-(?:bot|package-plus)\b/.test(cssClass));
-      let provider: string | undefined;
-      if (eligible && values.mappings.length && hostId) {
-        const key = Object.keys(svg).find((name) => name.startsWith("__reactFiber$"));
-        // React attaches its live ownership chain to each host SVG; this is in-process metadata.
-        const owned = svg as unknown as Record<string, Fiber | undefined>;
-        let fiber = key ? owned[key] : null;
-        const scopes: IconScope[] = [];
-        for (let depth = 0; fiber && depth < 70; depth++, fiber = fiber.return) {
-          const props = fiber.memoizedProps;
-          if (!props || typeof fiber.type === "string") continue;
-          scopes.push(props);
-          // Continue past the glyph wrapper only until its host owner is known.
-          if (props.serverId) break;
-        }
-        if (resolveHost(scopes, location.pathname) === hostId) provider = resolveProvider(scopes, agents, labels);
+      let mapping;
+      if (values.mappings.length && hostId && isGlyph(svg)) {
+        const owner = ownerOf(svg);
+        if (owner.host === hostId && owner.provider) mapping = resolveMapping(values.mappings, owner.provider);
       }
-      const mapping = resolveMapping(values.mappings, provider ?? "");
       if (mapping) {
         const token = encodeURIComponent(mapping.provider);
-        if (svg.getAttribute("data-provider-icons") !== token) svg.setAttribute("data-provider-icons", token);
-        svg.setAttribute("data-provider-icons-host", encodeURIComponent(hostId ?? ""));
-      } else if (svg.getAttribute("data-provider-icons-host") === encodeURIComponent(hostId ?? "")) {
-        svg.removeAttribute("data-provider-icons");
-        svg.removeAttribute("data-provider-icons-host");
-      }
+        if (svg.getAttribute(MARK) !== token) svg.setAttribute(MARK, token);
+        if (svg.getAttribute(MARK_HOST) !== ownHost) svg.setAttribute(MARK_HOST, ownHost);
+        // Lucide strokes and Paseo's marks fill with the theme color Paseo chose for this spot.
+        const ink = [svg.getAttribute("stroke"), svg.getAttribute("fill")].find((color) => color && color !== "none");
+        if (mapping.style === "monochrome" && ink) svg.style.setProperty(TINT, ink);
+      } else if (svg.getAttribute(MARK_HOST) === ownHost) clear(svg);
     }
   }
+
+  function clear(svg: WebNode) {
+    svg.removeAttribute(MARK);
+    svg.removeAttribute(MARK_HOST);
+    svg.style.removeProperty(TINT);
+  }
+
   function schedule() {
     if (!disposed && !frame) frame = requestAnimationFrame(scan);
   }
+  // Streaming chat adds nodes constantly; a scan is one querySelectorAll plus owner lookups for the
+  // handful of glyph-shaped SVGs, coalesced to at most one per animation frame.
   const observer = new MutationObserver(() => { if (values.mappings.length) schedule(); });
-  observer.observe(document.body, { subtree: true, childList: true, characterData: false, attributes: true, attributeFilter: ["aria-label", "data-testid", "width", "height", "class"] });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-label", "data-testid", "width", "height", "class", "stroke", "fill"] });
+
   return {
     update(next: Preferences, host?: string) {
       values = next;
       hostId = host ?? next.hostId ?? hostId;
+      const ownHost = encodeURIComponent(hostId ?? "");
       style.textContent = next.mappings.map((mapping) => {
-        const token = encodeURIComponent(mapping.provider);
-        const selector = `svg[data-provider-icons-host="${encodeURIComponent(hostId ?? "")}"][data-provider-icons="${token}"]`;
-        return `${selector} { background-image:url("${mapping.image}") !important; background-size:contain !important; background-position:center !important; background-repeat:no-repeat !important; }\n${selector} > * { visibility:hidden !important; }`;
+        const selector = `svg[${MARK_HOST}="${ownHost}"][${MARK}="${encodeURIComponent(mapping.provider)}"]`;
+        const image = `url("${mapping.image}") center / contain no-repeat`;
+        const paint = mapping.style === "monochrome"
+          ? `background:var(${TINT}, currentColor) !important; -webkit-mask:${image}; mask:${image};`
+          : `background:${image} !important;`;
+        return `${selector} { ${paint} }\n${selector} > * { visibility:hidden !important; }`;
       }).join("\n");
+      // Restyled mappings need their tint recomputed; a full pass also drops removed mappings.
+      for (const svg of document.querySelectorAll(`svg[${MARK_HOST}="${ownHost}"]`)) svg.style.removeProperty(TINT);
       schedule();
     },
-    agent(id: string, provider: string) { agents.set(id, provider); schedule(); },
+    agent(id: string, provider: string) { directory.agents.set(id, provider); schedule(); },
     provider(id: string, label: string) {
-      labels.set(label, labels.has(label) && labels.get(label) !== id ? "" : id);
+      directory.providers.add(id);
+      directory.labels.set(label, directory.labels.has(label) && directory.labels.get(label) !== id ? "" : id);
       schedule();
     },
     dispose() {
@@ -155,10 +208,7 @@ export function startIcons() {
       observer.disconnect();
       if (frame) cancelAnimationFrame(frame);
       style.remove();
-      for (const svg of document.querySelectorAll(`svg[data-provider-icons-host="${encodeURIComponent(hostId ?? "")}"]`)) {
-        svg.removeAttribute("data-provider-icons");
-        svg.removeAttribute("data-provider-icons-host");
-      }
+      for (const svg of document.querySelectorAll(`svg[${MARK_HOST}="${encodeURIComponent(hostId ?? "")}"]`)) clear(svg);
     },
   };
 }

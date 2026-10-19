@@ -30,7 +30,9 @@ export function validateImage(source: string): string | null {
   return null;
 }
 
-export interface Mapping { provider: string; image: string; name: string }
+/** `original` paints the image as-is; `monochrome` uses its alpha as a mask in Paseo's glyph color. */
+export type IconStyle = "original" | "monochrome";
+export interface Mapping { provider: string; image: string; name: string; style: IconStyle }
 export function resolveMapping(mappings: readonly Mapping[], provider: string): Mapping | undefined {
   return mappings.find((mapping) => mapping.provider === provider);
 }
