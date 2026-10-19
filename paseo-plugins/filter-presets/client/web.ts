@@ -57,10 +57,19 @@ export function createSidebarFilter(): SidebarFilter {
         }
       }
       // "Group by status" lists workspace rows without project groups; hide those rows one by one.
+      const hiddenRows: string[] = [];
       for (const workspace of workspaces) {
         if (!hiddenIds.has(workspace.projectId)) continue;
         const testId = JSON.stringify(`sidebar-workspace-row-${hostId}:${workspace.id}`);
+        hiddenRows.push(`[data-testid=${testId}]`);
         selectors.add(`[data-testid=${testId}]`);
+      }
+      if (hiddenRows.length) {
+        // A status section (header + rows list) whose every row is hidden would show a bare heading.
+        // Sections with "Show more" stay: their unrendered rows may match.
+        selectors.add(`div:has(> [data-testid^="sidebar-status-group-rows-"])`
+          + `:not(:has([data-testid^="sidebar-workspace-row-"]:not(${hiddenRows.join(",")})))`
+          + `:not(:has([data-testid^="sidebar-status-group-show-more-"]))`);
       }
       style.textContent = selectors.size ? [...selectors].join(",\n") + " { display: none !important; }" : "";
     },
