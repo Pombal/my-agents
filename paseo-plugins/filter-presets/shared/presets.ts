@@ -18,10 +18,7 @@ export const presetsSchema = z.array(z.object({
 export const defaultPresets = [{
   id: "nilo",
   name: "Nilo",
-  rules: [
-    { type: "remoteGlob" as const, value: "nilo-technologies/*" },
-    { type: "pathRegex" as const, value: "^/home/cx/workspace/nilo(?:-[^/]+)?(?:/|$)" },
-  ],
+  rules: [{ type: "pathRegex" as const, value: "(?:^|/)nilo(?:-[^/]*)?(?:/|$)" }],
 }];
 
 export const preferences = defineSettings({

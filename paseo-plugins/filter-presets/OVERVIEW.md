@@ -13,15 +13,12 @@ Each preset has an `id`, a display `name`, and one or more `rules`. IDs start wi
   {
     "id": "nilo",
     "name": "Nilo",
-    "rules": [
-      { "type": "remoteGlob", "value": "nilo-technologies/*" },
-      { "type": "pathRegex", "value": "^/home/cx/workspace/nilo(?:-[^/]+)?(?:/|$)" }
-    ]
+    "rules": [{ "type": "pathRegex", "value": "(?:^|/)nilo(?:-[^/]*)?(?:/|$)" }]
   }
 ]
 ```
 
-The initial Nilo definition includes GitHub projects from `nilo-technologies` wherever checked out, plus `/home/cx/workspace/nilo` and `nilo-*` folders without that remote.
+The initial Nilo definition includes every project whose path contains a folder named `nilo` or starting with `nilo-`, anywhere (for example `/home/cx/workspace/nilo-armory` or `/home/cx/.herdr/worktrees/nilo/wa-frustrations-alpha`).
 
 - `folderPrefix`: an absolute directory path, matching that directory and descendants, not similarly named neighbors. Example: `/home/cx/workspace/work`.
 - `pathGlob`: a case-sensitive pattern against the full project root path. `*` matches any characters except `/`, `**` includes `/`, and `?` matches one non-`/` character. Example: `/home/cx/workspace/nilo-*`.
