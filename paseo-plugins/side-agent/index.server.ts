@@ -13,8 +13,10 @@ export default function contribute(server: PluginServerContext) {
     if (!result || result.agent.archivedAt) throw new Error("The parent agent is no longer available.");
     const parent = result.agent;
     const featureValues = Object.fromEntries((parent.features ?? []).map(feature => [feature.id, feature.value]));
-    const title = `Side: ${task.replace(/\s+/g, " ").slice(0, 64)}`;
-    const prompt = `You are a side agent forked from Paseo chat ${parent.id}. The preceding conversation or attached chat history belongs to the parent; earlier tasks are not yours. Work only on the task below and report concisely.\n\nTask:\n${task}`;
+    const title = `Side: ${(task || parent.title?.trim() || "Untitled chat").replace(/\s+/g, " ").slice(0, 64)}`;
+    const prompt = task
+      ? `You are a side agent forked from Paseo chat ${parent.id}. The preceding conversation or attached chat history belongs to the parent; earlier tasks are not yours. Work only on the task below and report concisely.\n\nTask:\n${task}`
+      : `You are a side agent forked from Paseo chat ${parent.id}. The attached chat history belongs to the parent. Wait for the user's instructions; reply only: Ready.`;
     const daemon = await connectLocalDaemon();
     let sessionCopy: string | undefined;
     let importedId: string | undefined;
@@ -54,7 +56,7 @@ export default function contribute(server: PluginServerContext) {
         modelId: parent.model, thinkingOptionId: parent.thinkingOptionId ?? null,
         ...(parent.currentModeId ? { modeId: parent.currentModeId } : {}), featureValues,
       });
-      await daemon.sendAgentMessage(child.id, prompt);
+      if (task) await daemon.sendAgentMessage(child.id, prompt);
       return { agentId: child.id, mode };
     } catch (error) {
       // A failed full-mode launch must not leave an active half-configured child.

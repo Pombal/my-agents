@@ -20,14 +20,13 @@ export default function contribute(client: PluginClientContext) {
   const command = {
     name: "/side",
     description: "Spin off a visible side agent with parent context",
-    argumentHint: "[--fork|--full] <task>",
+    argumentHint: "[--fork|--full] [task]",
     context: "agent" as const,
     async onSubmit({ args, agent, rpc, openScreen }: PluginAgentCommandContext & { args: string }) {
       const input = args.trim();
       const flag = input.match(/^--(fork|full)(?:\s+|$)/);
       const mode = flag ? (flag[1] === "fork" ? "fork" : "full") : undefined;
       const task = flag ? input.slice(flag[0].length).trim() : input;
-      if (!task) throw new Error("Usage: /side [--fork|--full] <task>");
       const sourcePane = Platform.OS === "web" ? capturePane(agent.id) : null;
       const child = await rpc(createSide, { parentId: agent.id, task, mode });
       if (Platform.OS === "web") {

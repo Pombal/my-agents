@@ -3,12 +3,14 @@
 Create a visible child of the current Paseo agent:
 
 ```text
-/side <task>          use the configured default (initially fork)
-/side --fork <task>   force curated Paseo chat history
-/side --full <task>   force complete OMP memory through the last completed turn
+/side [task]          use the configured default (initially fork)
+/side --fork [task]   force curated Paseo chat history
+/side --full [task]   force complete OMP memory through the last completed turn
 ```
 
-An existing agent and a non-empty task are required. The child gets the parent's
+An existing agent is required; the task is optional. Without a task, the title is
+`Side: <parent title>` (shortened). With a task, the title uses its first words.
+The child gets the parent's
 provider/model, mode, thinking option, feature values, and working directory.
 It appears in the parent's sub-agents strip. Shared cwd means shared files, not
 an isolated worktree. **No finish message is sent into the parent:** check the
@@ -22,8 +24,11 @@ The old session-file-pointer prompt mode has been removed entirely.
 
 This is Paseo's own **Fork in a new tab** context: the server calls the installed
 SDK's `buildAgentForkContext(parentId)` and attaches its text attachment with
-`contextKind: "chat_history"` to `agents.create({ attachments })`. The initial
-prompt is only a short parent/side-task note plus your task.
+`contextKind: "chat_history"` to `agents.create({ attachments })`. With a task,
+the initial prompt is a short parent/side-task note plus your task. Without one,
+the attachment rides on this note: “You are a side agent forked from Paseo chat
+<id>. The attached chat history belongs to the parent. Wait for the user's
+instructions; reply only: Ready.” The child acknowledges, then waits for you.
 
 The attachment contains curated user/assistant messages and tool-call summaries,
 not raw tool outputs, private reasoning, or native provider session state. It is
@@ -50,9 +55,11 @@ artifacts are refused. Absolute paths embedded in historical text are not
 rewritten; existing OMP compaction is not undone.
 
 Paseo imports the copied file as a new OMP agent with the
-`paseo.parent-agent-id` label, applies the parent's current runtime settings,
-and sends the side-task note plus task. The parent is never resumed or written
-by this operation. Full mode inherits native conversation/tool-output memory,
+`paseo.parent-agent-id` label and applies the parent's current runtime settings.
+With a task, it sends the existing side-task note plus task. **Without a task it
+sends nothing at all**: the imported child opens idle with no new conversation
+turn, ready for you to type first. The parent is never resumed or written by this
+operation. Full mode inherits native conversation/tool-output memory,
 not just a transcript attachment; long histories can be slower and more costly.
 Earlier parent instructions are also inherited and can affect the child's reply.
 
@@ -139,6 +146,22 @@ Screenshots in `screenshots/` replace the old file-pointer-mode evidence:
   slept; the child recalls both facts without inheriting/running the sleep.
 - `modes-child-parentage-strip.png`: the parent's strip lists its children.
 - `default-mode-settings.png`: persisted default restored to fork.
+- `no-task-fork-ready.png`: `/side` creates a parent-titled child which replies
+  Ready, using the attached chat history.
+- `no-task-fork-followup.png`: that child then recalls a parent-only codeword
+  without tools.
+- `no-task-full-idle.png`: `/side --full` opens an idle imported child without
+  adding a user message or starting a new turn.
+- `no-task-full-followup.png`: the idle child's first follow-up recalls the
+  parent-only codeword without tools.
+
+Optional-task regression testing also used OMP Claude Haiku 4.5. Bare `/side`
+and `/side --fork` acknowledged with `Ready.`. Before its first follow-up, the
+taskless full child was `idle`, had `LastUsage: null`, and contained zero new
+conversation messages beyond the parent's copied history. Both taskless children
+answered `silver-oriole-508` on follow-up with zero tool calls. With-task fork and
+full checks returned `FORK_TASK_OK` and `FULL_TASK_OK`; right-pane reuse remained
+at two visible panes.
 
 The random token appeared **only in the parent's tool output**, not its user,
 assistant, or reasoning messages. Session inspection found zero new tool calls

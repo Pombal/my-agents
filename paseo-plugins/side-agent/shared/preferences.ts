@@ -11,6 +11,6 @@ export const preferences = defineSettings({
 
 export const createSide = defineRpc({
   name: "create-side",
-  input: z.object({ parentId: z.string().min(1), task: z.string().trim().min(1), mode: modeSchema.optional() }),
+  input: z.object({ parentId: z.string().min(1), task: z.string().trim().default(""), mode: modeSchema.optional() }),
   output: z.object({ agentId: z.string(), mode: modeSchema }),
 });
