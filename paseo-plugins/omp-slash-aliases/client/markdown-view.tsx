@@ -6,18 +6,25 @@ import { Platform, StyleSheet, Text, type TextStyle, View } from "react-native";
 import { type Block, parseMarkdown, type Span } from "./markdown";
 
 /**
- * Sizes follow Paseo's chat Markdown (`createCompactMarkdownStyles`): 15/21 prose,
- * 12 px code, compact heading scale, 500-weight bold.
+ * Dense: Paseo's small text size (13 px, as its chat timestamps) for prose, Paseo's
+ * 12 px code size, a heading scale just above the prose, 500-weight bold.
  */
 const MONO = Platform.select({
   ios: "ui-monospace",
   web: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   default: "monospace",
 });
-const BODY = { fontSize: 15, lineHeight: 21 };
+/**
+ * Paseo's default UI font stack. Paseo sets it on each of its own texts; this sheet is
+ * portalled outside Paseo's tree, so without it web falls back to React Native Web's stack.
+ */
+export const UI_FONT = Platform.select({
+  web: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+});
+export const BODY = { fontSize: 13, lineHeight: 19, fontFamily: UI_FONT };
 const CODE_SIZE = 12;
-/** h1–h6 at Paseo's compact sizes (content 15 scaled by the 2xl, xl, lg tiers). */
-const HEADING_SIZE = [21, 19, 17, 17, 17, 17];
+/** h1–h6. */
+const HEADING_SIZE = [16, 15, 14, 13, 13, 13];
 
 function Spans({ spans, theme }: { spans: Span[]; theme: PluginTheme }) {
   return spans.map((span, index) => {
@@ -79,7 +86,7 @@ function BlockView({ block, theme }: { block: Block; theme: PluginTheme }) {
           horizontal
           style={[styles.code, { backgroundColor: theme.colors.surface2, borderColor: theme.colors.border }]}
         >
-          <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 18 }}>
+          <Text selectable style={{ color: theme.colors.foreground, fontFamily: MONO, fontSize: CODE_SIZE, lineHeight: 17 }}>
             {block.text}
           </Text>
         </ScrollView>
@@ -116,9 +123,9 @@ function BlockView({ block, theme }: { block: Block; theme: PluginTheme }) {
 /** Space above a block: list items sit tight, headings get air, the rest Paseo's compact paragraph gap. */
 function gapBefore(block: Block, previous: Block | undefined): number {
   if (!previous) return 0;
-  if (block.type === "heading") return 12;
-  if (block.type === "item" && previous.type === "item") return 4;
-  return 8;
+  if (block.type === "heading") return 10;
+  if (block.type === "item" && previous.type === "item") return 2;
+  return 6;
 }
 
 /** Renders model-answer Markdown with React Native text (all Paseo clients). */
@@ -140,7 +147,7 @@ const styles = StyleSheet.create({
   marker: { minWidth: 14 },
   flex: { flex: 1 },
   quote: { borderLeftWidth: 4, paddingLeft: 12 },
-  code: { borderRadius: 6, borderWidth: 1, padding: 8, flexGrow: 0 },
+  code: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 6, flexGrow: 0 },
   table: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, overflow: "hidden" },
   row: { flexDirection: "row" },
   cell: { minWidth: 90, maxWidth: 260, paddingHorizontal: 8, paddingVertical: 4 },
