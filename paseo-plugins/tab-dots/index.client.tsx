@@ -2,6 +2,7 @@ import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
 import { watchAgents } from "./client/agents";
+import { contributePhone } from "./client/phone";
 import { createSettingsScreen } from "./client/settings";
 import { startTabDots } from "./client/web";
 import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
@@ -13,8 +14,21 @@ declare const window: {
 };
 
 export default function contribute(client: PluginClientContext) {
-  // Sidebar rows are DOM only on web and desktop; phones have nothing to draw into.
-  if (Platform.OS !== "web") return () => {};
+  // Phones have no DOM rows to draw into; they get one "Unread" sidebar row instead. Web and
+  // desktop never register it, so they carry only the row dots.
+  if (Platform.OS !== "web") {
+    const stopPhone = contributePhone(client);
+    const phoneSettings = client.addSettingsScreen({
+      id: "dots",
+      title: "Tab dots",
+      icon: "Ellipsis",
+      Component: createSettingsScreen(() => {}),
+    });
+    return () => {
+      phoneSettings();
+      stopPhone();
+    };
+  }
   const settings = settingsRpc(preferences.id);
   // Hidden until settings load, so a disabled plugin never flashes dots.
   const dots = startTabDots({ ...DEFAULTS, enabled: false });

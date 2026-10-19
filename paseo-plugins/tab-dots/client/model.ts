@@ -11,6 +11,8 @@ const AgentSchema = z.object({
   attentionReason: z.string().nullish(),
   pendingPermissions: z.array(z.unknown()).nullish(),
   labels: z.record(z.string(), z.string()).nullish(),
+  attentionTimestamp: z.string().nullish(),
+  updatedAt: z.string().nullish(),
 });
 
 export interface AgentInfo {
@@ -22,6 +24,8 @@ export interface AgentInfo {
   requiresAttention: boolean;
   attentionReason: string | null;
   pendingPermissions: number;
+  /** ISO time it started wanting attention, else its last update. */
+  at: string | null;
 }
 
 /** Paseo's sidebar bucket order (protocol `agent-state-bucket.ts`): permission, error, running, unread, read. */
@@ -53,6 +57,7 @@ export function readAgent(raw: unknown): AgentInfo | null {
     requiresAttention: agent.requiresAttention === true,
     attentionReason: agent.attentionReason ?? null,
     pendingPermissions: agent.pendingPermissions?.length ?? 0,
+    at: agent.attentionTimestamp ?? agent.updatedAt ?? null,
   };
 }
 
@@ -153,7 +158,7 @@ export function orderTabs(roots: readonly AgentInfo[], layoutIds: readonly strin
 export function rowDots(tabs: readonly AgentInfo[], show: ShowMode, max: number): RowDots {
   const candidates = tabs.flatMap((agent, index) => {
     const state = dotState(agent);
-    const wanted = state === "permission" || state === "finished" || (state === "error" && agent.requiresAttention);
+    const wanted = wantsYou(agent, state);
     const visible = show === "all" || wanted || (show === "unread-running" && state === "running");
     const rank = wanted ? 0 : state === "running" ? 1 : 2;
     return visible ? [{ agent, state, index, rank }] : [];
@@ -165,4 +170,35 @@ export function rowDots(tabs: readonly AgentInfo[], show: ShowMode, max: number)
     dots: kept.map(({ agent, state }) => ({ agentId: agent.id, title: agent.title ?? "New agent", state })),
     more: candidates.length - kept.length,
   };
+}
+
+/** Waiting on the user: a permission request, an unread result or an unread error. */
+function wantsYou(agent: AgentInfo, state: DotState): boolean {
+  return state === "permission" || state === "finished" || (state === "error" && agent.requiresAttention);
+}
+
+export interface ListEntry {
+  agentId: string;
+  workspaceId: string;
+  title: string;
+  state: DotState;
+  at: string | null;
+}
+
+const LIST_ORDER: Record<DotState, number> = { permission: 0, error: 1, finished: 2, running: 3, read: 4 };
+
+/**
+ * Every tab across all workspaces that is waiting on the user, plus running ones unless `show` is
+ * "unread"; read tabs are never listed. Most urgent state first, newest first within a state.
+ */
+export function unreadList(agents: ReadonlyMap<string, AgentInfo>, show: ShowMode): ListEntry[] {
+  const entries: ListEntry[] = [];
+  for (const tabs of rootsByWorkspace(agents).values()) {
+    for (const agent of tabs) {
+      const state = dotState(agent);
+      if (!wantsYou(agent, state) && !(show !== "unread" && state === "running")) continue;
+      entries.push({ agentId: agent.id, workspaceId: agent.workspaceId, title: agent.title ?? "New agent", state, at: agent.at });
+    }
+  }
+  return entries.sort((a, b) => LIST_ORDER[a.state] - LIST_ORDER[b.state] || (b.at ?? "").localeCompare(a.at ?? ""));
 }
