@@ -2,5 +2,6 @@
   "name": "side-agent",
   "private": true,
   "version": "0.0.0",
-  "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "client/", "screenshots/"]
+  "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "index.server.ts", "client/", "server/", "shared/", "screenshots/"],
+  "dependencies": { "@getpaseo/client": "0.11.4" }
 }

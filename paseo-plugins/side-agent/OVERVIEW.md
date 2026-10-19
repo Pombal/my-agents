@@ -1,119 +1,152 @@
 # Side agent
 
-Create a visible Paseo child agent from the current chat with `/side <task>`.
-The command requires an existing agent chat and a non-empty task. The child uses
-its parent's current provider/model, mode, thinking option, feature values, and
-working directory. Paseo parentage puts it in the parent's sub-agents strip.
-It does not interrupt the parent or send the side task into the parent conversation.
-**There is no finish notification in the parent; check the side agent's tab.**
-Paseo's SDK `parent` field establishes parentage, but unlike MCP agent creation
-does not register a finish callback. This plugin deliberately does not simulate
-one by sending another message into the parent (which would start a paid turn).
+Create a visible child of the current Paseo agent:
+
+```text
+/side <task>          use the configured default (initially fork)
+/side --fork <task>   force curated Paseo chat history
+/side --full <task>   force complete OMP memory through the last completed turn
+```
+
+An existing agent and a non-empty task are required. The child gets the parent's
+provider/model, mode, thinking option, feature values, and working directory.
+It appears in the parent's sub-agents strip. Shared cwd means shared files, not
+an isolated worktree. **No finish message is sent into the parent:** check the
+side agent's tab. Sending a synthetic notice would start another parent turn.
+
+The old session-file-pointer prompt mode has been removed entirely.
+
+## Choosing context
+
+### Fork — default, cheaper, all providers
+
+This is Paseo's own **Fork in a new tab** context: the server calls the installed
+SDK's `buildAgentForkContext(parentId)` and attaches its text attachment with
+`contextKind: "chat_history"` to `agents.create({ attachments })`. The initial
+prompt is only a short parent/side-task note plus your task.
+
+The attachment contains curated user/assistant messages and tool-call summaries,
+not raw tool outputs, private reasoning, or native provider session state. It is
+capped at **100,000 characters**, retaining the newest history when truncated.
+It can include an in-progress parent's current visible messages. Facts that
+exist only in a tool's output are not available in this mode.
+
+### Full — OMP only, real session memory
+
+The server refreshes the parent and obtains its native session file from
+`persistence.nativeHandle`. It opens that file read-only, reads a bounded byte
+snapshot, discards any unterminated final JSONL line, and validates the records.
+The copy stops at the latest assistant message with terminal `stopReason`
+`stop`/`length` and no tool-call blocks. **The entire current unfinished turn is
+excluded**, including its user message, tool requests, and partial response.
+If there is no completed turn, the command refuses and recommends `--fork`.
+
+A new timestamp/UUID filename and session-header ID are created alongside the
+parent's `.jsonl`. Entry/tool-call IDs remain unchanged. The new header records
+the parent session and preserves its prompt-cache key, matching OMP's native fork
+convention. The sibling artifact directory is copied recursively, so relative
+`artifact://` and `agent://` references have an independent artifact root. Symlinked
+artifacts are refused. Absolute paths embedded in historical text are not
+rewritten; existing OMP compaction is not undone.
+
+Paseo imports the copied file as a new OMP agent with the
+`paseo.parent-agent-id` label, applies the parent's current runtime settings,
+and sends the side-task note plus task. The parent is never resumed or written
+by this operation. Full mode inherits native conversation/tool-output memory,
+not just a transcript attachment; long histories can be slower and more costly.
+Earlier parent instructions are also inherited and can affect the child's reply.
+
+A raw mid-tool copy was tested and rejected: it could replay the parent's pending
+command. The completed-turn boundary above was then proven to exclude that
+command while the parent continued running normally.
+
+## Default mode setting
+
+Open **Settings → Host → Plugins → Side agent → Default mode**. Choices are
+**Fork — curated chat history** and **Full — complete OMP memory**. This is a
+persisted host setting, initially `fork`, shared by clients connected to that
+host. Explicit `--fork` or `--full` wins over the setting. The live test changed
+it to full, verified persistence and overrides, then restored it to fork.
+
+## Desktop, web, and phone
+
+On wide web/desktop layouts, the submitting chat's pane is captured. An existing
+pane to its right is reused. Otherwise, a single-pane layout invokes Paseo's own
+**Split pane right** menu action. Repeated submissions add tabs to that right
+pane, not a third pane. With multiple existing panes and no right-hand target,
+normal opening is used rather than creating another pane. Placement failures
+also fall back to normal opening without losing the child.
+
+Phone/native uses public host `navigation.openAgent`, without DOM or split
+operations. Slash callbacks expose `openScreen`, not navigation directly, so a
+transient registered screen obtains that public navigation API and immediately
+opens the child. Old clients without the API show an explanation; the child is
+still accessible through the parent's sub-agents strip.
+
+All DOM/pointer code is gated by `Platform.OS === "web"`. It depends on Paseo's
+`workspace-pane-*`, `workspace-tab-*`, and split-menu test IDs. UI changes,
+custom layouts, or layout changes during startup can break best-effort placement.
+Electron and native iOS/Android devices were not directly exercised; headless
+Chromium proves the web implementation, not those device integrations.
 
 ## Why `/side`, not `//side`?
 
-The plugin first attempts to register `name: "/side"` (which would match
-`//side`). Paseo rejects this with `Invalid client slash command name: /side`:
-client contribution names must match `/^[a-z][a-z0-9-]*$/`. Only this specific
-registration error enables the fallback `name: "side"`. Thus `/side` is the
-working command on current clients; `//side` is not intercepted or rewritten.
-The `/side` autocomplete entry says “Spin off a visible side agent with parent
-context”. No global composer hooks or changes to OMP slash commands are used.
-The separate `omp-slash-aliases` plugin and its `/tan`, `/omfg`, `/queue` commands
-are unchanged.
+The plugin first attempts `name: "/side"`, which would match `//side`. Current
+Paseo rejects it because contribution names must match `/^[a-z][a-z0-9-]*$/`.
+Only that specific registration error enables the fallback `name: "side"`.
+Thus `/side` is the working command; `//side` is not intercepted or rewritten.
+The separate `omp-slash-aliases` plugin is untouched; `/tan`, `/omfg`, and `/queue`
+remain independent. There are no global composer hooks.
 
-## Context: A, read-only parent transcript
+## Files and operation
 
-For OMP, the plugin refreshes the parent through the public Paseo client SDK and
-reads `agent.persistence.nativeHandle`, the absolute OMP `.jsonl` session path.
-The initial prompt contains that path and the requested task. It tells the child
-to read the transcript for context, never resume or modify it, and report back
-concisely. If the OMP session path is not available, creation fails with an
-explanation rather than silently starting without context. Non-OMP parents get
-the same side-task preface without an OMP file path and are told to identify
-missing context.
-
-This is **not a fork or a frozen snapshot**. The child starts a fresh session and
-must read the transcript using its tools. An active parent's transcript can grow
-while it works. Reading a large transcript consumes context/tokens; provider
-permissions or model behavior can prevent the read. Shared cwd also means shared
-files: side tasks are not worktree-isolated.
-
-B was examined but is not available through safe client-only creation: OMP's CLI
-has `--resume <path>` (not a fork flag), while Paseo's installed OMP
-`OmpProviderOptionsSchema` strictly accepts only `sessionDir`, `rpcTimeoutMs`,
-`smolModel`, `slowModel`, and `planModel`. Fresh `createSession` supplies no resume
-file. The separate session-import request does not support parentage or copying,
-and resuming the parent's existing native handle would write to its session.
-No server code, provider patches, session copies, or daemon restarts are used.
-
-## Clients and panes
-
-- **Wide web / desktop:** capture the submitting chat's pane. If another visible
-  pane overlaps vertically to its right, focus its selected tab and open the child
-  there. Otherwise, in a single-pane layout, invoke Paseo's own pane-menu **Split
-  pane right** action and open the child in the newly focused right pane. Repeating
-  from the parent adds another tab to that right pane, not a third pane.
-- **Existing complex layouts:** no extra pane is created when multiple visible
-  panes already exist and none is to the right. Opening falls back to the normal
-  current-pane behavior. A visible Explorer can count as a right-hand pane.
-- **Phone / native:** use ordinary host `navigation.openAgent`; no DOM or split
-  operations run. Compact web layouts without desktop panes also open normally.
-- Slash callbacks do not expose navigation directly. A transient registered
-  plugin screen receives the host's public navigation API and immediately opens
-  the created agent. Old clients missing that API display an explanation; the
-  child remains accessible through the parent's sub-agents strip.
-
-DOM access and pane operations are gated by `Platform.OS === "web"`. Placement
-failure falls back to normal opening without losing the created child. The pane
-integration depends on Paseo's `workspace-pane-*`, `workspace-tab-*`,
-`workspace-split-pane-menu`, and `workspace-split-pane-right` test IDs and normal
-pointer/focus event behavior. UI changes, unavailable split actions, or a layout
-change during agent startup can break best-effort placement. It does not rely on
-OS-specific split keyboard shortcuts (the current built-in shortcut is Mac-only).
-
-## Install, disable, update
-
-From this directory's parent:
+- Fork mode creates only the normal Paseo/OMP child session.
+- Full mode additionally creates `<timestamp>_<new-uuid>.jsonl` in the parent's
+  session directory and, if present, a same-stem artifact directory. These are
+  the real child's persistent session and are **kept for real usage**, including
+  after normal archival. There is no automatic session deletion hook.
+- Failed full launches archive the imported child and remove their copy when
+  cleanup succeeds. The live tests archived their agents before explicitly
+  deleting all test-created full-memory copies and sidecar directories.
+- The minimal server part registers settings and one RPC handler; it has no
+  lifecycle hooks. It uses a short-lived installed SDK connection for native
+  fork/import/config RPCs, authenticated to the published **loopback TCP** daemon
+  under `PASEO_HOME` (or `~/.paseo`). Socket-only or unpublished endpoints are not
+  supported and fail clearly. Local credentials are never sent to remote hosts.
+- `node_modules` is an ignored symlink to the already-installed neighboring
+  `chat-diff-highlight/node_modules`; no npm install was run.
 
 ```sh
-flock /tmp/paseo-plugin.lock paseo plugin install ./side-agent
 flock /tmp/paseo-plugin.lock paseo plugin reload side-agent
 paseo plugin ls side-agent
 paseo plugin disable side-agent
 ```
 
-Disabling removes the command; existing children and their conversations remain.
-This is a client-only plugin. No dependency installation is needed. A temporary
-link to the existing `chat-diff-highlight/node_modules` was used for typechecking
-and removed afterward because the link was not git-ignored.
+Disabling removes the command, not existing agents or saved sessions. No daemon
+restart, Paseo source patch, provider patch, or commit is involved.
 
-## Live evidence
+## Live proof
 
-Screenshots are in `screenshots/`:
+Screenshots in `screenshots/` replace the old file-pointer-mode evidence:
 
-- `autocomplete.png`: working `/side` autocomplete entry.
-- `first-side-right-split.png`: first submission opens a child to the right of
-  the parent, with the child relationship shown in the parent's strip.
-- `second-side-same-right-pane.png`: a second side task is another tab in that
-  same right pane, with only two visible panes.
-- `tan-alias-unaffected.png`: the original OMP tangent alias remains offered.
-- `parent-context-proven.png`: the child read the parent's session file and
-  recovered `violet-compass-283`, a codeword supplied only in the parent chat.
-- `child-parentage-strip.png`: expanded parent sub-agents strip lists both
-  children, alongside the child's transcript read and correct answer.
+- `modes-autocomplete.png`: command and `--fork|--full` syntax.
+- `fork-first-right-split.png`: default fork creates the first right split.
+- `fork-context-proven.png`: forced fork, even with full configured as default,
+  returns the parent-only codeword `amber-ibis-624`.
+- `full-second-same-right-pane.png`: full mode adds a tab in that same right pane
+  and recalls both the codeword and `be0c6523b4f1cc77` without new tool calls.
+- `full-busy-completed-turn-boundary.png`: full mode launched while the parent
+  slept; the child recalls both facts without inheriting/running the sleep.
+- `modes-child-parentage-strip.png`: the parent's strip lists its children.
+- `default-mode-settings.png`: persisted default restored to fork.
 
-Live submissions passed with inexpensive Claude Haiku 4.5 through OMP: first
-right split, second tab in that same right pane, both children in the parent's
-sub-agents strip, matching provider/model/mode/thinking/cwd, and transcript
-context recovery. An ordinary parent message also worked. `/tan` autocomplete
-was checked; its submission was not re-exercised by this plugin's test.
-Initial GPT-5.4 Mini requests stalled, and GLM 5.2 Free returned an unavailable-model
-404; those were provider limitations, not plugin failures. The final screenshots
-of split/repeat/context use Haiku. All test agents/workspaces were archived.
-The client sources typechecked with TypeScript (`es2024`, DOM/DOM iterable,
-React JSX, bundler module resolution); plugin status was `running`.
-
-Testing uses an isolated Chromium browser context paired to the live web app.
-Native iOS/Android and Electron itself have not been exercised; their behavior
-above describes the implemented public-navigation/web paths, not device proof.
+The random token appeared **only in the parent's tool output**, not its user,
+assistant, or reasoning messages. Session inspection found zero new tool calls
+in the successful fork/full/busy-full recall turns. Both idle and busy-parent
+SHA-256 checks were byte-identical around snapshot/import/child execution; the
+parent naturally appends its own later activity afterward. The idle proof hash
+was `74614e073b25f8e1de3d6c6ea7b503d3914d8e9c076ddaf971c92ce9ac8c6489`.
+Both modes used inexpensive OMP Claude Haiku 4.5. Sources typechecked, plugin
+status was `running`, and all test workspaces/agents and browser resources were
+cleaned up. Live native-device behavior, socket-only daemon transport, and
+100,000-character truncation of an actually huge conversation were not exercised.
