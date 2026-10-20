@@ -97,7 +97,10 @@ new list shows once the pointer leaves the rows. Starring and opening apply at o
   there (including workspaces archived since) and OMP sessions, mixed by time.
 - **Project**: also subfolders of the project root, every Paseo workspace of the project, every
   `git worktree` of a git project (herdr and Paseo worktrees included), and archived agents
-  Paseo placed in the project.
+  Paseo placed in the project, matched by project id, so agents of a worktree deleted since
+  still show. (Until 2026-10-20 this compared the id with the project's `host:`/`remote:` key and
+  never matched; on that day it changed no listing, since every archived agent was also found by
+  folder or workspace.)
 
 The search box filters by every word against title and folder, in the list and the section.
 

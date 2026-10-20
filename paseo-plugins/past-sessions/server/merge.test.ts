@@ -3,13 +3,13 @@ import { cleanTitle, mergePastSessions, titleFromPrompt, type AgentRecord, type 
 import type { OmpSession } from "./omp-sessions";
 
 const folder = "/home/cx/agentspace/index";
-const workspaceScope: ScopeFilter = { mode: "workspace", targets: [folder], workspaceIds: ["wks_plugins"], projectKey: null };
+const workspaceScope: ScopeFilter = { mode: "workspace", targets: [folder], workspaceIds: ["wks_plugins"], projectId: null };
 const folderScope: ScopeFilter = { ...workspaceScope, mode: "folder" };
 const projectScope: ScopeFilter = {
   mode: "project",
   targets: [folder],
   workspaceIds: ["wks_plugins", "wks_mainframe"],
-  projectKey: "proj_index",
+  projectId: "prj_index",
 };
 
 function agent(overrides: Partial<AgentRecord> & { id: string }): AgentRecord {
@@ -18,7 +18,7 @@ function agent(overrides: Partial<AgentRecord> & { id: string }): AgentRecord {
     cwd: folder,
     provider: "omp",
     workspaceId: "wks_plugins",
-    projectKey: "proj_index",
+    projectId: "prj_index",
     archivedAt: "2026-10-02T00:00:00.000Z",
     updatedAt: "2026-10-01T00:00:00.000Z",
     lastUserMessageAt: null,
@@ -52,7 +52,7 @@ describe("mergePastSessions scopes", () => {
     // A workspace's agent may run in a subfolder; its workspace still claims it.
     agent({ id: "plugins-subfolder", cwd: `${folder}/.scratch` }),
     // An agent of a workspace that was archived since: only cwd ties it to the folder.
-    agent({ id: "orphan", workspaceId: "wks_gone", projectKey: null }),
+    agent({ id: "orphan", workspaceId: "wks_gone", projectId: null }),
   ];
   const ompSessions = [omp({ sessionId: "terminal", firstPrompt: "Old herdr session" })];
 
@@ -76,7 +76,7 @@ describe("mergePastSessions scopes", () => {
 
   it("project: subfolders, every project workspace, and agents Paseo placed in the project", () => {
     const elsewhere = agent({ id: "worktree", cwd: "/home/cx/.paseo/worktrees/abc", workspaceId: "wks_gone" });
-    const unrelated = agent({ id: "unrelated", cwd: "/tmp/x", workspaceId: "wks_other", projectKey: "proj_other" });
+    const unrelated = agent({ id: "unrelated", cwd: "/tmp/x", workspaceId: "wks_other", projectId: "prj_other" });
     const result = mergePastSessions({ agents: [...agents, elsewhere, unrelated], ompSessions: [], scope: projectScope });
     expect(keys(result.entries)).toEqual([
       "paseo:mainframe-archived",

@@ -144,7 +144,7 @@ export interface ScopeContext {
   targets: string[];
   includeSubfolders: boolean;
   projectWorkspaceIds: string[];
-  projectKey: string | null;
+  projectId: string;
   agents: AgentRecord[];
   providers: Record<string, unknown>;
   home: string;
@@ -153,9 +153,8 @@ export interface ScopeContext {
 
 export async function scopeContext(paseo: Paseo, workspaceId: string, scope: Scope): Promise<ScopeContext> {
   const warnings: string[] = [];
-  const [workspaces, projects, agentEntries, config] = await Promise.all([
+  const [workspaces, agentEntries, config] = await Promise.all([
     listAllWorkspaces(paseo),
-    paseo.projects.list(),
     listAllAgents(paseo),
     paseo.config.get().catch((error: unknown) => {
       warnings.push(`Daemon config unavailable, using ~/.omp/agent/sessions only: ${String(error)}`);
@@ -182,7 +181,9 @@ export async function scopeContext(paseo: Paseo, workspaceId: string, scope: Sco
       cwd: await resolvedOrSelf(agent.cwd),
       provider: agent.provider,
       workspaceId: agent.workspaceId ?? null,
-      projectKey: project?.projectKey ?? null,
+      // The agent listing's `project.projectKey` is the project id (`prj_…`), not the
+      // `host:…` / `remote:…` key that `projects.list()` calls projectKey.
+      projectId: project?.projectKey ?? null,
       archivedAt: agent.archivedAt ?? null,
       updatedAt: agent.updatedAt,
       lastUserMessageAt: agent.lastUserMessageAt,
@@ -200,7 +201,7 @@ export async function scopeContext(paseo: Paseo, workspaceId: string, scope: Sco
     targets: [...new Set(await Promise.all(rawTargets.filter(Boolean).map(resolvedOrSelf)))],
     includeSubfolders,
     projectWorkspaceIds: projectWorkspaces.map((candidate) => candidate.id),
-    projectKey: projects.projects.find((project) => project.projectId === workspace.projectId)?.projectKey ?? null,
+    projectId: workspace.projectId,
     agents,
     providers: config?.config.providers ?? {},
     home,
@@ -228,7 +229,7 @@ export async function listHandler(
       mode: input.scope,
       targets,
       workspaceIds: includeSubfolders ? context.projectWorkspaceIds : [workspace.id],
-      projectKey: includeSubfolders ? context.projectKey : null,
+      projectId: includeSubfolders ? context.projectId : null,
     },
   });
 

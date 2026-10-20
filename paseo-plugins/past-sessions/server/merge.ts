@@ -9,7 +9,8 @@ export interface AgentRecord {
   cwd: string;
   provider: string;
   workspaceId: string | null;
-  projectKey: string | null;
+  /** Paseo project id (`prj_…`). */
+  projectId: string | null;
   archivedAt: string | null;
   updatedAt: string;
   lastUserMessageAt: string | null;
@@ -25,8 +26,8 @@ export interface ScopeFilter {
   workspaceIds: string[];
   /** Resolved folders (folder and project modes); in project mode anything below them matches. */
   targets: string[];
-  /** Project mode: agents Paseo placed in this project match wherever their cwd is. */
-  projectKey: string | null;
+  /** Project mode: agents Paseo placed in this project (by id) match wherever their cwd is. */
+  projectId: string | null;
 }
 
 /**
@@ -38,7 +39,7 @@ export function agentInScope(agent: AgentRecord, scope: ScopeFilter): boolean {
   if (agent.workspaceId && scope.workspaceIds.includes(agent.workspaceId)) return true;
   if (scope.mode === "workspace") return false;
   if (scope.mode === "folder") return scope.targets.includes(agent.cwd);
-  if (scope.projectKey && agent.projectKey === scope.projectKey) return true;
+  if (scope.projectId && agent.projectId === scope.projectId) return true;
   return scope.targets.some((target) => isSameOrInside(target, agent.cwd));
 }
 
