@@ -14,7 +14,7 @@ Hover a dot to see the tab's title and state; click it to open that tab. A click
 
 ## On phones
 
-The phone apps can't put dots on each row, so they get one **Unread** row at the top of the sidebar instead, with one dot per tab waiting on you across all workspaces. It is hidden when nothing is unread. Tap it for a sheet listing those tabs (title, project and workspace, state, how long ago); tap a tab to open it. "Open as a screen" shows the same list full screen. With "Unread and running" or "Every tab", running tabs are listed too; read tabs never are. Web and desktop never show this row.
+The phone apps can't put dots on each row, so they get one **Unread** row at the top of the sidebar instead, with one dot per tab waiting on you across all workspaces. It is hidden when nothing is unread. Tap it for a sheet listing those tabs (title, project and workspace, state, how long ago; the times refresh every 30 seconds while the list is open); tap a tab to open it. "Open as a screen" shows the same list full screen. With "Unread and running" or "Every tab", running tabs are listed too; read tabs never are. Web and desktop never show this row. Agent updates that change nothing in the row or list (sub-agents, read tabs) don't redraw it.
 
 ## Settings
 

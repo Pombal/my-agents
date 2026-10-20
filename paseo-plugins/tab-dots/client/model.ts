@@ -204,6 +204,22 @@ export function unreadList(agents: ReadonlyMap<string, AgentInfo>, show: ShowMod
 }
 
 /**
+ * Everything `unreadList` can show, in any mode: tabs (root agents) with title, workspace, state
+ * and attention, plus the time of every tab that isn't read (read tabs are never listed).
+ * Equal keys mean an update changed nothing on the phone row, sheet or screen.
+ */
+export function unreadListKey(agents: ReadonlyMap<string, AgentInfo>): string {
+  const parts: unknown[] = [];
+  for (const tabs of rootsByWorkspace(agents).values()) {
+    for (const agent of tabs) {
+      const state = dotState(agent);
+      parts.push([agent.id, agent.workspaceId, agent.title, state, agent.requiresAttention, state === "read" ? null : agent.at]);
+    }
+  }
+  return JSON.stringify(parts);
+}
+
+/**
  * True when a CSS colour is light (so the theme is dark). Reads `#rgb`, `#rrggbb`, `#rrggbbaa`
  * and `rgb()/rgba()`; anything else counts as dark text.
  */

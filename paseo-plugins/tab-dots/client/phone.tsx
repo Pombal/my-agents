@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {
   type PluginClientContext,
@@ -12,7 +12,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { z } from "zod";
 import { DEFAULTS, preferences, type Preferences } from "../shared/preferences";
 import { watchAgents } from "./agents";
-import { type AgentInfo, type DotState, isLightText, type ListEntry, unreadList } from "./model";
+import { type AgentInfo, type DotState, isLightText, type ListEntry, unreadList, unreadListKey } from "./model";
 
 /** One shared value the row, the sheet and the screen re-render from. */
 interface Store<Value> {
@@ -120,6 +120,12 @@ function List({ entries, places, colors, onOpen }: {
   colors: Colors;
   onOpen(agentId: string): void;
 }) {
+  // "2m", "3h": redraw every 30 s while open, instead of riding on unrelated agent updates.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((tick) => tick + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
   if (entries.length === 0) {
     return <Text style={{ color: colors.foregroundMuted, fontSize: 13, padding: 16 }}>Nothing unread.</Text>;
   }
@@ -140,7 +146,14 @@ const consumedOpens = new Set<string>();
 export function contributePhone(client: PluginClientContext): () => void {
   const agents = createStore<Agents>(new Map());
   const places = createStore<Places>(new Map());
-  const stopAgents = watchAgents(client.paseo.agents, (next) => agents.set(new Map(next)));
+  // Most updates (sub-agents, usage and timestamps of read tabs) change nothing on screen: skip them.
+  let shownKey = "";
+  const stopAgents = watchAgents(client.paseo.agents, (next) => {
+    const key = unreadListKey(next);
+    if (key === shownKey) return;
+    shownKey = key;
+    agents.set(new Map(next));
+  });
   // Plugin state hooks (`useWorkspace`) only run inside workspace panels, so names come from a
   // listing, refreshed whenever the sheet or the screen opens.
   const loadPlaces = () => {
