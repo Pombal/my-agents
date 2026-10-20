@@ -93,6 +93,13 @@ export interface ParsedTicket {
 
 const ticketCache = new Map<string, { mtimeMs: number; ticket: ParsedTicket }>();
 
+/** Some titles repeat the number: `# 04 — Slice-1 spec`, or `# 01 Pick a colour` (own number only). */
+function withoutNumber(title: string, num: string): string {
+  const match = /^#?(\d{1,3})(\s*[—–:.)-]\s*|\s+)/.exec(title);
+  if (!match || !(/\S/.test(match[2]) || Number(match[1]) === Number(num))) return title;
+  return title.slice(match[0].length);
+}
+
 async function parseTicket(effortDir: string, file: string, num: string, mtimeMs: number): Promise<ParsedTicket> {
   const abs = path.join(effortDir, "issues", file);
   const cached = ticketCache.get(abs);
@@ -107,8 +114,7 @@ async function parseTicket(effortDir: string, file: string, num: string, mtimeMs
     ticket = {
       num,
       rel: `issues/${file}`,
-      // Some titles repeat the number: `# 04 — Slice-1 spec`.
-      title: (head.title ?? file.replace(/\.md$/, "")).replace(/^#?\d{1,3}\s*[—–:.)-]\s*/, ""),
+      title: withoutNumber(head.title ?? file.replace(/\.md$/, ""), num),
       type: head.fields.get("type")?.replace(/^wayfinder:/i, "").split(/[\s,;(]/)[0].toLowerCase() || null,
       statusRaw,
       statusWord: word,

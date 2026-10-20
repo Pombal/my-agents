@@ -123,11 +123,12 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
 
   const row = (group: Group, effort: EffortSummary) => {
     const here = hereKey === effort.key;
+    const hot = here || (selected?.root === effort.root && selected.slug === effort.slug);
     const { bound, suggested } = workspacesOf(data, effort);
     const next = nextText(effort);
     const chips = [...bound, ...suggested].slice(0, 2).map((workspace) => (
       <Pressable key={workspace.id} accessibilityRole="button" accessibilityLabel={`Open ${workspace.name} with its Efforts panel`} onPress={() => openPanel(workspace.id)} style={{ flexShrink: 1, minWidth: 0 }}>
-        <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} suggested={!bound.includes(workspace)} />
+        <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} suggested={!bound.includes(workspace)} hot={hot} />
       </Pressable>
     ));
     if (compact) {
@@ -155,7 +156,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
       <RowButton
         key={effort.key}
         c={c}
-        hot={here || (selected?.root === effort.root && selected.slug === effort.slug)}
+        hot={hot}
         onPress={() => open(effort)}
         label={`Read ${effort.slug}`}
         style={[styles.grow, { paddingHorizontal: gutter }, here ? { borderLeftWidth: 3, borderLeftColor: c.fg, paddingLeft: gutter - 3 } : null]}
@@ -176,7 +177,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
           <Text numberOfLines={1} style={{ fontSize: 14, color: c.fg, flexShrink: here ? 0 : 1 }}>
             {effort.slug}
           </Text>
-          {effort.mapStatus ? <Tag c={c} text={effort.mapStatus} /> : null}
+          {effort.mapStatus ? <Tag c={c} text={effort.mapStatus} style={hot ? { backgroundColor: c.s0 } : undefined} /> : null}
           {here && from ? <Text numberOfLines={1} style={{ fontSize: 11, color: c.fg, opacity: 0.8, flexShrink: 1 }}>you came from {from.name}</Text> : null}
         </View>
         {selected ? null : (

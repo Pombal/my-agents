@@ -20,6 +20,8 @@ export interface Palette {
   s0: string;
   s1: string;
   s2: string;
+  /** Done-bar track and quote bar: surface2 on dark themes; on light ones surface2 is near-white, so a grey mix. */
+  track: string;
   border: string;
   green: string;
   amber: string;
@@ -39,12 +41,32 @@ export function colorsOf(theme: PluginTheme): Palette {
     s0: colors.surface0,
     s1: colors.surface1,
     s2: colors.surface2,
+    track: lightTrack(colors.surface0, colors.foregroundMuted) ?? colors.surface2,
     border: colors.border,
     green: colors.statusSuccess,
     amber: colors.statusWarning,
     accent: colors.accent,
     accentFg: colors.accentForeground,
   };
+}
+
+function rgbOf(color: string): [number, number, number] | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())?.[1];
+  if (hex) {
+    const full = hex.length === 3 ? [...hex].map((ch) => ch + ch).join("") : hex;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as [number, number, number];
+  }
+  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(color.trim());
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null;
+}
+
+/** On a light surface, 35 % of the muted text colour over it; null on dark themes or unparsable colours. */
+function lightTrack(surface: string, muted: string): string | null {
+  const s = rgbOf(surface);
+  const m = rgbOf(muted);
+  if (!s || !m || s[0] * 0.299 + s[1] * 0.587 + s[2] * 0.114 < 128) return null;
+  const mix = s.map((v, i) => Math.round(v * 0.65 + m[i]! * 0.35));
+  return `rgb(${mix.join(", ")})`;
 }
 
 const G = 11;
@@ -86,7 +108,7 @@ export function Glyph({ state, c }: { state: TicketState; c: Palette }) {
 /** Share of tickets done: a 4 px bar, one meaning only. */
 export function Bar({ done, total, c, width = 34 }: { done: number; total: number; c: Palette; width?: number }) {
   return (
-    <View style={{ width, height: 4, borderRadius: 2, backgroundColor: c.s2, overflow: "hidden", flexShrink: 0 }}>
+    <View style={{ width, height: 4, borderRadius: 2, backgroundColor: c.track, overflow: "hidden", flexShrink: 0 }}>
       <View style={{ width: total ? `${(done / total) * 100}%` : 0, height: "100%", backgroundColor: c.green }} />
     </View>
   );
@@ -97,15 +119,15 @@ export function Dot({ c }: { c: Palette }) {
   return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.amber, flexShrink: 0 }} />;
 }
 
-/** Workspace name chip; `suggested` = outlined with a `?`, not bound. */
-export function WsChip({ name, prefix, suggested, c }: { name: string; prefix?: string; suggested?: boolean; c: Palette }) {
+/** Workspace name chip; `suggested` = outlined with a `?`, not bound; `hot` = on a highlighted (surface2) row. */
+export function WsChip({ name, prefix, suggested, hot, c }: { name: string; prefix?: string; suggested?: boolean; hot?: boolean; c: Palette }) {
   return (
     <View
       style={[
         styles.chip,
         suggested
           ? { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, backgroundColor: "transparent" }
-          : { backgroundColor: c.s2 },
+          : { backgroundColor: hot ? c.s0 : c.s2 },
       ]}
     >
       <Text numberOfLines={1} style={{ ...SMALL, color: suggested ? c.muted : c.fg, flexShrink: 1 }}>

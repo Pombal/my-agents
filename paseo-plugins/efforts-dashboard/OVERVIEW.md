@@ -3,9 +3,14 @@ Paseo 0.12.0 from the final mockups `http://axalon:8080/pages/efforts-dashboard-
 approved additions in `/home/cx/agentspace/index/.scratch/paseo-grievances/efforts-dashboard-overcorrection-check.md`.
 
 ## Status (2026-10-20)
-All four steps built and checked live in the web app (dark; desktop 1440 px, explorer 320/240 px,
-phone 390 px). Not yet checked: light theme; "Grill in new chat" pressed for real (the throwaway
-Haiku agent landed in another folder, so it was deleted untested).
+All four steps built and checked live in the web app, dark and light (desktop 1440 px, explorer
+320/240 px, phone 390 px). Also proven live: the global search and the unbound search (Efforts /
+Tickets / Docs groups; each kind opens in the right column, or binds and opens in the panel), Bind
+and Unbind (popover and `⋯`), and "Grill in new chat" (new chat in the bound workspace's folder, on
+that workspace's latest model, prompt `Grill ticket <abs path> with the grilling skill. Read the
+effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<slug>`).
+Throwaway fixture: workspace "Grill Test" at `~/tmp-archive/efforts-grill-test` (a `~/tmp-archive`
+folder, so it only shows up while listed under extra folders).
 
 ## Where Stefan sees it
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
@@ -28,7 +33,9 @@ Haiku agent landed in another folder, so it was deleted untested).
 - **Phone composer pill** `wa-ftue · 0/9 done` on every chat of a bound workspace, compact
   layouts only (< 720 px); tap → sheet with all rows; a row opens in place with its Question,
   status line, the chat button and Read.
-- Settings → Efforts: extra folders.
+- Settings → Plugins → efforts-dashboard's menu → **Efforts** (route
+  `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): extra folders. Not in the
+  settings sidebar.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at
@@ -57,24 +64,29 @@ Haiku agent landed in another folder, so it was deleted untested).
 
 ## Data rules
 - Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so nilo's worktrees count as
-  nilo-wayfinder) plus Settings → Efforts → extra folders. `__share__` and `~/tmp-archive` are
+  nilo-wayfinder) plus the extra folders setting. `__share__` and `~/tmp-archive` are
   skipped unless listed. `_to_organize_`, hidden folders and folders with no map/issues/Markdown
   are not efforts. No map: title = first `# ` of the biggest top-level `.md`.
 - Ticket status = first word of `Status:` (bold, dates and prose allowed) → open / claimed /
   done / parked; unknown words count as open. Blocked = open and a `Blocked by:` ticket here is
   not done; `chat-widgets 08` style references resolve to the other effort; prose blocks nothing.
-  next = lowest-numbered open, unblocked, unclaimed ticket.
+  next = lowest-numbered open, unblocked, unclaimed ticket. Ticket titles drop a repeated number
+  (`# 04 — Slice-1 spec`, or `# 01 Pick a colour` when it is the file's own number).
 - Leans on = sibling efforts linked as `../<slug>/` from map.md outside Out of scope; the reason is
   the linking bullet's bold lead or first clause.
 - Not committed = `git status` of the repo owning the effort's real path (so the symlinked worktree
   `.scratch` shows nilo-wayfinder's changes).
 - Binding: workspace id → effort in `~/.paseo/plugin-data/efforts-dashboard/bindings.json`
-  (or "no effort"). Never set silently. Suggestions, in order: the folder's `.omp/RULES.md`,
-  `.scratch/<slug>/` mentions in the last 256 KB of the workspace's chats of the last 3 days (3+
-  and twice the runner-up), workspace name, newest files (only when no other workspace shares the
-  `.scratch`).
+  (or "no effort"); Unbind deletes the workspace's entry. Never set silently. Suggestions, in
+  order: the folder's `.omp/RULES.md`, `.scratch/<slug>/` mentions in the last 256 KB of the
+  workspace's chats of the last 3 days (3+ and twice the runner-up), workspace name, newest files
+  (only when no other workspace shares the `.scratch`).
 - Files are cached by mtime; the client re-reads every 5 s only while the surface is on screen.
   Overview ~170 ms cold, ~30 ms warm on the real roots.
+- Colours come only from Paseo's theme. One derived colour: the done-bar track and quote bars use
+  surface2 on dark themes, and on light ones 35 % of the muted text over surface0 (light surface2
+  is near-white and the empty bar vanished). Chips and the Status tag on a highlighted row
+  (surface2) switch to surface0 so they stay visible.
 
 ## Limits
 - Plugins can't open a file in Paseo's file tab or write into the current composer: the viewer is

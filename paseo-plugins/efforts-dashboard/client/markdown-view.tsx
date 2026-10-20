@@ -68,7 +68,7 @@ function BlockView({ block, c, onLink, text }: { block: Block; c: Palette; onLin
       );
     case "quote":
       return (
-        <View style={[styles.quote, { borderLeftColor: c.s2 }]}>
+        <View style={[styles.quote, { borderLeftColor: c.track }]}>
           <Text selectable style={[text, { color: c.muted }]}>
             <Spans spans={block.spans} c={c} onLink={onLink} />
           </Text>
@@ -133,7 +133,8 @@ export function MarkdownView({ source, c, onLink, small }: Props) {
 const styles = StyleSheet.create({
   item: { flexDirection: "row", gap: 4 },
   marker: { minWidth: 12 },
-  flex: { flex: 1 },
+  /** minWidth 0 so a long unbroken word (paths, identifiers) wraps instead of widening the column. */
+  flex: { flex: 1, minWidth: 0 },
   quote: { borderLeftWidth: 3, paddingLeft: 10 },
   code: { borderRadius: 6, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 8, paddingVertical: 6, flexGrow: 0 },
   table: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, overflow: "hidden" },
