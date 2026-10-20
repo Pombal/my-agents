@@ -1,15 +1,8 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { watchOmpFlags } from "./client/omp-flags";
 import { createSettingsScreen } from "./client/settings";
 import { isWeb, startKeywordShimmer } from "./client/web";
 import { preferences, type Preferences } from "./shared/preferences";
-
-// Sanctioned web global for re-reading settings saved in another window.
-declare const window: {
-  addEventListener(type: "focus", listener: () => void): void;
-  removeEventListener(type: "focus", listener: () => void): void;
-};
 
 // Paseo keeps rendering every message and the composer itself; the plugin only paints colours over
 // the keywords it finds on screen, which needs the page's DOM (web and desktop).
@@ -65,14 +58,11 @@ export default function contribute(client: PluginClientContext) {
       for (const { agent } of page.entries) engine.agent(agent.id, agent.provider);
       cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor ?? undefined : undefined;
     } while (cursor);
-  })().catch(() => { /* Agents missing from the directory fall back to the provider in React props, else the words OMP has enabled anywhere. */ });
-  // Which built-in each provider extends, and the words OMP itself has switched off per OMP provider.
-  const stopFlags = watchOmpFlags(client, (flags) => { if (!disposed) engine.setOmpFlags(flags); });
+  })().catch(() => { /* Agents missing from the directory fall back to the provider in React props, else every keyword. */ });
 
   return () => {
     disposed = true;
     unsubscribe();
-    stopFlags();
     configure();
     screen();
     window.removeEventListener("focus", refresh);

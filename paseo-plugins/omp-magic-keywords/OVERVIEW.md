@@ -7,21 +7,20 @@ than OMP uses. Screenshots: `screenshots/composer-dark.webp`, `screenshots/sent-
 `screenshots/settings-dark.webp`.
 
 A word is colored only where the chat's agent would act on it. By default a chat's words follow its
-agent's provider, traced through `extends` in Paseo's provider config to the built-in provider at the
-end of the chain:
+agent's provider id:
 
-- OMP: all four, minus the words you have switched off in that OMP profile
-  (`omp config set magicKeywords.<id> false`), by OMP's rule: exact lowercase, standing alone as
-  prose. `Ultrathink`, `orchestrated`, `orchestrate.ts`, `foo::orchestrate`, `orchestrate()` and words
-  inside code spans, fenced code blocks or HTML/XML tags stay plain.
-- Claude Code: `ultrathink` only, by Claude Code's own rule (`/\bultrathink\b/i` on the raw prompt,
-  as in 2.1.301): any case, also inside code spans and tags, not `ultrathinking`.
+- OMP (`omp` and the `omp-…` profile providers): all four, by OMP's rule: exact lowercase, standing
+  alone as prose. `Ultrathink`, `orchestrated`, `orchestrate.ts`, `foo::orchestrate`, `orchestrate()`
+  and words inside code spans, fenced code blocks or HTML/XML tags stay plain.
+- Claude Code (`claude`): `ultrathink` only, by Claude Code's own rule (`/\bultrathink\b/i` on the
+  raw prompt, as in 2.1.301): any case, also inside code spans and tags, not `ultrathinking`.
 - Any other provider: none.
-- An agent the plugin cannot identify: every word that is on in at least one OMP profile, by OMP's rule.
+- An agent the plugin cannot identify: all four, by OMP's rule.
 
-"Every chat" in the settings gives every chat that last set. Until Paseo's provider config has been
-read, a provider named `omp` or `omp-…` counts as OMP and `claude` as Claude Code. The matching rules
-and the hue ranges come from OMP 18.12.2; `client/keywords.ts` lists where each part comes from.
+"Every chat" in the settings gives every chat all four. The matching rules and the hue ranges come
+from OMP 18.12.2; `client/keywords.ts` lists where each part comes from. A keyword switched off in
+OMP itself (`omp config set magicKeywords.<id> false`) is still colored here; edit the table in
+`client/keywords.ts` if that ever matters.
 
 Settings (Settings → Plugins → omp-magic-keywords, or ⌘K / Ctrl+K "OMP magic keywords settings"):
 moving, still or off, separately for sent messages and for the text box; which chats (only where the
@@ -47,9 +46,8 @@ Limits:
   public plugin API: if a Paseo update renames a marker, that part shows the words plain; if the agent
   lookup breaks, every chat counts as unidentified and the browser console shows one
   `[omp-magic-keywords]` warning.
-- OMP's own on/off flags are read when the app starts and whenever the window regains focus (cached
-  for 60 s), by running `omp config list --json` for each provider in Paseo's config whose `extends`
-  chain ends at OMP. If that call fails, the profile keeps the words it had.
+- A provider is recognised by its id only (`omp`, `omp-…`, `claude`); one that runs OMP or Claude
+  Code under another name counts as "other" and shows the words plain.
 - New keywords in a later OMP release stay plain until the plugin's keyword table is updated.
 - Not tested: the Electron desktop app, typing with an IME, attachment chips next to the text box, the
   fullscreen composer, page zoom, and web fonts that finish loading after the page is shown.
@@ -59,6 +57,5 @@ keystroke in the text box adds 0.1–0.2 ms of plugin work with no keyword prese
 5 µs for a typical prompt, 0.2 ms for 20 KB) and 0.6–2.7 ms with one (overlay copy and ranges);
 a sent message with 20 colored letters costs 0.8 ms to set up. The moving colors cost about 30–40 ms
 of main-thread time per second per message on screen (paint, not script), 0.2 ms when still. Window
-focus re-reads the settings and OMP's flags (two cached RPCs, 1–4 ms each) and rescans only if a
-setting changed; a flags refresh after 60 s runs `omp config` once per OMP provider (~130 ms wall,
-134 MB peak, in parallel) on the daemon.
+focus re-reads the settings (one cached RPC, 1–3 ms) and rescans only if a setting changed. The
+plugin's server part only registers the settings; it never spawns a process.

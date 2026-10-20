@@ -4,11 +4,12 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": [
-      "ES2023"
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
     ],
     "types": [
-      "react",
-      "node"
+      "react"
     ],
     "jsx": "react-jsx",
     "strict": true,
