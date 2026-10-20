@@ -25,4 +25,3 @@ export const preferences = defineSettings({
   }),
 });
 export type Preferences = z.output<typeof preferences.schema>;
-export const DEFAULTS: Preferences = preferences.schema.parse({});

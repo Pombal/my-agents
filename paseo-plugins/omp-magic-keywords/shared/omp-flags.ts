@@ -12,12 +12,20 @@ export const OMP_KEYWORD_WORDS: Record<string, string> = {
 };
 
 /**
- * The magic keywords OMP has enabled, per Paseo provider that launches OMP.
- * A provider missing from `providers` has unknown settings, so all words count.
+ * What the providers in Paseo's config are, and which magic keywords OMP has enabled in each.
+ * - `roots`: every configured provider id → the id at the end of its `extends` chain; built-ins
+ *   and bases missing from the config map to themselves (`omp` → `omp`, `omp-nilo` → `omp`).
+ * - `words`: OMP providers whose `omp config list` answered → the words enabled there. A provider
+ *   absent here has unknown settings, so all words count.
+ * - `failed`: OMP providers whose `omp config list` failed this time.
  */
 export const ompFlagsRpc = defineRpc({
   name: "omp-flags.read",
   input: z.object({}),
-  output: z.object({ providers: z.record(z.string(), z.object({ words: z.array(z.string()) })) }),
+  output: z.object({
+    roots: z.record(z.string(), z.string()),
+    words: z.record(z.string(), z.array(z.string())),
+    failed: z.array(z.string()),
+  }),
 });
 export type OmpFlags = z.output<typeof ompFlagsRpc.output>;

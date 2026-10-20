@@ -1,6 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
-import { ompFlagsRpc } from "../shared/omp-flags";
-import { isWeb } from "./web";
+import { ompFlagsRpc, type OmpFlags } from "../shared/omp-flags";
 
 // Sanctioned web global for re-reading OMP's settings after they were edited elsewhere.
 declare const window: {
@@ -9,27 +8,27 @@ declare const window: {
 };
 
 /**
- * Reports the words OMP has enabled per provider (providers absent = all words), now and
- * again whenever the window regains focus. Returns the cleanup.
+ * Reports the provider roots and OMP's enabled words, now and again whenever the window
+ * regains focus, skipping answers identical to the last. Returns the cleanup.
  */
-export function watchOmpFlags(client: PluginClientContext, onChange: (byProvider: Record<string, string[]>) => void): () => void {
+export function watchOmpFlags(client: PluginClientContext, onChange: (flags: OmpFlags) => void): () => void {
   let disposed = false;
   let last = "";
-  // A failed read keeps the last words: an older plugin server or a broken `omp` must not
-  // take the colours away, and with nothing read yet every word stays on.
+  // A failed RPC reports nothing, so an older plugin server keeps the last flags (or, before any
+  // answer, the engine's fallback). A provider whose `omp` failed arrives in `failed`, and the
+  // engine keeps that provider's previous words.
   const refresh = () => {
-    client.rpc(ompFlagsRpc, {}).then((result) => {
-      const byProvider = Object.fromEntries(Object.entries(result.providers).map(([provider, { words }]) => [provider, words]));
-      const key = JSON.stringify(byProvider);
+    client.rpc(ompFlagsRpc, {}).then((flags) => {
+      const key = JSON.stringify(flags);
       if (disposed || key === last) return;
       last = key;
-      onChange(byProvider);
+      onChange(flags);
     }, () => {});
   };
   refresh();
-  if (isWeb) window.addEventListener("focus", refresh);
+  window.addEventListener("focus", refresh);
   return () => {
     disposed = true;
-    if (isWeb) window.removeEventListener("focus", refresh);
+    window.removeEventListener("focus", refresh);
   };
 }

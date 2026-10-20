@@ -1,16 +1,8 @@
 import { Platform } from "react-native";
+import type { OmpFlags } from "../shared/omp-flags";
 import type { Preferences, Style } from "../shared/preferences";
-import {
-  DARK_LIGHTNESS,
-  DARK_SATURATION,
-  findMagicKeywords,
-  LIGHT_LIGHTNESS,
-  LIGHT_SATURATION,
-  MAGIC_KEYWORDS,
-  SHIMMER_PERIOD_MS,
-  STOPS,
-  stopFor,
-} from "./keywords";
+import { keywordColor, type Tone } from "./color";
+import { findMagicKeywords, type KeywordMatch, MAGIC_KEYWORDS, SHIMMER_PERIOD_MS, STOPS, stopFor } from "./keywords";
 
 // Web and desktop only. The engine colours keywords with the CSS Custom Highlight API: every keyword
 // character is its own Range, and each frame moves it to the highlight of its current gradient stop,
@@ -19,9 +11,9 @@ import {
 // seen in Paseo 0.12.0):
 // - a sent message: one React Native Web Text marked data-message-text inside a user-message;
 // - the chat outline's hover preview: one text node, mounted only while a tick is hovered;
-// - the composer: a plain textarea with no text nodes for a Range to address. Each visible one gets
-//   a see-through copy of its text laid exactly over it, and the copy's keywords are highlighted, so
-//   coloured glyphs paint over the textarea's own.
+// - the composer: a plain textarea with no text nodes for a Range to address. Each visible one holding a
+//   keyword gets a see-through copy of its text laid exactly over it, and the copy's keywords are
+//   highlighted, so coloured glyphs paint over the textarea's own.
 
 // The plugin typechecks without the DOM library; declare only what this module uses.
 interface DomNode {
@@ -36,11 +28,13 @@ interface DomElement extends DomNode {
   textContent: string | null;
   scrollTop: number;
   readonly scrollHeight: number;
+  readonly offsetHeight: number;
   readonly style: { visibility: string };
   closest(selector: string): DomElement | null;
   matches(selector: string): boolean;
   querySelectorAll(selector: string): ArrayLike<DomElement>;
   getClientRects(): ArrayLike<unknown>;
+  checkVisibility?(options: { visibilityProperty: boolean; opacityProperty: boolean }): boolean;
   getBoundingClientRect(): { readonly left: number; readonly top: number };
   setAttribute(name: string, value: string): void;
   appendChild(node: DomNode): void;
@@ -52,6 +46,9 @@ interface TextArea extends DomElement {
   readonly clientTop: number;
   readonly clientWidth: number;
   readonly clientHeight: number;
+}
+interface MirrorArea extends DomElement {
+  value: string;
 }
 interface DomRange {
   setStart(node: DomText, offset: number): void;
@@ -103,8 +100,8 @@ export interface Engine {
   setPreferences(values: Preferences): void;
   /** Records which provider runs an agent, for the "only where the words act" scope. */
   agent(id: string, provider: string): void;
-  /** Provider id → the words OMP has enabled there; providers left out keep every word. */
-  setEnabledWords(byProvider: Readonly<Record<string, readonly string[]>>): void;
+  /** Which built-in each provider extends, and the words OMP has enabled per OMP provider. */
+  setOmpFlags(flags: OmpFlags): void;
   dispose(): void;
 }
 
@@ -114,7 +111,6 @@ const COMPOSER = "textarea[data-composer-input]";
 const PREFIX = "omp-magic-keywords";
 const SHOW_TEXT = 4;
 const ELEMENT_NODE = 1;
-const TEXT_NODE = 3;
 const POLL_MS = 500;
 /** How far up React's tree to look for the chat's agent before giving up. */
 const FIBER_DEPTH = 80;
@@ -124,14 +120,19 @@ const ULTRATHINK = 1 << MAGIC_KEYWORDS.findIndex(({ word }) => word === "ultrath
 /** The textarea's text-layout properties the overlay copies, so its lines wrap at the same places. */
 const COPIED = [
   "font-family", "font-size", "font-weight", "font-style", "font-stretch", "font-variant", "font-kerning",
-  "font-feature-settings", "font-variation-settings", "line-height", "letter-spacing", "word-spacing",
-  "text-transform", "text-indent", "text-align", "tab-size", "white-space", "overflow-wrap", "word-break",
-  "line-break", "hyphens", "direction", "unicode-bidi", "padding-top", "padding-right", "padding-bottom", "padding-left",
+  "font-feature-settings", "font-variation-settings", "font-optical-sizing", "font-size-adjust", "font-synthesis",
+  "text-rendering", "line-height", "letter-spacing", "word-spacing", "text-transform", "text-indent", "text-align",
+  "tab-size", "white-space", "overflow-wrap", "word-break", "line-break", "hyphens", "direction", "unicode-bidi",
+  "padding-top", "padding-right", "padding-bottom", "padding-left",
 ];
 // Hidden until a check shows its lines wrap like the textarea's. z-index: auto keeps it under
 // Paseo's later popovers and modals, which mount after it at the end of the body.
 const OVERLAY_CSS = "position:fixed;margin:0;border:0;box-sizing:border-box;overflow:hidden;pointer-events:none;"
   + "user-select:none;-webkit-user-select:none;color:transparent;background:transparent;visibility:hidden;";
+// The overlay's hidden twin for that check: a textarea wraps the draft exactly as the composer does,
+// and at height 0 its scrollHeight is the draft's height plus padding.
+const MIRROR_CSS = "position:fixed;left:0;top:0;height:0;min-height:0;margin:0;border:0;box-sizing:border-box;"
+  + "overflow:hidden;resize:none;visibility:hidden;pointer-events:none;";
 
 type Kind = "sent" | "composer";
 
@@ -145,10 +146,22 @@ interface Glyph {
 }
 
 interface Overlay {
+  /** Fixed over the textarea, clipped to its box and scrolled with it. */
   element: DomElement;
+  /** Block holding the copied text; its height is the copy's line count times the line height. */
+  inner: DomElement;
   node: DomText;
-  /** Last geometry and text style written, to skip unchanged writes. */
+  /** Hidden textarea holding the draft at the composer's width, for the line check. */
+  mirror: MirrorArea;
+  /** The textarea's text style as CSS, read on input, scroll, poll and rescan rather than every frame. */
+  textCss: string;
+  /** The textarea's vertical padding in px. */
+  padding: number;
+  /** Last styles written to the overlay and the mirror, to skip unchanged writes. */
   css: string;
+  mirrorCss: string;
+  /** Whether the copy has as many lines as the textarea; unset until measured for the current text and style. */
+  fits?: boolean;
   shown: boolean;
 }
 
@@ -158,6 +171,8 @@ interface Source {
   text: string;
   /** Words this source may colour (bit mask), as decided when its glyphs were built. */
   words: number;
+  /** Text nodes the glyphs' Ranges address; one leaving the page leaves the Ranges stale. */
+  nodes: DomText[];
   glyphs: Glyph[];
   overlay?: Overlay;
 }
@@ -178,7 +193,7 @@ interface Fiber {
 export function startKeywordShimmer(): Engine {
   const registry = typeof CSS === "undefined" ? undefined : CSS.highlights;
   const HighlightClass = typeof Highlight === "undefined" ? undefined : Highlight;
-  if (!isWeb || !registry || !HighlightClass) return { setPreferences() {}, agent() {}, setEnabledWords() {}, dispose() {} };
+  if (!isWeb || !registry || !HighlightClass) return { setPreferences() {}, agent() {}, setOmpFlags() {}, dispose() {} };
 
   // Below Paseo's own highlights (chat Find), which use the default priority 0.
   const highlights = MAGIC_KEYWORDS.map(({ word }) =>
@@ -194,28 +209,33 @@ export function startKeywordShimmer(): Engine {
   document.head.appendChild(style);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
+  // Set first thing on dispose: observer callbacks and frames already queued must not start new work.
+  let disposed = false;
   let preferences: Preferences | undefined;
   const directory = new Map<string, string>();
-  const enabledWords = new Map<string, number>();
+  /** Provider id → the built-in at the end of its `extends` chain; empty until OMP's flags arrive. */
+  let roots: Readonly<Record<string, string>> = {};
+  /** OMP provider id → the words OMP has enabled there (bit mask), for the providers that answered. */
+  const ompWords = new Map<string, number>();
+  /** The words enabled in any OMP provider that answered; every word while none has. */
+  let anyOmpWords = ALL_WORDS;
+  let warned = false;
   const sources = new Map<DomElement, Source>();
   const visible = new Set<DomElement>();
-  // Messages and previews never change agent; composers are looked up again on each update.
-  const agents = new WeakMap<DomElement, AgentRef>();
 
-  let tone = "";
-  const syncScheme = (sample: DomElement | undefined) => {
-    // Light text means a dark theme; with nothing on screen yet, assume dark.
+  let tone: Tone | undefined;
+  const syncScheme = (sample?: DomElement) => {
+    // Light text means a dark theme. Without a sample the tone stays as it is: dark at startup.
     const color = sample ? getComputedStyle(sample).color : "";
-    const next = color && luminance(color) < 0.5 ? `${LIGHT_SATURATION}% ${LIGHT_LIGHTNESS}%` : `${DARK_SATURATION}% ${DARK_LIGHTNESS}%`;
+    const next: Tone = color ? (luminance(color) < 0.5 ? "light" : "dark") : tone ?? "dark";
     if (next === tone) return;
     tone = next;
     style.textContent = MAGIC_KEYWORDS.flatMap(({ word, hue: [from, to] }) =>
-      Array.from({ length: STOPS }, (_, stop) => {
-        const hue = Math.round((from + (stop / STOPS) * (to - from)) % 360);
-        return `::highlight(${PREFIX}-${word}-${stop}) { color: hsl(${hue} ${tone}); }`;
-      }),
+      Array.from({ length: STOPS }, (_, stop) =>
+        `::highlight(${PREFIX}-${word}-${stop}) { color: ${keywordColor(from + (stop / STOPS) * (to - from), next)}; }`),
     ).join("\n");
   };
+  syncScheme();
 
   const styleOf = (kind: Kind): Style => preferences?.[kind] ?? "off";
 
@@ -238,23 +258,32 @@ export function startKeywordShimmer(): Engine {
   };
 
   /**
-   * Which words act in this chat. An agent the lookup cannot place keeps every word: colouring too
-   * much beats hiding the colours everywhere when Paseo's internals change.
+   * Which words act in the chat `element` belongs to, by the built-in its provider extends: OMP's own
+   * flags for OMP, ultrathink for Claude Code, none elsewhere. The agent is read afresh on every call,
+   * since React fills props in late and may reuse an element for another chat. A chat the lookup cannot
+   * place gets the words OMP has enabled anywhere: colouring too much beats hiding the colours
+   * everywhere when Paseo's internals change.
    */
-  const wordsFor = (agent: AgentRef): number => {
+  const wordsFor = (element: DomElement): number => {
+    if (preferences?.scope === "all") return anyOmpWords;
+    const agent = agentOf(element);
     const provider = (agent.id === undefined ? undefined : directory.get(agent.id)) ?? agent.provider;
-    if (provider === undefined) return ALL_WORDS;
-    let words = ALL_WORDS;
-    if (preferences?.scope !== "all" && provider !== "omp" && !provider.startsWith("omp-")) {
-      words = provider === "claude" ? ULTRATHINK : 0;
+    if (provider === undefined) {
+      if (!warned && agent.id === undefined) {
+        warned = true;
+        console.warn("[omp-magic-keywords] found no agent for a chat element; colouring the words OMP has enabled anywhere");
+      }
+      return anyOmpWords;
     }
-    return words & (enabledWords.get(provider) ?? ALL_WORDS);
+    // By name until Paseo's config arrives, and for providers it does not list.
+    const root = roots[provider] ?? (provider.startsWith("omp-") ? "omp" : provider);
+    if (root === "omp") return ompWords.get(provider) ?? ALL_WORDS;
+    return root === "claude" ? ULTRATHINK : 0;
   };
 
-  const glyphsFor = (text: string, words: number, nodes: DomText[], starts: number[]): Glyph[] => {
+  const glyphsFor = (matches: KeywordMatch[], nodes: DomText[], starts: number[]): Glyph[] => {
     const glyphs: Glyph[] = [];
-    for (const { keyword, start, end } of findMagicKeywords(text)) {
-      if (!(words & (1 << keyword))) continue;
+    for (const { keyword, start, end } of matches) {
       for (let at = start; at < end; at++) {
         const from = locate(nodes, starts, at);
         const to = locate(nodes, starts, at + 1);
@@ -273,6 +302,7 @@ export function startKeywordShimmer(): Engine {
   let frame: number | undefined;
   const tick = () => {
     frame = undefined;
+    if (disposed) return;
     let again = false;
     for (const element of visible) {
       const source = sources.get(element);
@@ -290,11 +320,12 @@ export function startKeywordShimmer(): Engine {
     if (again) frame ??= requestAnimationFrame(tick);
   };
   const schedule = () => {
-    frame ??= requestAnimationFrame(tick);
+    if (!disposed) frame ??= requestAnimationFrame(tick);
   };
   reducedMotion.addEventListener("change", schedule);
 
   const intersections = new IntersectionObserver((entries) => {
+    if (disposed) return;
     for (const { target, isIntersecting } of entries) {
       if (isIntersecting && sources.has(target)) visible.add(target);
       else visible.delete(target);
@@ -319,18 +350,17 @@ export function startKeywordShimmer(): Engine {
     }
     const text = element.textContent ?? "";
     const existing = sources.get(element);
-    if (existing?.text !== text && findMagicKeywords(text).length === 0) {
+    const found = existing?.text === text ? undefined : findMagicKeywords(text);
+    if (found?.length === 0) {
       clear(element);
       return;
     }
-    let agent = agents.get(element);
-    if (!agent) {
-      agent = agentOf(element);
-      agents.set(element, agent);
-    }
-    const words = wordsFor(agent);
-    if (existing?.text === text && existing.words === words) return;
+    const words = wordsFor(element);
+    // React may swap a text node for one holding the same text; the Ranges would then address a detached node.
+    if (existing && !found && existing.words === words && existing.nodes.every((node) => node.isConnected)) return;
     clear(element);
+    const matches = (found ?? findMagicKeywords(text)).filter(({ keyword }) => words & (1 << keyword));
+    if (matches.length === 0) return;
 
     const nodes: DomText[] = [];
     const starts: number[] = [];
@@ -342,33 +372,41 @@ export function startKeywordShimmer(): Engine {
       starts.push(offset);
       offset += textNode.data.length;
     }
-    const source: Source = { kind: "sent", text, words, glyphs: glyphsFor(text, words, nodes, starts) };
+    const source: Source = { kind: "sent", text, words, nodes, glyphs: glyphsFor(matches, nodes, starts) };
     sources.set(element, source);
     syncScheme(element);
     paint(source);
     intersections.observe(element);
   };
 
-  /** Lays the overlay over its textarea and shows it only where its lines wrap like the textarea's. */
+  /** Lays the overlay over its textarea and shows it only while it has as many lines as the textarea. */
   const place = (textarea: TextArea, source: Source) => {
     const overlay = source.overlay!;
     let shown = false;
-    if (source.glyphs.length > 0) {
-      // Re-read every time: Paseo restyles the composer per keystroke, and rows above it (attachments)
-      // move it without resizing it. clientWidth leaves out the scrollbar gutter Paseo always reserves.
+    if (isShown(textarea)) {
+      // Geometry is read every frame: rows above the composer (attachments) move it without an event.
+      // clientWidth leaves out the scrollbar gutter Paseo always reserves.
       const rect = textarea.getBoundingClientRect();
-      const computed = getComputedStyle(textarea);
-      let css = `${OVERLAY_CSS}left:${rect.left + textarea.clientLeft}px;top:${rect.top + textarea.clientTop}px;`
-        + `width:${textarea.clientWidth}px;height:${textarea.clientHeight}px;`;
-      for (const name of COPIED) css += `${name}:${computed.getPropertyValue(name)};`;
+      const width = textarea.clientWidth;
+      const css = `${OVERLAY_CSS}${overlay.textCss}left:${rect.left + textarea.clientLeft}px;`
+        + `top:${rect.top + textarea.clientTop}px;width:${width}px;height:${textarea.clientHeight}px;`;
       if (css !== overlay.css) {
         overlay.element.setAttribute("style", css);
         overlay.css = css;
         overlay.shown = false;
       }
+      const mirrorCss = `${MIRROR_CSS}${overlay.textCss}width:${width}px;`;
+      if (mirrorCss !== overlay.mirrorCss) {
+        overlay.mirror.setAttribute("style", mirrorCss);
+        overlay.mirrorCss = mirrorCss;
+        overlay.fits = undefined;
+      }
+      // The mirror's height gives the textarea's line count; a different count means different line breaks,
+      // so colours would land on the wrong words. Both heights are rounded to whole pixels, while a line
+      // more or less differs by a whole line height. Breaks at other places within the same count go unseen.
+      overlay.fits ??= Math.abs(overlay.inner.offsetHeight + overlay.padding - overlay.mirror.scrollHeight) < 2;
       if (overlay.element.scrollTop !== textarea.scrollTop) overlay.element.scrollTop = textarea.scrollTop;
-      // A different height means different line breaks: never draw colours over the wrong words.
-      shown = overlay.element.scrollHeight === textarea.scrollHeight;
+      shown = overlay.fits;
     }
     if (shown === overlay.shown) return;
     overlay.element.style.visibility = shown ? "visible" : "hidden";
@@ -376,42 +414,67 @@ export function startKeywordShimmer(): Engine {
   };
 
   const processComposer = (textarea: TextArea) => {
-    if (styleOf("composer") === "off" || !textarea.isConnected || textarea.getClientRects().length === 0) {
+    if (styleOf("composer") === "off" || !textarea.isConnected || !isShown(textarea)) {
       clear(textarea);
       return;
     }
+    const text = textarea.value;
+    const words = wordsFor(textarea);
     let source = sources.get(textarea);
+    const matches = source?.text === text && source.words === words
+      ? undefined
+      : findMagicKeywords(text).filter(({ keyword }) => words & (1 << keyword));
+    // The overlay holds a copy of the whole draft, so a composer without keywords gets none.
+    if (matches?.length === 0) {
+      clear(textarea);
+      return;
+    }
     if (!source) {
       const element = document.createElement("div");
       element.setAttribute("data-plugin", PREFIX);
       element.setAttribute("aria-hidden", "true");
       element.setAttribute("style", OVERLAY_CSS);
+      const inner = document.createElement("div");
       const node = document.createTextNode("");
-      element.appendChild(node);
+      inner.appendChild(node);
+      element.appendChild(inner);
+      // Fixed and hidden, it stays out of the copy's layout.
+      const mirror = document.createElement("textarea") as MirrorArea;
+      mirror.setAttribute("tabindex", "-1");
+      mirror.setAttribute("style", MIRROR_CSS);
+      element.appendChild(mirror);
       document.body.appendChild(element);
-      source = { kind: "composer", text: "", words: -1, glyphs: [], overlay: { element, node, css: "", shown: false } };
+      source = {
+        kind: "composer", text: "", words: -1, nodes: [node], glyphs: [],
+        overlay: { element, inner, node, mirror, textCss: "", padding: 0, css: "", mirrorCss: "", shown: false },
+      };
       sources.set(textarea, source);
       intersections.observe(textarea);
     }
-    const text = textarea.value;
-    const words = wordsFor(agentOf(textarea));
-    if (text !== source.text || words !== source.words) {
+    const overlay = source.overlay!;
+    if (matches) {
       unpaint(source);
       source.text = text;
       source.words = words;
-      const { node } = source.overlay!;
       // A textarea shows an empty last line after a trailing newline; a div needs a character there.
-      node.data = text.endsWith("\n") ? `${text} ` : text;
-      source.glyphs = glyphsFor(text, words, [node], [0]);
+      overlay.node.data = text.endsWith("\n") ? `${text} ` : text;
+      overlay.mirror.value = text;
+      overlay.fits = undefined;
+      source.glyphs = glyphsFor(matches, source.nodes, [0]);
       syncScheme(textarea);
       paint(source);
     }
+    // Paseo restyles the composer per keystroke. Its text style is read here, on input, scroll, poll and
+    // rescan, and not in the frame loop.
+    const computed = getComputedStyle(textarea);
+    overlay.textCss = COPIED.map((name) => `${name}:${computed.getPropertyValue(name)};`).join("");
+    overlay.padding = parseFloat(computed.getPropertyValue("padding-top")) + parseFloat(computed.getPropertyValue("padding-bottom"));
     place(textarea, source);
-    if (source.glyphs.length > 0) schedule();
+    schedule();
   };
 
   const onComposerEvent: DomListener = ({ target }) => {
-    if (!preferences || target?.nodeType !== ELEMENT_NODE) return;
+    if (disposed || !preferences || target?.nodeType !== ELEMENT_NODE) return;
     const element = target as DomElement;
     if (element.matches(COMPOSER)) processComposer(element as TextArea);
   };
@@ -423,7 +486,7 @@ export function startKeywordShimmer(): Engine {
   let rescanFrame: number | undefined;
   const rescan = () => {
     rescanFrame = undefined;
-    if (!preferences) return;
+    if (disposed || !preferences) return;
     for (const [element, source] of [...sources]) if (styleOf(source.kind) === "off") clear(element);
     for (const element of Array.from(document.querySelectorAll(SENT))) processSent(element);
     for (const element of Array.from(document.querySelectorAll(COMPOSER))) processComposer(element as TextArea);
@@ -432,7 +495,7 @@ export function startKeywordShimmer(): Engine {
     schedule();
   };
   const invalidate = () => {
-    rescanFrame ??= requestAnimationFrame(rescan);
+    if (!disposed) rescanFrame ??= requestAnimationFrame(rescan);
   };
 
   // The chat list is virtualized: messages mount and unmount as it scrolls. Changes are collected
@@ -440,7 +503,7 @@ export function startKeywordShimmer(): Engine {
   let mutationFrame: number | undefined;
   const pending = new Set<DomElement>();
   const mutations = new MutationObserver((records) => {
-    if (styleOf("sent") === "off") return;
+    if (disposed || styleOf("sent") === "off") return;
     for (const record of records) {
       const target = record.target.nodeType === ELEMENT_NODE ? (record.target as DomElement) : record.target.parentElement;
       const sent = target?.closest(SENT);
@@ -456,6 +519,7 @@ export function startKeywordShimmer(): Engine {
     if (pending.size === 0) return;
     mutationFrame ??= requestAnimationFrame(() => {
       mutationFrame = undefined;
+      if (disposed) return;
       for (const element of pending) processSent(element);
       pending.clear();
     });
@@ -465,7 +529,7 @@ export function startKeywordShimmer(): Engine {
   // Unmounted sources, composers shown or hidden by a tab switch, values Paseo set without an event
   // while no overlay was showing, and theme switches change nothing this module observes.
   const poll = setInterval(() => {
-    if (!preferences) return;
+    if (disposed || !preferences) return;
     for (const element of [...sources.keys()]) if (!element.isConnected) clear(element);
     if (styleOf("composer") !== "off") {
       for (const element of Array.from(document.querySelectorAll(COMPOSER))) processComposer(element as TextArea);
@@ -483,14 +547,23 @@ export function startKeywordShimmer(): Engine {
       directory.set(id, provider);
       invalidate();
     },
-    setEnabledWords(byProvider) {
-      enabledWords.clear();
-      for (const [provider, words] of Object.entries(byProvider)) {
-        enabledWords.set(provider, MAGIC_KEYWORDS.reduce((mask, { word }, keyword) => (words.includes(word) ? mask | (1 << keyword) : mask), 0));
+    setOmpFlags(flags) {
+      // A provider whose `omp config` failed keeps the words it had; one never read keeps every word.
+      const previous = new Map(ompWords);
+      ompWords.clear();
+      for (const provider of flags.failed) {
+        const kept = previous.get(provider);
+        if (kept !== undefined) ompWords.set(provider, kept);
       }
+      for (const [provider, words] of Object.entries(flags.words)) {
+        ompWords.set(provider, MAGIC_KEYWORDS.reduce((mask, { word }, keyword) => (words.includes(word) ? mask | (1 << keyword) : mask), 0));
+      }
+      roots = flags.roots;
+      anyOmpWords = ompWords.size === 0 ? ALL_WORDS : [...ompWords.values()].reduce((union, mask) => union | mask, 0);
       invalidate();
     },
     dispose() {
+      disposed = true;
       clearInterval(poll);
       mutations.disconnect();
       intersections.disconnect();
@@ -539,8 +612,18 @@ function locate(nodes: DomText[], starts: number[], offset: number): [DomText, n
     else hi = mid - 1;
   }
   const node = nodes[lo]!;
-  if (node.nodeType !== TEXT_NODE) return undefined;
   return [node, Math.min(offset - starts[lo]!, node.data.length)];
+}
+
+/**
+ * Whether an element is on screen as far as its own styles go. Without checkVisibility only
+ * `display: none` counts, though `visibility` and `opacity` also hide a composer the fixed overlay
+ * would still paint over.
+ */
+function isShown(element: DomElement): boolean {
+  return element.checkVisibility
+    ? element.checkVisibility({ visibilityProperty: true, opacityProperty: true })
+    : element.getClientRects().length > 0;
 }
 
 /** Relative luminance (0 dark … 1 light) of a computed `rgb()`/`rgba()` color. */

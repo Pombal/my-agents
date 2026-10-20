@@ -22,6 +22,8 @@ export default function contribute(client: PluginClientContext) {
   let disposed = false;
   let edits = 0;
   const apply = (values: Preferences) => {
+    // The settings screen's effect can still run while the plugin is being torn down.
+    if (disposed) return;
     edits += 1;
     engine.setPreferences(values);
   };
@@ -63,9 +65,9 @@ export default function contribute(client: PluginClientContext) {
       for (const { agent } of page.entries) engine.agent(agent.id, agent.provider);
       cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor ?? undefined : undefined;
     } while (cursor);
-  })().catch(() => { /* Agents missing from the directory fall back to the provider in React props, else every word. */ });
-  // Words OMP itself has switched off (per provider: `omp`, `omp-nilo`) stay plain.
-  const stopFlags = watchOmpFlags(client, (byProvider) => { if (!disposed) engine.setEnabledWords(byProvider); });
+  })().catch(() => { /* Agents missing from the directory fall back to the provider in React props, else the words OMP has enabled anywhere. */ });
+  // Which built-in each provider extends, and the words OMP itself has switched off per OMP provider.
+  const stopFlags = watchOmpFlags(client, (flags) => { if (!disposed) engine.setOmpFlags(flags); });
 
   return () => {
     disposed = true;
