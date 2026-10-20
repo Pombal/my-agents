@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
-import { diffPalette, schemeOf, tint, type DiffPalette, type Side } from "./palette";
+import { diffPalette, tint, type DiffPalette, type Scheme, type Side } from "./palette";
 
 // Web and desktop only. Paseo renders chat code blocks as React Native Web views marked with
 // data-paseo-markdown-* attributes for its own copy-as-markdown feature (kept through the
@@ -94,20 +94,19 @@ const SIDES: Side[] = ["add", "del"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
 const GUTTER_BAR_PX = 2;
 
-// Every `::highlight` rule costs style time on every element of the page, so token kinds that
-// palette.ts colors identically share one highlight, and kinds that never occur on a line kind
-// (signs on context lines, header/hunk on changed lines) get none.
-const ROLES: TokenKind[] = ["keyword", "comment", "string", "number", "function", "type", "tag", "attribute", "operator"];
-const SAME_COLOR_AS: Partial<Record<TokenKind, TokenKind>> = { literal: "number", property: "attribute", header: "comment", hunk: "function" };
-const SIGN: Record<Side, TokenKind> = { add: "addSign", del: "delSign" };
+// Token kinds per line kind. Kinds that never occur there (signs on context lines, header/hunk
+// on changed lines) get no highlight: every `::highlight` rule costs style time on each element.
+const SYNTAX_KINDS: TokenKind[] = ["keyword", "comment", "string", "number", "literal", "function", "type", "tag", "attribute", "property", "operator"];
+const CONTEXT_KINDS: TokenKind[] = [...SYNTAX_KINDS, "header", "hunk"];
+const CHANGED_KINDS: Record<Side, TokenKind[]> = { add: [...SYNTAX_KINDS, "addSign"], del: [...SYNTAX_KINDS, "delSign"] };
 
 // Highlight names and priorities, all below Paseo's own highlights (chat Find, priority 0). Bottom
 // to top: plain text on added/removed lines (`text-add`), syntax tokens (`keyword` on context lines,
 // `keyword-add` / `keyword-del` on changed lines, tinted toward the line color), word marks.
 const HIGHLIGHTS: Array<[name: string, priority: number]> = [
   ...SIDES.map((side): [string, number] => [`text-${side}`, -3]),
-  ...ROLES.map((role): [string, number] => [role, -2]),
-  ...SIDES.flatMap((side) => [...ROLES, SIGN[side]].map((role): [string, number] => [`${role}-${side}`, -2])),
+  ...CONTEXT_KINDS.map((kind): [string, number] => [kind, -2]),
+  ...SIDES.flatMap((side) => CHANGED_KINDS[side].map((kind): [string, number] => [`${kind}-${side}`, -2])),
   ...EDIT_KINDS.map((kind): [string, number] => [kind, -1]),
 ];
 
@@ -156,17 +155,17 @@ export function startDiffHighlighting(): () => void {
     }
     // The block's text color is the theme's foreground, so light text means a dark theme.
     const foreground = getComputedStyle(sample).color;
-    const scheme = schemeOf(foreground);
+    const scheme: Scheme = luminance(foreground) > 0.5 ? "dark" : "light";
     const key = `${syntaxTheme}|${scheme}|${foreground}`;
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
     const rule = (name: string, body: string) => `::highlight(${PREFIX}-${name}) { ${body} }`;
     style.textContent = [
-      ...ROLES.map((role) => rule(role, `color: ${palette.tokens[role]};`)),
+      ...CONTEXT_KINDS.map((kind) => rule(kind, `color: ${palette.tokens[kind]};`)),
       ...SIDES.flatMap((side) => [
         rule(`text-${side}`, `color: ${tint(foreground, palette.lines[side])};`),
-        ...[...ROLES, SIGN[side]].map((role) => rule(`${role}-${side}`, `color: ${palette.changedTokens[side][role]};`)),
+        ...CHANGED_KINDS[side].map((kind) => rule(`${kind}-${side}`, `color: ${palette.changedTokens[side][kind]};`)),
       ]),
       ...EDIT_KINDS.map((kind) => rule(kind, `background-color: ${palette.edits[kind]}; color: ${palette.editText};`)),
     ].join("\n");
@@ -275,8 +274,7 @@ export function startDiffHighlighting(): () => void {
     for (const span of block.model.spans) {
       while (lines[at]!.end < span.start) at++;
       const kind = lines[at]!.kind;
-      const role = SAME_COLOR_AS[span.kind] ?? span.kind;
-      mark(kind === "add" || kind === "del" ? `${role}-${kind}` : role, span.start, span.end);
+      mark(kind === "add" || kind === "del" ? `${span.kind}-${kind}` : span.kind, span.start, span.end);
     }
     for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
     for (const edit of block.model.edits) mark(edit.kind, edit.start, edit.end);
@@ -372,4 +370,10 @@ function locate(block: Block, offset: number): [DomText, number] | undefined {
   const node = nodes[lo]!;
   if (node.nodeType !== TEXT_NODE) return undefined;
   return [node, Math.min(offset - starts[lo]!, node.data.length)];
+}
+
+/** Relative luminance (0 dark … 1 light) of a computed `rgb()`/`rgba()` color. */
+function luminance(color: string): number {
+  const [r = 0, g = 0, b = 0] = (color.match(/[\d.]+/g) ?? []).map(Number);
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }

@@ -39,7 +39,8 @@ headless Chromium on a shared VM (a desktop is likely 2–4× faster); audit in
   (was 0.86 s, a page-wide restyle twice per visit).
 - All 664 distinct diff blocks in Stefan's transcripts parse in 44 ms together; the slowest one in
   under 1 ms.
-- 33 page-wide highlight styles (were 49); every one costs style time on each element of the chat.
+- 41 page-wide highlight styles (were 49: the 8 that could never match are gone); every one costs
+  style time on each element of the chat.
 
 Past 100,000 characters only rows, signs and changed words are colored, as Paseo itself stops syntax
 coloring there.

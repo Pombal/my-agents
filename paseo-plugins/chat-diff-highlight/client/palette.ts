@@ -82,28 +82,6 @@ const LINE_TINT = 0.5;
 export const tint = (color: string, toward: string, share = LINE_TINT) =>
   `color-mix(in oklab, ${color} ${Math.round((1 - share) * 100)}%, ${toward})`;
 
-/**
- * Dark or light theme, from the code block's computed text color: light text means a dark theme.
- * Chrome reports colors in their own space (`rgb()`, `oklch()`, `oklab()`, `lab()`, `color(display-p3 …)`),
- * so each is read on its own scale; anything unreadable counts as light.
- */
-export function schemeOf(foreground: string): Scheme {
-  const open = foreground.indexOf("(");
-  const space = foreground.slice(0, open).trim();
-  const raw = foreground.slice(open + 1).split("/")[0]!.match(/-?[\d.]+%?/g) ?? [];
-  // Percentages become 0–1; lab()/lch() lightness without a % runs 0–100.
-  const args = raw.map((n) => (n.endsWith("%") ? parseFloat(n) / 100 : parseFloat(n)));
-  let lightness: number;
-  if (space === "oklch" || space === "oklab") lightness = args[0]!;
-  else if (space === "lab" || space === "lch") lightness = raw[0]?.endsWith("%") ? args[0]! : args[0]! / 100;
-  else {
-    // rgb() channels run 0–255, color() channels 0–1 (its last three numbers; `display-p3` has a digit).
-    const [r, g, b] = space === "color" ? args.slice(-3) : args.slice(0, 3).map((c) => c / 255);
-    lightness = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  }
-  return lightness > 0.5 ? "dark" : "light";
-}
-
 export interface DiffPalette {
   /** Text colors on context, header and hunk lines. */
   tokens: Record<TokenKind, string>;
