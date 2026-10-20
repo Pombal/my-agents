@@ -89,7 +89,29 @@ export const reopenPastSession = defineRpc({
       cwd: z.string(),
       /** What `paseo import` takes: the OMP session file, or the provider's session id. */
       handle: z.string(),
+      /** The row's list key; its star moves to the imported agent. */
+      key: z.string(),
     }),
   ]),
   output: z.object({ agentId: z.string() }),
+});
+
+/** Starred list keys. Starred rows sort first; nothing else changes. */
+export const listStars = defineRpc({
+  name: "past-sessions.stars",
+  input: z.object({}),
+  output: z.object({ keys: z.array(z.string()) }),
+});
+
+export const setStar = defineRpc({
+  name: "past-sessions.star",
+  input: z.object({ key: z.string(), starred: z.boolean() }),
+  output: z.object({ keys: z.array(z.string()) }),
+});
+
+/** Stars a live agent, then archives it: the agent stops and its tab closes. */
+export const starAndArchive = defineRpc({
+  name: "past-sessions.star-and-archive",
+  input: z.object({ agentId: z.string() }),
+  output: z.object({ keys: z.array(z.string()) }),
 });

@@ -13,17 +13,23 @@ export function matchesQuery(entry: PastSession, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
+/** Starred entries first, each group keeping its newest-first order. */
+function starredFirst(entries: PastSession[], starred: ReadonlySet<string>): PastSession[] {
+  return [...entries.filter((entry) => starred.has(entry.key)), ...entries.filter((entry) => !starred.has(entry.key))];
+}
+
 /**
  * Flattens the main list and the optional "same folder" section into one virtualized list.
  * The main list always yields at least one item (an `empty` placeholder), so the section header
  * never floats alone. A search opens the section, since hiding matches would read as "no results".
+ * Starred rows lead the main list and the section.
  */
 export function buildListItems(
   data: { entries: PastSession[]; sameFolder: PastSession[] },
-  view: { query: string; sameFolderOpen: boolean },
+  view: { query: string; sameFolderOpen: boolean; starred: ReadonlySet<string> },
 ): ListItem[] {
-  const main = data.entries.filter((entry) => matchesQuery(entry, view.query));
-  const extra = data.sameFolder.filter((entry) => matchesQuery(entry, view.query));
+  const main = starredFirst(data.entries.filter((entry) => matchesQuery(entry, view.query)), view.starred);
+  const extra = starredFirst(data.sameFolder.filter((entry) => matchesQuery(entry, view.query)), view.starred);
   const items: ListItem[] =
     main.length > 0
       ? main.map((entry) => ({ kind: "row", key: entry.key, entry }))

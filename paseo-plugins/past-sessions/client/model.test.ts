@@ -14,14 +14,15 @@ describe("buildListItems", () => {
     entries: [session("paseo:a", "Diff highlight"), session("paseo:b", "Kick off")],
     sameFolder: [session("omp:1", "Cuneiform."), session("omp:2", "Fix diff colors")],
   };
+  const none = new Set<string>();
 
   it("keeps the same-folder section collapsed below the main list until opened", () => {
-    expect(shape(buildListItems(data, { query: "", sameFolderOpen: false }))).toEqual([
+    expect(shape(buildListItems(data, { query: "", sameFolderOpen: false, starred: none }))).toEqual([
       "paseo:a",
       "paseo:b",
       "header:2:false",
     ]);
-    expect(shape(buildListItems(data, { query: "", sameFolderOpen: true }))).toEqual([
+    expect(shape(buildListItems(data, { query: "", sameFolderOpen: true, starred: none }))).toEqual([
       "paseo:a",
       "paseo:b",
       "header:2:true",
@@ -31,7 +32,7 @@ describe("buildListItems", () => {
   });
 
   it("opens the section for a search and counts only matches", () => {
-    expect(shape(buildListItems(data, { query: "diff", sameFolderOpen: false }))).toEqual([
+    expect(shape(buildListItems(data, { query: "diff", sameFolderOpen: false, starred: none }))).toEqual([
       "paseo:a",
       "header:1:true",
       "omp:2",
@@ -39,11 +40,30 @@ describe("buildListItems", () => {
   });
 
   it("puts an empty placeholder before the section when the main list has nothing", () => {
-    expect(shape(buildListItems({ entries: [], sameFolder: data.sameFolder }, { query: "", sameFolderOpen: false }))).toEqual([
+    expect(
+      shape(buildListItems({ entries: [], sameFolder: data.sameFolder }, { query: "", sameFolderOpen: false, starred: none })),
+    ).toEqual(["empty", "header:2:false"]);
+    expect(shape(buildListItems({ entries: [], sameFolder: [] }, { query: "", sameFolderOpen: false, starred: none }))).toEqual([
       "empty",
-      "header:2:false",
     ]);
-    expect(shape(buildListItems({ entries: [], sameFolder: [] }, { query: "", sameFolderOpen: false }))).toEqual(["empty"]);
+  });
+
+  it("leads with starred rows in the list and in the section, each group newest first", () => {
+    const list = {
+      entries: ["paseo:a", "paseo:b", "paseo:c", "paseo:d"].map((key) => session(key, key)),
+      sameFolder: ["omp:1", "omp:2", "omp:3"].map((key) => session(key, key)),
+    };
+    const starred = new Set(["paseo:d", "paseo:b", "omp:3", "omp:gone"]);
+    expect(shape(buildListItems(list, { query: "", sameFolderOpen: true, starred }))).toEqual([
+      "paseo:b",
+      "paseo:d",
+      "paseo:a",
+      "paseo:c",
+      "header:3:true",
+      "omp:3",
+      "omp:1",
+      "omp:2",
+    ]);
   });
 });
 

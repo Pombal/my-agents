@@ -8,7 +8,7 @@ import { useState } from "react";
 import { PastSessionsList } from "./client/past-sessions-list";
 import { lastScreenParams, PastSessionsScreen } from "./client/screen";
 import { startFocusModality } from "./client/web";
-import type { Scope } from "./shared/rpc";
+import { starAndArchive, type Scope } from "./shared/rpc";
 
 const SCREEN_ID = "browse";
 const PANEL_ID = "past-sessions";
@@ -59,6 +59,18 @@ export default function contribute(client: PluginClientContext) {
       context: "workspace",
       onSelect({ openPanel }) {
         openPanel(PANEL_ID);
+      },
+    }),
+    client.addCommandCenterItem({
+      id: "star-and-close",
+      title: "Star and close this chat",
+      icon: "Star",
+      keywords: ["star", "save", "later", "bookmark", "archive", "close", "park"],
+      context: "agent",
+      // Archiving stops the agent and closes its tab, as closing the tab does; the star sorts it
+      // first in Past sessions.
+      async onSelect({ rpc, agent }) {
+        await rpc(starAndArchive, { agentId: agent.id });
       },
     }),
   ];

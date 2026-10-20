@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { reopenPastSession } from "../shared/rpc";
 import { paseoBinary } from "./paseo-cli";
+import type { StarStore } from "./stars";
 
 // `paseo agent reload` → `refreshAgent` (unarchives and loads an archived agent);
 // `paseo import` → `importAgent` (a provider session becomes a Paseo agent).
@@ -37,13 +38,15 @@ function agentIdOf(result: unknown): string {
 
 export async function reopenHandler(
   input: RpcInput<typeof reopenPastSession>,
+  stars: StarStore,
 ): Promise<RpcOutput<typeof reopenPastSession>> {
   if (input.source === "paseo") {
     return { agentId: agentIdOf(await runPaseo(["agent", "reload", input.agentId])) };
   }
-  return {
-    agentId: agentIdOf(
-      await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.handle]),
-    ),
-  };
+  const agentId = agentIdOf(
+    await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.handle]),
+  );
+  // The session is listed as this agent from now on; a star stays with it.
+  await stars.move(input.key, `paseo:${agentId}`);
+  return { agentId };
 }

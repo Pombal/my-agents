@@ -4,11 +4,13 @@ import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Platform, StyleSheet, Text, View } from "react-native";
 import {
   listExternalSessions,
   listPastSessions,
+  listStars,
   reopenPastSession,
+  setStar,
   type PastSession,
   type PastSessionsListing,
   type Scope,
@@ -127,6 +129,8 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     chipHot: { backgroundColor: colors.surface0 },
     chipText: { ...muted, flexShrink: 1 },
     right: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
+    star: { width: 20, height: 20, marginRight: -2, borderRadius: 5, alignItems: "center", justifyContent: "center" },
+    starIdle: { opacity: 0 },
     meta: muted,
     tag: { ...muted, opacity: 0.72 },
     dot: { ...muted, opacity: 0.5 },
@@ -219,6 +223,23 @@ function Preview({ entry, styles, lines }: { entry: PastSession; styles: Styles;
   );
 }
 
+// Lucide's Star, which Paseo's Icon draws only as an outline; the starred mark is filled.
+const STAR_PATH =
+  "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
+
+function StarMark({ filled, size, color }: { filled: boolean; size: number; color: string }) {
+  // Native apps can't draw SVG images; they get the outline in full colour.
+  if (!filled || Platform.OS !== "web") return <Icon name="Star" size={size} color={color} />;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" stroke="${color}" stroke-width="2" stroke-linejoin="round"><path d="${STAR_PATH}"/></svg>`;
+  return (
+    <Image
+      source={{ uri: `data:image/svg+xml;utf8,${svg}` }}
+      style={{ width: size, height: size }}
+      accessibilityIgnoresInvertColors
+    />
+  );
+}
+
 interface RowProps {
   entry: PastSession;
   chip: { label: string; path: string } | null;
@@ -228,41 +249,100 @@ interface RowProps {
   divider: boolean;
   density: Density;
   compact: boolean;
+  starred: boolean;
   serverId: string;
   snapshotSvg: string | undefined;
   styles: Styles;
   theme: PluginTheme;
   onOpen(entry: PastSession): void;
+  onStar(input: { key: string; starred: boolean }): void;
 }
 
 /**
- * Comfortable: glyph | title, folder chip, "terminal · 2 d ago" / two preview lines.
+ * A long press stars a row on phones and the list re-sorts at once; the click a browser may send
+ * when the finger lifts would land on whichever row moved under it and restore that one.
+ */
+let ignorePressUntil = 0;
+
+/**
+ * Comfortable: glyph | title, folder chip, "★ terminal · 2 d ago" / two preview lines.
  * Compact: one line with the preview as a muted tail; hover opens the two-line preview below.
- * Hover or keyboard focus swaps the time for the action; the "terminal" word stays.
+ * Hover or keyboard focus swaps the time for the action; the "terminal" word stays. The star
+ * shows on starred rows and, on hover, as an outline to click; phones star by long press.
  */
 const SessionRow = memo(function SessionRow(props: RowProps) {
-  const { entry, chip, now, busy, density, compact, styles, theme } = props;
+  const { entry, chip, now, busy, density, compact, starred, styles, theme } = props;
   const fromPaseo = entry.source === "paseo";
   const dense = density === "compact";
   const actionLabel = fromPaseo ? "Restore" : "Import";
+  const starLabel = starred ? "Unstar" : "Star: list it first";
+  const toggleStar = () => props.onStar({ key: entry.key, starred: !starred });
+  // react-native-web ends the row's hover when the pointer enters the nested star button; the
+  // star's own hover keeps the row hot, so the star stays shown and Restore stays put.
+  const [overStar, setOverStar] = useState(false);
   return (
     <Interactive
       accessibilityRole="button"
       accessibilityLabel={`${actionLabel} ${entry.title}`}
       testID={`past-session-${entry.key}`}
       disabled={props.disabled}
-      onPress={() => props.onOpen(entry)}
+      onPress={() => {
+        if (Date.now() >= ignorePressUntil) props.onOpen(entry);
+      }}
+      onLongPress={
+        compact
+          ? () => {
+              ignorePressUntil = Date.now() + 1000;
+              toggleStar();
+            }
+          : undefined
+      }
       style={({ hovered, pressed, focused }) => [
         styles.row,
         dense ? styles.rowCompact : null,
         props.divider && !dense ? styles.rowDivider : null,
-        hovered ? styles.rowHovered : null,
+        hovered || overStar ? styles.rowHovered : null,
         pressed ? styles.rowPressed : null,
         focused ? styles.focusRingInset : null,
       ]}
     >
       {({ hovered, focused }) => {
-        const hot = hovered || focused;
+        const hot = hovered || focused || overStar;
+        // Phones: a plain mark (a tap anywhere restores; long press stars). Web: a button.
+        const star = compact ? (
+          starred ? (
+            <View style={styles.star}>
+              <StarMark filled size={12} color={theme.colors.foreground} />
+            </View>
+          ) : null
+        ) : (
+          // Always mounted, so the pointer finds it; invisible until the row is hot.
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={starLabel}
+            accessibilityState={{ checked: starred }}
+            testID={`past-session-star-${entry.key}`}
+            onPress={toggleStar}
+            onHoverIn={() => setOverStar(true)}
+            onHoverOut={() => setOverStar(false)}
+            style={({ hovered: over, focused: ring }) => [
+              styles.star,
+              starred || hot || ring ? null : styles.starIdle,
+              over ? styles.iconButtonHovered : null,
+              ring ? styles.focusRing : null,
+            ]}
+          >
+            {({ hovered: over }) => (
+              <View ref={tooltip(starLabel)}>
+                <StarMark
+                  filled={starred}
+                  size={12}
+                  color={starred || over ? theme.colors.foreground : theme.colors.foregroundMuted}
+                />
+              </View>
+            )}
+          </Interactive>
+        );
         const glyph = (
           <View style={styles.glyph}>
             <ProviderGlyph
@@ -292,6 +372,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
         ) : null;
         const right = (
           <View style={styles.right}>
+            {star}
             {fromPaseo ? null : (
               <>
                 <Text style={styles.tag}>{sourceWord(entry)}</Text>
@@ -476,13 +557,40 @@ function useDensity(): [Density, (density: Density) => void] {
   ];
 }
 
+const NO_STARS: ReadonlySet<string> = new Set();
+
 export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, serverId, compact, navigation }: Props) {
   const styles = useMemo(() => createStyles(theme, compact), [theme, compact]);
   const list = useRpc(listPastSessions);
   const reopen = useRpc(reopenPastSession);
+  const getStars = useRpc(listStars);
+  const saveStar = useRpc(setStar);
   const queryClient = useQueryClient();
   const toast = useToast();
   const snapshotIcons = useSnapshotIcons();
+  const stars = useQuery({
+    queryKey: ["past-sessions-stars"],
+    queryFn: async () => new Set((await getStars({})).keys),
+  });
+  const starred = stars.data ?? NO_STARS;
+  // Optimistic: the row moves at once; a failed save puts it back.
+  const starMutation = useMutation({
+    mutationFn: (input: { key: string; starred: boolean }) => saveStar(input),
+    onMutate: ({ key, starred: next }) => {
+      const before = queryClient.getQueryData<Set<string>>(["past-sessions-stars"]);
+      const after = new Set(before);
+      if (next) after.add(key);
+      else after.delete(key);
+      queryClient.setQueryData(["past-sessions-stars"], after);
+      if (compact) toast.show(next ? "Starred: listed first" : "Unstarred");
+      return before;
+    },
+    onSuccess: ({ keys }) => queryClient.setQueryData(["past-sessions-stars"], new Set(keys)),
+    onError: (error, _input, before) => {
+      queryClient.setQueryData(["past-sessions-stars"], before);
+      toast.error(`Couldn't save the star: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
   const [density, setDensity] = useDensity();
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -518,10 +626,12 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             provider: entry.provider,
             cwd: entry.cwd,
             handle: (entry.source === "omp" ? entry.file : entry.sessionId) ?? "",
+            key: entry.key,
           }),
     onSuccess: ({ agentId }, entry) => {
       void queryClient.invalidateQueries({ queryKey: ["past-sessions"] });
       void queryClient.invalidateQueries({ queryKey: ["external-sessions"] });
+      void queryClient.invalidateQueries({ queryKey: ["past-sessions-stars"] });
       if (navigation) navigation.openAgent({ agentId });
       else toast.show(`${entry.source === "paseo" ? "Restored" : "Imported"}. It's in the sidebar now.`, { variant: "success" });
     },
@@ -535,8 +645,8 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     [listed, externalEntries],
   );
   const items = useMemo(
-    () => (data ? buildListItems(data, { query, sameFolderOpen }) : []),
-    [data, query, sameFolderOpen],
+    () => (data ? buildListItems(data, { query, sameFolderOpen, starred }) : []),
+    [data, query, sameFolderOpen, starred],
   );
   const now = Date.now();
   const busyKey = mutation.isPending ? mutation.variables?.key : undefined;
@@ -755,11 +865,13 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           divider={items[index - 1]?.kind === "row"}
           density={density}
           compact={compact}
+          starred={starred.has(item.entry.key)}
           serverId={serverId}
           snapshotSvg={snapshotIcons.get(item.entry.provider)}
           styles={styles}
           theme={theme}
           onOpen={mutation.mutate}
+          onStar={starMutation.mutate}
         />
       );
     };
@@ -768,7 +880,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       <FlatList
         style={{ flex: 1, minHeight: 0 }}
         data={items}
-        extraData={density}
+        extraData={[density, starred]}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         initialNumToRender={30}

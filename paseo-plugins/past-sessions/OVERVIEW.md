@@ -1,7 +1,7 @@
 Lists the past sessions of a Paseo workspace, its folder or its project and reopens them in
 Paseo (built on 0.11.4; checked live on 0.12.0).
 
-Three sources, newest activity first:
+Three sources, newest activity first, starred sessions before the rest:
 - **Paseo**: archived Paseo agents.
 - **OMP terminal**: OMP sessions that no Paseo agent owns, e.g. old terminal or herdr sessions.
   A session any Paseo agent (live or archived, any folder) already owns is never listed twice;
@@ -44,6 +44,23 @@ Titles are never shortened by the plugin beyond width ellipsis; Nerd Font glyphs
 use) are removed because app fonts render them as boxes. Paseo itself cuts the provisional title
 of an agent created from a prompt to the first 60 characters of its first line
 (`create-agent-title.js`), and stores it that way.
+
+## Stars
+
+A star keeps a session you mean to come back to at the top. It changes only the order: starred
+rows come first, then the rest, each group newest first, in the main list and in the collapsed
+terminal section alike. Where a session shows is unchanged.
+- **Star and close this chat** (Command Center, inside a chat): stars the chat, then archives it,
+  which stops the agent and closes its tab (what closing an agent tab does anyway in 0.12,
+  `resolveCloseAgentTabPolicy` → `archive-on-close`). On phones the Command Center is the
+  sidebar's **Search** row.
+- In the list: a filled star sits before the time on starred rows. On web/desktop hovering a row
+  shows an outline star; click it to star or unstar. On phones, long-press a row (a toast confirms).
+- Stored in `~/.paseo/plugin-data/past-sessions/stars.json`, keyed like the list
+  (`paseo:<agentId>`, `omp:<sessionId>`, `ext:<provider>:<sessionId>`). Importing a starred
+  terminal or Claude Code/Codex session moves its star to the new agent; restoring keeps it.
+- An open Past sessions view doesn't notice a chat closed with **Star and close** until it is
+  refreshed or reopened.
 
 ## Where
 
@@ -118,8 +135,15 @@ nilo whole project (95 worktrees, 876 files) 134 ms cold for the scan; tail read
 listed sessions 78 ms cold, 2 ms warm; scanner alone on drimgar-compendium (522 files) 414 ms
 cold, 7 ms warm.
 
-## Proof (live web app, 2026-10-19, `screenshots/`)
+## Proof (live web app, 2026-10-19/20, `screenshots/`)
 
+- `desktop-dark-starred.webp`: two starred agents above an unstarred one.
+- `phone-dark-star-and-close.webp`: **Star and close this chat** in the Command Center, opened
+  from the phone sidebar's Search.
+- `phone-dark-starred.webp`: filled stars at phone width.
+- Proven live 2026-10-20 with throwaway Claude Haiku agents (deleted afterwards): Star and close
+  archived the agent and closed its tab (desktop and phone width); clicking the hover star
+  starred and unstarred without restoring the row; long press starred on phone width.
 - `desktop-dark-folder-toolbar.webp`: toolbar with the single density toggle and no description
   line, Folder scope, Infra - Ofis › Assorted.
 - `desktop-dark-folder-external-compact.webp`: Compact, Claude Code & Codex shown (3), a
