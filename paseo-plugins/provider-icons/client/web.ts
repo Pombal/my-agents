@@ -23,9 +23,15 @@ interface WebNode {
 }
 interface Fiber { memoizedProps: IconScope | null; type: unknown; return: Fiber | null }
 declare const document: {
-  head: WebNode; body: WebNode;
+  head: WebNode; body: WebNode; visibilityState: string;
   createElement(tag: string): WebNode;
   querySelectorAll(selector: string): Iterable<WebNode>;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+};
+declare const window: {
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
 };
 declare const FileReader: new () => {
   result: unknown;
@@ -80,6 +86,18 @@ export async function pickImage(): Promise<{ image: string; name: string } | nul
   };
   input.click();
   return promise;
+}
+
+/** Runs `callback` whenever this window regains focus (fallback for missed settings announcements). */
+export function onWindowFocus(callback: () => void): () => void {
+  if (!isWeb) return () => {};
+  const visible = () => { if (document.visibilityState === "visible") callback(); };
+  window.addEventListener("focus", callback);
+  document.addEventListener("visibilitychange", visible);
+  return () => {
+    window.removeEventListener("focus", callback);
+    document.removeEventListener("visibilitychange", visible);
+  };
 }
 
 const MARK = "data-provider-icons";
