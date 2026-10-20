@@ -1,29 +1,19 @@
 import { useSettings, type PluginClientContext, type PluginSidebarItemProps } from "@getpaseo/plugin/client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { compilePreset, preferences } from "../shared/presets";
-import { type SidebarFilter, type WorkspaceRef, readSelection, writeSelection } from "./web";
+import { usePendingPresets, useProjects, useWorkspaceRefs } from "./data";
+import { type SidebarFilter, readSelection, sidebarCss, writeSelection } from "./web";
 
 export function createSwitcher(client: PluginClientContext, filter: SidebarFilter) {
   return function PresetSwitcher({ theme, host }: PluginSidebarItemProps) {
     const settings = useSettings(preferences);
-    const queryClient = useQueryClient();
-    const queryKey = ["filter-presets-projects", host.id];
-    const projects = useQuery({ queryKey, queryFn: async () => (await client.paseo.projects.list()).projects });
+    const projects = useProjects(client, host.id);
+    const workspaces = useWorkspaceRefs(client, host.id);
     const [selected, setSelected] = useState(readSelection);
-    const workspacesKey = ["filter-presets-workspaces", host.id];
-    const workspaces = useQuery({ queryKey: workspacesKey, queryFn: () => listWorkspaces(client) });
-    useEffect(() => {
-      const offProjects = client.paseo.projects.subscribe(() => {
-        void queryClient.invalidateQueries({ queryKey: ["filter-presets-projects", host.id] });
-      });
-      const offWorkspaces = client.paseo.workspaces.subscribe(() => {
-        void queryClient.invalidateQueries({ queryKey: ["filter-presets-workspaces", host.id] });
-      });
-      return () => { offProjects(); offWorkspaces(); };
-    }, [host.id, queryClient]);
-    const presets = settings.status === "ready" ? settings.values.presets : undefined;
+    // While the settings screen saves, its values apply here at once; the host confirms them a moment later.
+    const pending = usePendingPresets(host.id);
+    const presets = pending ?? (settings.status === "ready" ? settings.values.presets : undefined);
     const groups = useMemo(() => presets?.map((preset) => ({ ...preset, matches: compilePreset(preset) })), [presets]);
     const other = useMemo(() => projects.data?.filter((project) => !groups?.some((group) => group.matches(project))), [projects.data, groups]);
     const choices = useMemo(() => [
@@ -40,9 +30,10 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
       const hidden = active === "all" ? [] : active === "other"
         ? projects.data.filter((project) => !other!.includes(project))
         : projects.data.filter((project) => !group!.matches(project));
-      filter.apply(host.id, projects.data, hidden, workspaces.data ?? []);
-      return () => filter.apply(host.id, [], [], []);
-    }, [ready, groups, projects.data, workspaces.data, other, active, host.id]);
+      filter.apply(sidebarCss(host.id, projects.data, hidden, workspaces ?? []));
+    }, [ready, groups, projects.data, workspaces, other, active, host.id]);
+    // Cleared only when the switcher goes away, not between two applies.
+    useEffect(() => () => filter.apply(""), []);
     useEffect(() => {
       if (!ready) return;
       const remove = choices.map(({ id, name }) => client.addCommandCenterItem({
@@ -71,15 +62,4 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
       })}
     </View>;
   };
-}
-
-async function listWorkspaces(client: PluginClientContext): Promise<WorkspaceRef[]> {
-  const refs: WorkspaceRef[] = [];
-  let cursor: string | undefined;
-  do {
-    const result = await client.paseo.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } });
-    for (const { id, projectId } of result.entries) refs.push({ id, projectId });
-    cursor = result.pageInfo.hasMore ? result.pageInfo.nextCursor ?? undefined : undefined;
-  } while (cursor);
-  return refs;
 }

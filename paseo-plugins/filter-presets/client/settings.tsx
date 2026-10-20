@@ -1,13 +1,13 @@
 import { useSettings, type PluginClientContext, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { Pressable, Text, TextInput, View, type ViewStyle } from "react-native";
 import {
-  compilePreset, preferences, presetIdSchema, presetsSchema, ruleTypes, ruleValueError,
+  compilePreset, preferences, presetIdSchema, presetsSchema, projectName, projectOnlyRule, ruleTypes, ruleValueError,
   type Project, type RuleType,
 } from "../shared/presets";
+import { setPendingPresets, usePendingPresets, useProjects } from "./data";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 
@@ -69,26 +69,34 @@ export function createPresetSettings(client: PluginClientContext) {
   return function PresetSettings({ theme, host }: PluginSurfaceProps) {
     const colors = theme.colors;
     const settings = useSettings(preferences);
-    const queryClient = useQueryClient();
-    const projects = useQuery({
-      queryKey: ["filter-presets-projects", host.id],
-      queryFn: async () => (await client.paseo.projects.list()).projects,
-    });
-    useEffect(() => client.paseo.projects.subscribe(() => {
-      void queryClient.invalidateQueries({ queryKey: ["filter-presets-projects", host.id] });
-    }), [host.id, queryClient]);
+    const toast = useToast();
+    const projects = useProjects(client, host.id);
+    // While the pointer is over the Other list, background project changes wait, so rows don't move under it.
+    // The user's own edits still apply at once: they change the draft, not this list.
+    const [held, setHeld] = useState<Project[] | undefined>();
+    const projectList = held ?? projects.data;
 
     const [draft, setDraft] = useState<{ presets: DraftPreset[]; revision: string } | null>(null);
     const [json, setJson] = useState<string | null>(null);
     const [error, setError] = useState("");
     const [focusKey, setFocusKey] = useState<number | null>(null);
+    const [slowSave, setSlowSave] = useState(false);
+    // The draft's revision once our own save lands; the host's new revision then replaces it.
+    const savedFrom = useRef<string | null>(null);
     useEffect(() => {
-      if (settings.status === "ready" && draft === null) {
+      if (settings.status !== "ready") return;
+      if (draft === null) {
         setDraft({ presets: toDraft(settings.values.presets), revision: settings.revision });
+      } else if (savedFrom.current !== null && settings.revision !== savedFrom.current) {
+        const revision = settings.revision;
+        savedFrom.current = null;
+        setDraft((current) => current && { ...current, revision });
       }
     }, [settings, draft]);
 
-    const saved = settings.status === "ready" ? settings.values.presets : undefined;
+    // A save in flight counts as saved: the form and the sidebar show the result at once.
+    const pending = usePendingPresets(host.id);
+    const saved = pending ?? (settings.status === "ready" ? settings.values.presets : undefined);
     const presets = draft?.presets ?? [];
     const built = useMemo(() => buildPresets(presets), [presets]);
     const savedMatchers = useMemo(() => new Map((saved ?? []).map((preset) => [preset.id, compilePreset(preset)])), [saved]);
@@ -96,10 +104,10 @@ export function createPresetSettings(client: PluginClientContext) {
     const preview = useMemo(() => presets.map((preset, index) => {
       const matches = compilePreset({ rules: preset.rules.filter((rule) => !ruleValueError(rule.type, rule.value)) });
       const savedMatches = savedMatchers.get(built[index].id);
-      const matched = (projects.data ?? []).filter(matches);
+      const matched = (projectList ?? []).filter(matches);
       return { matches, matched, added: new Set(matched.filter((project) => !savedMatches?.(project)).map((p) => p.projectId)) };
-    }), [presets, built, savedMatchers, projects.data]);
-    const other = useMemo(() => (projects.data ?? []).filter((project) => !preview.some(({ matches }) => matches(project))), [projects.data, preview]);
+    }), [presets, built, savedMatchers, projectList]);
+    const other = useMemo(() => (projectList ?? []).filter((project) => !preview.some(({ matches }) => matches(project))), [projectList, preview]);
 
     const problems = presets.reduce((count, preset) => count + (preset.name.trim() ? 0 : 1) + (preset.rules.length ? 0 : 1)
       + preset.rules.filter((rule) => ruleValueError(rule.type, rule.value)).length, 0);
@@ -121,12 +129,27 @@ export function createPresetSettings(client: PluginClientContext) {
     }
     async function save() {
       if (!draft) return;
+      let values;
       try {
-        const values = json === null ? parsed : presetsSchema.safeParse(JSON.parse(json));
-        if (!values.success) throw new Error(values.error.issues.map((issue) => `${issue.path.join(".") || "presets"}: ${issue.message}`).join("\n"));
-        setError("");
-        if (await settings.save({ presets: values.data }, draft.revision)) { setDraft(null); setJson(null); }
-      } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+        const result = json === null ? parsed : presetsSchema.safeParse(JSON.parse(json));
+        if (!result.success) throw new Error(result.error.issues.map((issue) => `${issue.path.join(".") || "presets"}: ${issue.message}`).join("\n"));
+        values = result.data;
+      } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return; }
+      setError("");
+      // Show the saved state now. Keep the draft (and its input focus) unless saving normalizes it, e.g. trimmed names.
+      if (json !== null || JSON.stringify(built) !== JSON.stringify(values)) {
+        setDraft({ presets: toDraft(values), revision: draft.revision });
+        setJson(null);
+      }
+      setPendingPresets({ hostId: host.id, presets: values });
+      const slow = setTimeout(() => setSlowSave(true), 800);
+      const ok = await settings.save({ presets: values }, draft.revision);
+      clearTimeout(slow);
+      setSlowSave(false);
+      if (ok) savedFrom.current = draft.revision;
+      // On failure the saved state comes back, so the form is unsaved again and Save is enabled; edits are kept.
+      setPendingPresets(null);
+      if (!ok) toast.show("Couldn't save filter presets. Your changes are still here.", { variant: "error" });
     }
     async function discard() {
       // Reset at once from the values on screen; the reload (a host round trip) then picks up changes made elsewhere,
@@ -144,7 +167,7 @@ export function createPresetSettings(client: PluginClientContext) {
 
     const statusText = error || settings.saveError
       || (settings.status === "error" || settings.status === "invalid" ? settings.error : "")
-      || (settings.saving ? "Saving…" : json === null && problems ? `Fix ${problems === 1 ? "1 problem" : `${problems} problems`} to save` : "");
+      || (slowSave ? "Saving…" : json === null && problems ? `Fix ${problems === 1 ? "1 problem" : `${problems} problems`} to save` : "");
     const canSave = !!draft && dirty && !settings.saving && (json !== null || valid);
 
     return <View style={{ gap: 14, paddingVertical: 16 }}>
@@ -157,16 +180,17 @@ export function createPresetSettings(client: PluginClientContext) {
         style={{ minHeight: 320, padding: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8, color: colors.foreground, backgroundColor: colors.surface1, fontFamily: "monospace", fontSize: 12.5, textAlignVertical: "top" }} />}
       {draft && json === null && <>
         {presets.map((preset, index) => <PresetCard key={preset.key} colors={colors} preset={preset} preview={preview[index]}
-          projectsState={projects.isError ? "error" : projects.data ? "ready" : "loading"} autoFocus={focusKey === preset.key}
+          projectsState={projects.isError && !projectList ? "error" : projectList ? "ready" : "loading"} autoFocus={focusKey === preset.key}
           onChange={(change) => updatePreset(preset.key, change)}
           onDelete={() => update((list) => list.filter(({ key }) => key !== preset.key))} />)}
         <Pressable accessibilityRole="button" testID="filter-presets-add-preset" onPress={() => addPreset("", { type: "folderName", value: "" })}
           style={(state) => ({ ...card(colors), borderStyle: "dashed", borderColor: colors.surface2, backgroundColor: "transparent", paddingHorizontal: 16, paddingVertical: 11, opacity: hovered(state) ? 1 : 0.85 })}>
           <Text style={{ color: colors.foregroundMuted, fontSize: 13 }}>+ Add preset</Text>
         </Pressable>
-        <OtherCard colors={colors} projects={other} loaded={!!projects.data} presets={presets}
-          onAdd={(preset, project) => updatePreset(preset.key, (current) => ({ ...current, rules: [...current.rules, { key: nextKey(), type: "folderPrefix", value: project.projectRootPath }] }))}
-          onNewPreset={(project) => addPreset(project.projectDisplayName, { type: "folderPrefix", value: project.projectRootPath })} />
+        <OtherCard colors={colors} projects={other} allProjects={projectList ?? []} loaded={!!projectList} presets={presets}
+          onHold={(hold) => setHeld(hold ? projects.data : undefined)}
+          onAdd={(preset, rule) => updatePreset(preset.key, (current) => ({ ...current, rules: [...current.rules, { key: nextKey(), ...rule }] }))}
+          onNewPreset={(project, rule) => addPreset(projectName(project), rule)} />
       </>}
       {statusText ? <Text accessibilityLiveRegion="polite" style={{ color: error || settings.saveError || settings.status !== "ready" ? colors.statusDanger : colors.foregroundMuted, fontSize: 12.5 }}>{statusText}</Text> : null}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -291,9 +315,10 @@ function PresetCard({ colors, preset, preview, projectsState, autoFocus, onChang
       {preview.matched.length > 0 && <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {preview.matched.map((project) => {
           const added = preview.added.has(project.projectId);
-          return <View key={project.projectId} accessibilityLabel={added ? `${project.projectDisplayName}, newly matched` : project.projectDisplayName}
+          const name = projectName(project);
+          return <View key={project.projectId} accessibilityLabel={added ? `${name}, newly matched` : name}
             style={{ paddingHorizontal: 9, paddingVertical: 2, borderRadius: 999, borderWidth: 1, borderColor: added ? colors.statusSuccess : colors.border, backgroundColor: added ? "transparent" : colors.surface2 }}>
-            <Text style={{ fontSize: 12, color: added ? colors.statusSuccess : colors.foreground }}>{added ? `+ ${project.projectDisplayName}` : project.projectDisplayName}</Text>
+            <Text style={{ fontSize: 12, color: added ? colors.statusSuccess : colors.foreground }}>{added ? `+ ${name}` : name}</Text>
           </View>;
         })}
       </View>}
@@ -301,19 +326,24 @@ function PresetCard({ colors, preset, preview, projectsState, autoFocus, onChang
   </View>;
 }
 
-function OtherCard({ colors, projects, loaded, presets, onAdd, onNewPreset }: {
+type AddedRule = Omit<DraftRule, "key">;
+
+function OtherCard({ colors, projects, allProjects, loaded, presets, onHold, onAdd, onNewPreset }: {
   colors: Colors;
   projects: Project[];
+  allProjects: Project[];
   loaded: boolean;
   presets: DraftPreset[];
-  onAdd(preset: DraftPreset, project: Project): void;
-  onNewPreset(project: Project): void;
+  onHold(hold: boolean): void;
+  onAdd(preset: DraftPreset, rule: AddedRule): void;
+  onNewPreset(project: Project, rule: AddedRule): void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [menu, setMenu] = useState<string | null>(null);
   const shown = expanded ? projects : projects.slice(0, otherCollapsedCount);
   const hiddenCount = projects.length - shown.length;
-  return <View testID="filter-presets-other" style={{ ...card(colors), zIndex: menu ? 10 : 0 }}>
+  return <View testID="filter-presets-other" onPointerEnter={() => onHold(true)} onPointerLeave={() => onHold(false)}
+    style={{ ...card(colors), zIndex: menu ? 10 : 0 }}>
     <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
       <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>Other</Text>
       <Text style={{ flex: 1, fontSize: 12, color: colors.foregroundMuted }}>
@@ -322,33 +352,38 @@ function OtherCard({ colors, projects, loaded, presets, onAdd, onNewPreset }: {
     </View>
     {shown.map((project) => {
       const open = menu === project.projectId;
+      const name = projectName(project);
       return <View key={project.projectId} style={{ zIndex: open ? 10 : 0, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 40, paddingLeft: 16, paddingRight: 10, borderTopWidth: 1, borderTopColor: colors.surface0, backgroundColor: open ? colors.surface2 : "transparent" }}>
-        <Text numberOfLines={1} style={{ width: 210, fontSize: 13, color: colors.foreground }}>{project.projectDisplayName}</Text>
+        <Text numberOfLines={1} style={{ width: 210, fontSize: 13, color: colors.foreground }}>{name}</Text>
         <Text numberOfLines={1} style={{ flex: 1, fontSize: 12, fontFamily: "monospace", color: colors.foregroundMuted }}>{homeRelative(project.projectRootPath)}</Text>
         <View>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Add ${project.projectDisplayName} to a preset`} accessibilityState={{ expanded: open }}
-            testID={`filter-presets-add-to-${project.projectDisplayName}`} onPress={() => setMenu(open ? null : project.projectId)}
+          <Pressable accessibilityRole="button" accessibilityLabel={`Add ${name} to a preset`} accessibilityState={{ expanded: open }}
+            testID={`filter-presets-add-to-${project.projectId}`} onPress={() => setMenu(open ? null : project.projectId)}
             style={(state) => ({ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, borderWidth: 1, borderColor: open || hovered(state) ? colors.border : "transparent" })}>
             {(state) => <>
               <Text style={{ fontSize: 12, color: open || hovered(state) ? colors.foreground : colors.foregroundMuted }}>Add to</Text>
               <Icon name="ChevronDown" size={12} color={open || hovered(state) ? colors.foreground : colors.foregroundMuted} />
             </>}
           </Pressable>
-          {open && <>
-            <Pressable accessibilityLabel="Close menu" onPress={() => setMenu(null)}
-              style={backdropStyle} />
-            <View accessibilityRole="menu" style={{
-              position: "absolute", right: 0, top: 32, width: 340, padding: 5, gap: 2, borderRadius: 8,
-              borderWidth: 1, borderColor: colors.surface2, backgroundColor: colors.surface1,
-              shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
-            }}>
-              {presets.map((preset) => <MenuItem key={preset.key} colors={colors}
-                title={`${preset.name.trim() || "New preset"}: this project only`} detail={`Inside folder ${homeRelative(project.projectRootPath)}`}
-                onPress={() => { setMenu(null); onAdd(preset, project); }} />)}
-              <MenuItem colors={colors} title="New preset…" detail={presets.length ? undefined : `Inside folder ${homeRelative(project.projectRootPath)}`}
-                onPress={() => { setMenu(null); onNewPreset(project); }} />
-            </View>
-          </>}
+          {open && (() => {
+            const rule = projectOnlyRule(project, allProjects);
+            const detail = `${ruleCopy[rule.type].label} ${homeRelative(rule.value)}`;
+            return <>
+              <Pressable accessibilityLabel="Close menu" onPress={() => setMenu(null)}
+                style={backdropStyle} />
+              <View accessibilityRole="menu" style={{
+                position: "absolute", right: 0, top: 32, width: 340, padding: 5, gap: 2, borderRadius: 8,
+                borderWidth: 1, borderColor: colors.surface2, backgroundColor: colors.surface1,
+                shadowColor: "#000", shadowOpacity: 0.5, shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
+              }}>
+                {presets.map((preset) => <MenuItem key={preset.key} colors={colors}
+                  title={`${preset.name.trim() || "New preset"}: this project only`} detail={detail}
+                  onPress={() => { setMenu(null); onAdd(preset, rule); }} />)}
+                <MenuItem colors={colors} title="New preset…" detail={presets.length ? undefined : detail}
+                  onPress={() => { setMenu(null); onNewPreset(project, rule); }} />
+              </View>
+            </>;
+          })()}
         </View>
       </View>;
     })}

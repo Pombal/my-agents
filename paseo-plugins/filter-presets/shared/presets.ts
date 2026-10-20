@@ -8,6 +8,8 @@ export type RuleType = (typeof ruleTypes)[number];
 export function ruleValueError(type: RuleType, value: string): string | undefined {
   if (!value) return "Enter a value";
   if (type === "folderName" && value.includes("/")) return "One folder name, without /";
+  // Project roots are absolute daemon paths; `~` and relative paths would silently never match.
+  if ((type === "folderPrefix" || type === "pathGlob") && !value.startsWith("/")) return "Use an absolute path (~ is not expanded)";
   if (type === "pathRegex") {
     try { new RegExp(value); } catch (cause) {
       return `Invalid regular expression: ${cause instanceof Error ? cause.message.replace(/^Invalid regular expression: /, "") : String(cause)}`;
@@ -53,6 +55,22 @@ export interface Project {
   projectKey?: string;
   projectRootPath: string;
   projectDisplayName: string;
+  projectCustomName?: string | null;
+}
+
+/** The name Paseo's sidebar shows: a rename wins over the folder name. */
+export function projectName(project: Project): string {
+  return project.projectCustomName || project.projectDisplayName;
+}
+
+/**
+ * A rule that matches this project and no other current one. "Inside folder" also catches projects nested below
+ * the root (e.g. /mnt/vault contains /mnt/vault/Infra), so those cases get an exact path pattern instead.
+ */
+export function projectOnlyRule(project: Project, projects: readonly Project[]): { type: "folderPrefix" | "pathGlob"; value: string } {
+  const root = project.projectRootPath;
+  const nested = projects.some((other) => other.projectRootPath.startsWith(root.replace(/\/+$/, "") + "/"));
+  return nested && !/[*?]/.test(root) ? { type: "pathGlob", value: root } : { type: "folderPrefix", value: root };
 }
 
 // Globs are anchored, case-sensitive: * excludes /, ** includes /, ? is one non-/ character.
@@ -86,10 +104,11 @@ export function compilePreset(preset: Pick<Preset, "rules">): (project: Project)
       const regex = glob(rule.value);
       return (project: Project) => regex.test(project.projectRootPath);
     }
-    const pattern = rule.value.replace(/^remote:/, "");
-    const regex = glob(pattern);
+    const raw = rule.value.replace(/^remote:/, "");
     // org/repo patterns are GitHub shortcuts. Full host/org/repo patterns work on other forges.
-    const githubShortcut = !pattern.split("/")[0].includes(".");
+    const githubShortcut = !raw.split("/")[0].includes(".");
+    // The daemon lower-cases GitHub owner/repo in project keys, so GitHub patterns compare lower-case too.
+    const regex = glob(githubShortcut || /^github\.com\//i.test(raw) ? raw.toLowerCase() : raw);
     return (project: Project) => {
       if (!project.projectKey?.startsWith("remote:")) return false;
       const remote = project.projectKey.slice(7).split("#subdir:")[0];
