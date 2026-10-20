@@ -53,8 +53,8 @@ export function splitWorkspaces(workspaces, self, limit = 40) {
 }
 
 // The agent whose first prompt became the workspace's placeholder: its
-// earliest tab, archived or not. `include` decides what counts (a tab whose
-// history can be read; see isTab and readable in agent-titles.mjs).
+// earliest tab, archived or not. `include` decides what counts (in the server:
+// no internal or sub-agents, and only history readable without starting it).
 export function firstAgent(agents, workspaceId, include) {
   return agents
     .filter(agent => agent.workspaceId === workspaceId && include(agent))

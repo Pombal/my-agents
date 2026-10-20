@@ -32,17 +32,6 @@ export function siblingEntry(title, labels, promptLines = []) {
   return { title, note: ownership === "unnamed" ? "placeholder: first prompt line, not a title" : "named by hand" };
 }
 
-// Whether Paseo shows this agent as a tab of its own workspace, as Paseo decides
-// it (agent-manager.js): never an internal agent; a delegated (sub-)agent only
-// with an open-tab label or when it lives outside its parent's workspace (a
-// missing parent counts as outside). `byId` holds the agents, archived included;
-// `labels` brings Paseo's label helpers (@getpaseo/protocol/agent-labels).
-export function isTab(agent, byId, { isDelegatedAgent, hasOpenAgentTab, getParentAgentIdFromLabels }) {
-  if (agent.internal) return false;
-  if (!isDelegatedAgent(agent) || hasOpenAgentTab(agent.labels)) return true;
-  return byId.get(getParentAgentIdFromLabels(agent.labels))?.workspaceId !== agent.workspaceId;
-}
-
 // Whether an agent's timeline can be read without starting it. Daemon 0.12 loads
 // an agent to serve its timeline; a stored (not loaded) live agent would be
 // resumed with its provider process, which stays running. Archived agents load

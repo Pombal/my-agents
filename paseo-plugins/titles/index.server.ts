@@ -1,14 +1,14 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
+import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import { basename } from "node:path";
 import { retitle, type RetitleResult } from "./shared/rpc";
 import { settings, type Automatic } from "./shared/settings";
 import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, readable, siblingEntry, titleOwnership } from "./shared/agent-titles.mjs";
-import { exclusiveRuns } from "./shared/exclusive.mjs";
 import { decideTitle, type Sibling } from "./server/model";
 import { renameAgent } from "./server/rename";
-import { listAgents, tabsOf } from "./server/agents";
 import { openingPromptLines, recentTimeline } from "./server/timeline";
+import { listAgents } from "./server/agents";
 import { registerWorkspaceTitles } from "./server/workspaces";
 
 // Manual retitles avoid the current title and this many earlier ones.
@@ -24,9 +24,16 @@ export default function contribute(server: PluginServerContext) {
   // First-prompt lines per agent. A first prompt never changes, so each
   // sibling's timeline is read at most once per run (again after a failed or empty read).
   const promptLines = new Map<string, Promise<string[]>>();
-  const runs = exclusiveRuns("Already retitling this tab");
+  const busy = new Set<string>();
+  // The automatic check running per tab; a manual retitle waits for it rather than failing.
+  const checking = new Map<string, Promise<unknown>>();
   let disposed = false;
 
+  const exclusive = async <T>(agentId: string, work: () => Promise<T>) => {
+    if (busy.has(agentId)) throw new Error("Already retitling this tab");
+    busy.add(agentId);
+    try { return await work(); } finally { busy.delete(agentId); }
+  };
   const automatic = async (): Promise<Automatic> => {
     const state = await preferences.read();
     return state.status === "ready" ? state.values.automatic : "off";
@@ -38,23 +45,21 @@ export default function contribute(server: PluginServerContext) {
     if (!lines) {
       lines = openingPromptLines(paseo.agents.ref(agentId));
       promptLines.set(agentId, lines);
-      // Cache only a found prompt: one read before the prompt reached the timeline gets another chance.
       lines.then(found => { if (!found.length) promptLines.delete(agentId); }, () => promptLines.delete(agentId));
     }
     return lines;
   };
 
-  // The other tabs of this agent's workspace, as Paseo shows them (not archived).
-  // Only a tab already loaded in the daemon has its timeline read; reading a stored
-  // one would start its provider. A failed lookup is logged and titling goes on without siblings.
+  // The other tabs of this agent's workspace: not archived, no sub-agents. A
+  // failed lookup is logged and titling goes on without siblings.
   const siblingsOf = async (paseo: PaseoApi, agent: PaseoAgent): Promise<Sibling[]> => {
     if (!agent.workspaceId) return [];
     try {
-      const agents = await listAgents(paseo);
-      const isTab = tabsOf(agents);
-      const others = agents.filter(other => other.id !== agent.id && other.workspaceId === agent.workspaceId && !other.archivedAt && isTab(other));
+      const others = (await listAgents(paseo)).filter(other =>
+        other.id !== agent.id && other.workspaceId === agent.workspaceId && !other.archivedAt && !other.internal && !isDelegatedAgent(other));
       const entries = await Promise.all(others.map(async other => {
-        // Only a title that is neither Titles' own nor a recorded placeholder needs the timeline.
+        // Only a title that is neither Titles' own nor a recorded placeholder needs the timeline,
+        // and only of a tab loaded in the daemon: reading a stored one would resume its provider.
         const lines = other.title && titleOwnership(other.title, other.labels) === "hand" && readable(other) ? await firstPromptLines(paseo, other.id) : [];
         return siblingEntry(other.title ?? null, other.labels, lines);
       }));
@@ -80,8 +85,8 @@ export default function contribute(server: PluginServerContext) {
     const run = async (): Promise<string | null> => {
       const mode = await automatic();
       if (mode === "off") return firstTurn ? "automatic titles are off" : null;
-      // While a retitle of this tab runs, it decides (a manual one names the tab anyway).
-      return runs.run(agent.id, false, async () => {
+      if (busy.has(agent.id)) return null; // A manual retitle is deciding already.
+      const check = exclusive(agent.id, async () => {
         const handle = paseo.agents.ref(agent.id);
         const snapshot = await handle.refresh();
         if (!snapshot || snapshot.agent.archivedAt) return null;
@@ -94,13 +99,12 @@ export default function contribute(server: PluginServerContext) {
         const ownership = titleOwnership(title, snapshot.agent.labels, isPlaceholder ? title : null);
         if (ownership === "hand") return firstTurn ? `left hand-chosen ${JSON.stringify(title)}` : null;
         if (ownership === "named" && mode !== "every") return null;
-        // Record the placeholder before anything can fail, so a later reply still
-        // names the tab, and sibling lookups know it without reading this timeline.
-        const marking = ownership === "unnamed" && snapshot.agent.labels[LABEL_UNNAMED] !== title ? renameAgent(agent.id, title, null, { [LABEL_UNNAMED]: title! }) : null;
-        const [items, siblings] = await Promise.all([firstItems ?? recentTimeline(handle), siblingsOf(paseo, snapshot.agent), marking]);
-        const conversation = conversationContext(items);
+        // Record the placeholder before anything can fail, so a later reply still names the tab.
+        if (ownership === "unnamed" && snapshot.agent.labels[LABEL_UNNAMED] !== title) await renameAgent(agent.id, title, null, { [LABEL_UNNAMED]: title! });
+        const conversation = conversationContext(firstItems ?? await recentTimeline(handle));
         if (!conversation) return null;
         const workspace = basename(snapshot.agent.cwd);
+        const siblings = await siblingsOf(paseo, snapshot.agent);
         const decision = ownership === "unnamed"
           ? await decideTitle("first", { workspace, siblings, conversation })
           : await decideTitle("every", { workspace, siblings, conversation, title: title! });
@@ -109,6 +113,9 @@ export default function contribute(server: PluginServerContext) {
         const result = await renameAgent(agent.id, title, decision.title, { [LABEL_NAMED]: decision.title });
         return result === "renamed" ? `${JSON.stringify(title)} → ${decision.title}` : `skipped (${result})`;
       });
+      checking.set(agent.id, check);
+      void check.catch(() => {}).finally(() => { if (checking.get(agent.id) === check) checking.delete(agent.id); });
+      return check;
     };
     void run().then(
       note => { if (note) console.info(`titles: ${firstTurn ? "first reply" : "reply"} ${agent.id}: ${note} in ${Date.now() - started} ms`); },
@@ -116,22 +123,22 @@ export default function contribute(server: PluginServerContext) {
     );
   });
 
-  // Stefan asked for a new title, so the current one is never kept. An automatic
-  // check of the same tab finishes first. Expected failures come back as an
-  // outcome: the plugin RPC wraps thrown errors in transport detail that is noise in a toast.
+  // Stefan asked for a new title, so the current one is never kept. Expected
+  // failures come back as an outcome: the plugin RPC wraps thrown errors in
+  // transport detail that is noise in a toast.
   server.handle(retitle, async ({ agentId }, { paseo }) => {
     const started = Date.now();
     const failed = (message: string): RetitleResult => ({ outcome: "failed", message });
-    const result = await runs.run(agentId, true, async (): Promise<RetitleResult> => {
+    await checking.get(agentId)?.catch(() => {});
+    const result = await exclusive(agentId, async (): Promise<RetitleResult> => {
       const handle = paseo.agents.ref(agentId);
       const snapshot = await handle.refresh();
       if (!snapshot || snapshot.agent.archivedAt) return failed("This tab no longer exists");
       const current = snapshot.agent.title ?? null;
-      const [items, siblings] = await Promise.all([recentTimeline(handle), siblingsOf(paseo, snapshot.agent)]);
-      const conversation = conversationContext(items);
+      const conversation = conversationContext(await recentTimeline(handle));
       if (!conversation) return failed("Nothing to title yet");
       const avoid = [...new Set([current, ...(rejected.get(agentId) ?? [])].filter((title): title is string => !!title))];
-      const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), siblings, conversation, rejected: avoid });
+      const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), siblings: await siblingsOf(paseo, snapshot.agent), conversation, rejected: avoid });
       if (disposed) return failed("Titles was disabled meanwhile");
       if (decision.kind === "keep") return failed("Claude found no subject to name");
       const renamed = await renameAgent(agentId, current, decision.title, { [LABEL_NAMED]: decision.title });
@@ -141,7 +148,7 @@ export default function contribute(server: PluginServerContext) {
       return { outcome: "renamed", title: decision.title, previous: current };
     }).catch((error): RetitleResult => failed(error instanceof Error ? error.message : String(error)));
     console.info(`titles: retitle ${agentId}: ${JSON.stringify(result)} in ${Date.now() - started} ms`);
-    return result!;
+    return result;
   });
 
   return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); stopWorkspaces(); awaitingFirstTurn.clear(); rejected.clear(); promptLines.clear(); };

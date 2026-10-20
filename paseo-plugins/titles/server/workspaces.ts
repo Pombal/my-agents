@@ -7,12 +7,11 @@ import { z } from "zod";
 import { retitleWorkspace, type RetitleResult } from "../shared/rpc";
 import type { settings } from "../shared/settings";
 import { conversationContext, readable } from "../shared/agent-titles.mjs";
-import { exclusiveRuns } from "../shared/exclusive.mjs";
 import { firstAgent, observeTitle, projectEntry, splitWorkspaces, workspaceOwnership } from "../shared/workspace-titles.mjs";
 import { decideWorkspaceTitle, type Sibling, type WorkspaceTitleRequest } from "./model";
 import { paseoHome } from "./rename";
-import { listAgents, tabsOf } from "./agents";
 import { openingPromptLines, openingTimeline, recentTimeline } from "./timeline";
+import { listAgents, type ListedAgent } from "./agents";
 
 // Manual retitles avoid the current title and this many earlier ones.
 const REJECTED_MEMORY = 5;
@@ -37,10 +36,15 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
   // First-prompt lines per workspace (its first tab's opening prompts); a first prompt never changes.
   const placeholders = new Map<string, Promise<string[]>>();
   const rejected = new Map<string, string[]>();
-  const runs = exclusiveRuns("Already retitling this workspace");
+  const busy = new Set<string>();
   let watching: Promise<() => void> | null = null;
   let disposed = false;
 
+  const exclusive = async <T>(workspaceId: string, work: () => Promise<T>) => {
+    if (busy.has(workspaceId)) throw new Error("Already retitling this workspace");
+    busy.add(workspaceId);
+    try { return await work(); } finally { busy.delete(workspaceId); }
+  };
   const forget = (workspaceId: string) => { pending.delete(workspaceId); asked.delete(workspaceId); rejected.delete(workspaceId); placeholders.delete(workspaceId); };
   const see = (workspace: Pick<PaseoWorkspace, "id" | "title">) => {
     const observed = pending.get(workspace.id);
@@ -71,19 +75,17 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
     });
   };
 
-  // The first tab whose history can be read without starting it (archived, or
-  // loaded in the daemon): reading a stored live agent would start its provider.
-  const firstReadable = (agents: PaseoAgent[], workspaceId: string) => {
-    const isTab = tabsOf(agents);
-    return firstAgent(agents, workspaceId, (agent: PaseoAgent) => isTab(agent) && readable(agent));
-  };
+  // The workspace's earliest tab (archived ones included) whose history can be read
+  // without starting it: reading a stored live agent would resume its provider.
+  const firstTab = (agents: ListedAgent[], workspaceId: string) =>
+    firstAgent(agents, workspaceId, (agent: ListedAgent) => !agent.internal && !isDelegatedAgent(agent) && readable(agent));
 
   // `agents` is read only when the workspace's lines aren't cached yet.
-  const placeholderLines = (paseo: PaseoApi, workspaceId: string, agents: () => Promise<PaseoAgent[]>) => {
+  const placeholderLines = (paseo: PaseoApi, workspaceId: string, agents: () => Promise<ListedAgent[]>) => {
     let lines = placeholders.get(workspaceId);
     if (!lines) {
       lines = agents().then(list => {
-        const first = firstReadable(list, workspaceId);
+        const first = firstTab(list, workspaceId);
         return first ? openingPromptLines(paseo.agents.ref(first.id)) : [];
       });
       placeholders.set(workspaceId, lines);
@@ -95,15 +97,16 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
 
   // This project's other workspaces, marked like sibling tabs, and the most
   // recently active ones elsewhere. A failed lookup is logged and titling goes
-  // on without them. `workspaces` and `agents` are listings the caller already has.
-  const siblingsOf = async (paseo: PaseoApi, workspace: PaseoWorkspace, workspaces: PaseoWorkspace[], agents: () => Promise<PaseoAgent[]>): Promise<Pick<WorkspaceTitleRequest, "project" | "elsewhere">> => {
+  // on without them.
+  const siblingsOf = async (paseo: PaseoApi, workspace: PaseoWorkspace): Promise<Pick<WorkspaceTitleRequest, "project" | "elsewhere">> => {
     try {
-      const { project, elsewhere } = splitWorkspaces(workspaces, workspace);
+      const { project, elsewhere } = splitWorkspaces(await listWorkspaces(paseo), workspace);
       const mine = await owned();
+      let agents: Promise<ListedAgent[]> | undefined;
       const entries = await Promise.all(project.map(async (other: PaseoWorkspace) => {
         const title = mine.get(other.id) ?? null;
         // Only a title that isn't Titles' own needs the first prompt.
-        const lines = other.title === title ? [] : await placeholderLines(paseo, other.id, agents);
+        const lines = other.title === title ? [] : await placeholderLines(paseo, other.id, () => agents ??= listAgents(paseo));
         return projectEntry(other.title, title, lines);
       }));
       return { project: entries.filter((entry): entry is Sibling => entry !== null), elsewhere };
@@ -140,35 +143,32 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
   // tries once more; a prompt without a subject waits for the next turn.
   const onTurn = (agent: PluginHookAgent, paseo: PaseoApi, start: boolean) => {
     const workspaceId = agent.workspaceId;
-    if (!workspaceId || !pending.has(workspaceId) || agent.parentAgentId || runs.busy(workspaceId)) return;
+    if (!workspaceId || !pending.has(workspaceId) || agent.parentAgentId || busy.has(workspaceId)) return;
     if (!start && asked.has(workspaceId)) return;
     const started = Date.now();
     const run = async (): Promise<string | null> => {
       const state = await preferences.read();
-      // An unreadable settings file is a passing state: keep the workspace pending.
+      // An unreadable settings file is passing: keep the workspace pending.
       if (state.status !== "ready") return "settings unreadable; will retry";
       if (!state.values.workspaces) { forget(workspaceId); return "automatic workspace titles are off"; }
       // Paseo's internal agents (its own title generator) and sub-agents never take the lock.
       const handle = paseo.agents.ref(agent.id);
       const snapshot = await handle.refresh();
-      if (!snapshot || ("internal" in snapshot.agent && snapshot.agent.internal) || isDelegatedAgent(snapshot.agent)) return null;
-      return runs.run(workspaceId, false, async () => {
+      if (!snapshot || ("internal" in snapshot.agent && snapshot.agent.internal) || isDelegatedAgent(snapshot.agent) || busy.has(workspaceId)) return null;
+      return exclusive(workspaceId, async () => {
         if (!pending.has(workspaceId)) return null; // Named or given up meanwhile.
-        const [workspaces, items] = await Promise.all([listWorkspaces(paseo), recentTimeline(handle)]);
-        const workspace = workspaces.find(candidate => candidate.id === workspaceId) ?? await paseo.workspaces.ref(workspaceId).refresh();
+        const workspace = await paseo.workspaces.ref(workspaceId).refresh();
         if (!workspace) { forget(workspaceId); return null; }
-        const conversation = conversationContext(items);
+        const conversation = conversationContext(await recentTimeline(handle));
         if (!conversation) return null;
-        let agents: Promise<PaseoAgent[]> | undefined;
-        const listing = () => agents ??= listAgents(paseo);
-        const lines = await placeholderLines(paseo, workspaceId, listing);
+        const lines = await placeholderLines(paseo, workspaceId, () => listAgents(paseo));
         const ownership = async (title: string | null) =>
           workspaceOwnership(title, { chosen: (await owned()).get(workspaceId) ?? null, placeholders: lines, observed: pending.get(workspaceId) ?? null });
         const title = workspace.title ?? null;
         const before = await ownership(title);
         if (before === "hand" || before === "named") { forget(workspaceId); return `left ${before === "hand" ? "hand-named" : "already named"} ${JSON.stringify(title)}`; }
         asked.add(workspaceId);
-        const decision = await decideWorkspaceTitle("first", { projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace, workspaces, listing), conversation });
+        const decision = await decideWorkspaceTitle("first", { projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace), conversation });
         if (disposed) return "plugin stopped";
         if (decision.kind === "keep") return "no subject yet";
         // No conditional rename exists: re-read right before writing. Paseo's
@@ -193,31 +193,27 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
   const offTurnEnded = server.on("agent.turn_ended", ({ agent, outcome }, { paseo }) => { if (outcome.kind === "completed") onTurn(agent, paseo, false); });
 
   // Stefan asked for a new title, so the current one is never kept. Works on any
-  // workspace, whatever the setting or who named it; an automatic run finishes first.
+  // workspace, whatever the setting or who named it.
   server.handle(retitleWorkspace, async ({ workspaceId }, { paseo }) => {
     const started = Date.now();
     const failed = (message: string): RetitleResult => ({ outcome: "failed", message });
-    const result = await runs.run(workspaceId, true, async (): Promise<RetitleResult> => {
-      const [workspaces, agents] = await Promise.all([listWorkspaces(paseo), listAgents(paseo)]);
-      const workspace = workspaces.find(candidate => candidate.id === workspaceId) ?? await paseo.workspaces.ref(workspaceId).refresh();
+    const result = await exclusive(workspaceId, async (): Promise<RetitleResult> => {
+      const workspace = await paseo.workspaces.ref(workspaceId).refresh();
       if (!workspace) return failed("This workspace no longer exists");
       const current = workspace.title ?? null;
-      const isTab = tabsOf(agents);
-      const tabs = agents.filter(agent => agent.workspaceId === workspaceId && !agent.archivedAt && isTab(agent))
+      const agents = await listAgents(paseo);
+      const tabs = agents.filter(agent => agent.workspaceId === workspaceId && !agent.archivedAt && !agent.internal && !isDelegatedAgent(agent))
         .flatMap(agent => agent.title ? [agent.title] : []);
-      const first = firstReadable(agents, workspaceId);
-      const [opening, siblings] = await Promise.all([
-        first ? openingTimeline(paseo.agents.ref(first.id)).catch(error => {
-          console.warn(`titles: first tab of workspace ${workspaceId} unreadable:`, error instanceof Error ? error.message : error);
-          return [];
-        }) : [],
-        siblingsOf(paseo, workspace, workspaces, async () => agents),
-      ]);
-      const conversation = conversationContext(opening);
-      if (!conversation && !tabs.length) return failed("Nothing to title yet");
+      const first = firstTab(agents, workspaceId);
+      const conversation = first ? conversationContext(await openingTimeline(paseo.agents.ref(first.id)).catch(error => {
+        console.warn(`titles: first tab of workspace ${workspaceId} unreadable:`, error instanceof Error ? error.message : error);
+        return [];
+      })) : "";
+      // A workspace whose only tab is a side agent still has its own title to go on.
+      if (!conversation && !tabs.length && !current) return failed("Nothing to title yet");
       const avoid = [...new Set([current, ...(rejected.get(workspaceId) ?? [])].filter((title): title is string => !!title))];
       const decision = await decideWorkspaceTitle("manual", {
-        projectName: workspace.projectCustomName || workspace.projectDisplayName, ...siblings, conversation, tabs, rejected: avoid,
+        projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace), conversation, tabs, rejected: avoid,
       });
       if (disposed) return failed("Titles was disabled meanwhile");
       if (decision.kind === "keep") return failed("Claude found no subject to name");
@@ -232,7 +228,7 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
       return { outcome: "renamed", title: decision.title, previous: current };
     }).catch((error): RetitleResult => failed(error instanceof Error ? error.message : String(error)));
     console.info(`titles: retitle workspace ${workspaceId}: ${JSON.stringify(result)} in ${Date.now() - started} ms`);
-    return result!;
+    return result;
   });
 
   return () => {

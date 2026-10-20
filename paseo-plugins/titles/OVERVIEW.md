@@ -19,10 +19,8 @@ it also sees the workspace's other tabs (below).
 
 ## Sibling tabs
 
-Before each Haiku call Titles lists the other tabs of the same workspace (not
-archived, not the tab being titled; by Paseo's own rule, so a side agent opened
-in another workspace or as an open tab counts, a sub-agent inside its parent's
-workspace doesn't) and passes them as
+Before each Haiku call Titles lists the other agents of the same workspace
+(not archived, no sub-agents, not the tab being titled) and passes them as
 `siblings`. Haiku is told: "Like a hand-named sibling would, your title must
 make clear what sets this conversation apart from the tabs in "siblings": its
 own subject or angle, not a synonym or near-twin of theirs." So a second
@@ -193,16 +191,17 @@ reload or daemon restart, are not adopted: retitle them on demand.
 Feedback on demand: a **Retitling workspace…** toast shows at once (about
 0.2 s), then one toast with the outcome (`Workspace renamed to Kite Units
 (was Wind Speed Units)` or `Couldn't retitle the workspace: …`); the new title
-shows in the sidebar and header. The toast is lent by a hidden header button
-(desktop layouts) and hidden composer pills on the workspace's tabs (phone
-layouts show no plugin header buttons). A Retitle workspace pressed during an
-automatic workspace title waits for it, like tabs.
+shows in the sidebar and header. The toast is lent by a pill on the composer of
+the tab the trigger came from (hidden on web, like the tab path's), so both
+triggers are offered only while an agent tab is focused: not from a terminal
+or file tab.
 
 Which tab is "first": the earliest tab, archived ones included, whose history
 can be read without starting it (see *Speed*). If the real first tab is a
 stored (not loaded) agent, the next readable one stands in. A workspace whose
-only tab is a side agent has no prompt of its own in that tab's opening, so
-Haiku names it from its tab title alone.
+only tab is a sub-agent of a tab elsewhere has no first tab of its own; Retitle
+workspace then names it from its current title and siblings, and answers
+`Nothing to title yet` if it has no title either.
 
 ## Model
 
@@ -373,10 +372,10 @@ Audit and measurements: `~/agentspace/index/.scratch/paseo-grievances/titles-per
   flag traffic): the CLI now exits 15 ms after answering instead of ~700 ms,
   about −0.7 s per call (wall median 3.2 s → 2.5 s, same model and answers).
   Live: first-reply titles median ~2.5 s (was 3.9 s), hotkey retitle 2.5–3.2 s,
-  Retitle workspace 2.8–4.8 s. Retitle workspace progress toast: ~0.2 s desktop, ~0.45 s phone width (the phone lender waits for the agent list).
-- Plugin's own work: 10–20 ms warm per decision; Retitle workspace lists
-  agents and workspaces once (−6 to −8 ms). Key → tab spinner 5–7 ms; phone
-  tap → Retitling… toast ~0.1 s.
+  Retitle workspace 2.8–4.8 s. Key → tab spinner 5–7 ms; phone tap →
+  Retitling… toast ~0.1 s.
+- Plugin's own work: 10–20 ms warm per decision. Parallelising its reads and
+  listing once per Retitle workspace saved 0–8 ms and were reverted as churn.
 - Timelines of other tabs are read only when the tab is loaded in the daemon
   or archived: daemon 0.12 serves a timeline by loading the agent, and a stored
   agent would be resumed with its provider process (~1.3 s, ~250 MB, never
@@ -390,28 +389,24 @@ Audit and measurements: `~/agentspace/index/.scratch/paseo-grievances/titles-per
 
 ## Code layout and tests
 
-- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, Paseo's tab rule, which timelines can be read, answer parsing, conversation excerpt).
-- `shared/exclusive.mjs`: one title decision per tab or workspace; a manual one waits for an automatic one.
+- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, which timelines can be read without starting an agent, answer parsing, conversation excerpt).
 - `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
 - `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`) and *Automatic workspace titles* (`workspaces`, on/off).
 - `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
 - `server/model.ts`: Claude CLI call.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
-- `server/agents.ts`: the agent listing (archived included) and Paseo's tab rule over it.
+- `server/agents.ts`: the agent listing, archived included.
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
 - `server/workspaces.ts`: workspace titling (creation tracking, title-change subscription, sibling lookups, the `retitle-workspace` RPC, ownership file).
 - `index.server.ts`: automatic titling after each reply, the `retitle` RPC, the sibling lookup with its first-prompt cache; registers workspace titling.
 - `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers, the tab spinner, the toasts, the settings screen.
 
-`npm test` runs 19 tests on the pure policy. `tests/agent-titles.test.mjs` (8):
+`npm test` runs 15 tests on the pure policy. `tests/agent-titles.test.mjs` (8):
 the placeholder rule, which titles automatic titling may touch (hand names
 never), how siblings are described (Titles' own, placeholder, hand-named,
 including a Titles title renamed by hand), keep-versus-rename parsing with
 titles passed through as written, malformed answers, excerpt filtering,
 merging of agentic turns, and bounds on long replies.
-`tests/tabs-and-runs.test.mjs` (4): Paseo's tab rule for side agents, which
-timelines can be read without starting an agent, and a manual retitle waiting
-for an automatic check while a second one is refused.
 
 `tests/workspace-titles.test.mjs` (7) covers the workspace policy: title
 history, which titles automatic titling may touch (empty, placeholder, its

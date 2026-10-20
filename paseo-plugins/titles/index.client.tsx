@@ -86,41 +86,30 @@ export default function contribute(client: PluginClientContext) {
   };
 
   // Workspaces: the new title shows in the sidebar and header. Feedback starts at
-  // once: a "Retitling workspace…" toast, replaced by the outcome. The toast is
-  // lent by a header button of that workspace (desktop layouts) and by a composer
-  // pill on each of its tabs (phone layouts show no plugin header buttons); both
-  // are hidden on web like the tab path's pill. With no lender mounted, a failure
-  // throws and command hosts toast it. No row-menu entry: Paseo 0.12 has no
-  // plugin slot in the workspace ⋯ menu.
+  // once: a "Retitling workspace…" toast, replaced by the outcome, lent by a pill
+  // on the composer of the tab the trigger came from (hidden on web, like the tab
+  // path's). Triggers therefore need an agent tab in focus. No row-menu entry:
+  // Paseo 0.12 has no plugin slot in the workspace ⋯ menu.
   const retitling = new Set<string>();
-  const runWorkspace = async (workspaceId: string) => {
+  const runWorkspace = async (workspaceId: string, agentId: string) => {
     if (retitling.has(workspaceId)) return;
     retitling.add(workspaceId);
-    const lent: { toast?: ToastApi; announced?: boolean } = {};
+    const lent: { toast?: ToastApi } = {};
     const Lender = ({ size, color }: PluginButtonIconProps) => {
       const toast = useToast();
       lent.toast = toast;
       useEffect(() => {
-        if (lent.announced || !retitling.has(workspaceId)) return;
-        lent.announced = true;
+        if (!retitling.has(workspaceId)) return;
         toast.show("Retitling workspace…", { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="titles-retitling-toast" /> } as ToastOptions);
       }, [toast]);
       return <ActivityIndicator size={size} color={color} testID={LENDER} />;
     };
-    const lenders: { remove(): void }[] = [];
-    let finished = false;
-    const button = { title: "Retitling workspace…", icon: Lender, disabled: true, behavior: { kind: "action" as const, onPress() {} } };
-    // Button ids must match /^[a-z][a-z0-9-]*$/; workspace ids carry an underscore (wks_…).
-    const idOf = (id: string) => `retitling-workspace-${id.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`;
-    void client.paseo.agents.list().then(({ entries }) => {
-      if (finished) return;
-      for (const { agent } of entries) {
-        if (agent.workspaceId === workspaceId && !agent.archivedAt) lenders.push(client.addComposerPill({ id: idOf(`${workspaceId}-${agent.id}`), workspaceId, agentId: agent.id, button }));
-      }
-    }, error => console.warn("titles: couldn't list the workspace's tabs", error));
+    const pill = client.addComposerPill({
+      id: `retitling-workspace-${agentId}`, workspaceId, agentId,
+      button: { title: "Retitling workspace…", icon: Lender, disabled: true, behavior: { kind: "action", onPress() {} } },
+    });
     let feedback: { text: string; variant: ToastVariant };
     try {
-      lenders.push(client.addHeaderButton({ id: idOf(workspaceId), workspaceId, button }));
       const result = await client.rpc(retitleWorkspace, { workspaceId });
       feedback = result.outcome === "renamed"
         ? { text: `Workspace renamed to ${result.title}${result.previous && result.previous.length <= 30 ? ` (was ${result.previous})` : ""}`, variant: "success" }
@@ -128,9 +117,8 @@ export default function contribute(client: PluginClientContext) {
     } catch (error) {
       feedback = { text: `Couldn't retitle the workspace: ${error instanceof Error ? error.message : String(error)}`, variant: "error" };
     } finally {
-      finished = true;
       retitling.delete(workspaceId);
-      lenders.forEach(lender => lender.remove());
+      pill.remove();
     }
     if (lent.toast) lent.toast.show(feedback.text, { variant: feedback.variant, durationMs: feedback.variant === "error" ? 6000 : 2500 });
     else if (feedback.variant === "error") throw new Error(feedback.text);
@@ -140,8 +128,8 @@ export default function contribute(client: PluginClientContext) {
     // Command Center requires a built-in glyph; tab and workspace icons are left alone except for the spinner.
     client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
     client.addSlashCommand({ name: "retitle", description: "Give this tab a new title", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
-    client.addCommandCenterItem({ id: "retitle-workspace", title: "Retitle workspace", icon: "Type", keywords: ["title", "rename", "workspace"], context: "workspace", onSelect: ({ workspace }) => runWorkspace(workspace.id) }),
-    client.addSlashCommand({ name: "retitle-workspace", description: "Give this workspace a new title", argumentHint: "", context: "workspace", onSubmit: ({ workspace }) => runWorkspace(workspace.id) }),
+    client.addCommandCenterItem({ id: "retitle-workspace", title: "Retitle workspace", icon: "Type", keywords: ["title", "rename", "workspace"], context: "agent", onSelect: ({ agent, workspace }) => runWorkspace(workspace.id, agent.id) }),
+    client.addSlashCommand({ name: "retitle-workspace", description: "Give this workspace a new title", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => runWorkspace(workspace.id, agent.id) }),
     client.addSettingsScreen({ id: "automatic", title: "Titles", icon: "Type", Component: TitlesSettings }),
     () => style?.remove(),
   ];

@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PASEO_TITLE_WINDOW_MS, firstAgent, observeTitle, projectEntry, splitWorkspaces, workspaceOwnership } from "../shared/workspace-titles.mjs";
-import { isTab, readable } from "../shared/agent-titles.mjs";
-import * as labelHelpers from "@getpaseo/protocol/agent-labels";
+import { readable } from "../shared/agent-titles.mjs";
+import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 
 const PROMPT = "Why does the inventory page jump on sort?";
 const created = (...titles) => titles.reduce((observed, [title, at]) => observeTitle(observed, title, at), { createdAt: 0, changes: [] });
@@ -78,8 +78,8 @@ test("a workspace's first agent is its earliest readable tab, archived ones incl
     { id: "first", workspaceId: "w", archivedAt: "2026-10-20T09:00:00Z", createdAt: "2026-10-20T08:00:02Z", labels: {}, capabilities: { supportsStreaming: false } },
     { id: "other", workspaceId: "x", createdAt: "2026-10-20T07:00:00Z", labels: {}, capabilities: loaded },
   ];
-  const byId = new Map(agents.map(agent => [agent.id, agent]));
-  const include = agent => isTab(agent, byId, labelHelpers) && readable(agent);
+  // The same rule as server/workspaces.ts firstTab.
+  const include = agent => !agent.internal && !isDelegatedAgent(agent) && readable(agent);
   assert.equal(firstAgent(agents, "w", include)?.id, "first");
   assert.equal(firstAgent(agents, "empty", include), null);
   // A stored live first tab can't be read without starting it, so the next readable tab stands in.
