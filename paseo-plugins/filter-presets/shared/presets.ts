@@ -1,16 +1,35 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
+export const ruleTypes = ["folderPrefix", "folderName", "remoteGlob", "pathGlob", "pathRegex"] as const;
+export type RuleType = (typeof ruleTypes)[number];
+
+// One check shared by the schema and the settings form, so both report the same problem.
+export function ruleValueError(type: RuleType, value: string): string | undefined {
+  if (!value) return "Enter a value";
+  if (type === "folderName" && value.includes("/")) return "One folder name, without /";
+  if (type === "pathRegex") {
+    try { new RegExp(value); } catch (cause) {
+      return `Invalid regular expression: ${cause instanceof Error ? cause.message.replace(/^Invalid regular expression: /, "") : String(cause)}`;
+    }
+  }
+  return undefined;
+}
+function rule<Type extends RuleType>(type: Type) {
+  return z.object({
+    type: z.literal(type),
+    value: z.string().superRefine((value, context) => {
+      const message = ruleValueError(type, value);
+      if (message) context.addIssue({ code: "custom", message });
+    }),
+  }).strict();
+}
 export const ruleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("folderPrefix"), value: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("pathGlob"), value: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("pathRegex"), value: z.string().min(1).refine((value) => {
-    try { new RegExp(value); return true; } catch { return false; }
-  }, "Invalid regular expression") }).strict(),
-  z.object({ type: z.literal("remoteGlob"), value: z.string().min(1) }).strict(),
+  rule("folderPrefix"), rule("folderName"), rule("remoteGlob"), rule("pathGlob"), rule("pathRegex"),
 ]);
+export const presetIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/).refine((id) => id !== "all" && id !== "other", "all and other are reserved");
 export const presetsSchema = z.array(z.object({
-  id: z.string().regex(/^[a-z][a-z0-9-]*$/).refine((id) => id !== "all" && id !== "other", "all and other are reserved"),
+  id: presetIdSchema,
   name: z.string().trim().min(1),
   rules: z.array(ruleSchema).min(1),
 }).strict()).refine((presets) => new Set(presets.map((preset) => preset.id)).size === presets.length, "Preset IDs must be unique");
@@ -18,7 +37,7 @@ export const presetsSchema = z.array(z.object({
 export const defaultPresets = [{
   id: "nilo",
   name: "Nilo",
-  rules: [{ type: "pathRegex" as const, value: "(?:^|/)nilo(?:-[^/]*)?(?:/|$)" }],
+  rules: [{ type: "folderName" as const, value: "nilo" }, { type: "folderName" as const, value: "nilo-*" }],
 }];
 
 export const preferences = defineSettings({
@@ -49,11 +68,15 @@ function glob(pattern: string): RegExp {
   return new RegExp(expression + "$");
 }
 
-export function compilePreset(preset: Preset): (project: Project) => boolean {
+export function compilePreset(preset: Pick<Preset, "rules">): (project: Project) => boolean {
   const rules = preset.rules.map((rule) => {
     if (rule.type === "folderPrefix") {
       const prefix = rule.value.replace(/\/+$/, "");
       return (project: Project) => project.projectRootPath === prefix || project.projectRootPath.startsWith(prefix + "/");
+    }
+    if (rule.type === "folderName") {
+      const regex = glob(rule.value);
+      return (project: Project) => project.projectRootPath.split("/").some((segment) => regex.test(segment));
     }
     if (rule.type === "pathRegex") {
       const regex = new RegExp(rule.value);
