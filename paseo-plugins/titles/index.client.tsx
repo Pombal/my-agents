@@ -85,17 +85,55 @@ export default function contribute(client: PluginClientContext) {
     else if (feedback.variant === "error") throw new Error(feedback.text); // Command hosts toast thrown errors.
   };
 
-  // Workspaces: the new title shows in the sidebar and header; a failure throws,
-  // and command hosts toast thrown errors. No row-menu entry: Paseo 0.12 has no
+  // Workspaces: the new title shows in the sidebar and header. Feedback starts at
+  // once: a "Retitling workspace…" toast, replaced by the outcome. The toast is
+  // lent by a header button of that workspace (desktop layouts) and by a composer
+  // pill on each of its tabs (phone layouts show no plugin header buttons); both
+  // are hidden on web like the tab path's pill. With no lender mounted, a failure
+  // throws and command hosts toast it. No row-menu entry: Paseo 0.12 has no
   // plugin slot in the workspace ⋯ menu.
   const retitling = new Set<string>();
   const runWorkspace = async (workspaceId: string) => {
     if (retitling.has(workspaceId)) return;
     retitling.add(workspaceId);
+    const lent: { toast?: ToastApi; announced?: boolean } = {};
+    const Lender = ({ size, color }: PluginButtonIconProps) => {
+      const toast = useToast();
+      lent.toast = toast;
+      useEffect(() => {
+        if (lent.announced || !retitling.has(workspaceId)) return;
+        lent.announced = true;
+        toast.show("Retitling workspace…", { durationMs: 30_000, icon: <ActivityIndicator size="small" color={color} testID="titles-retitling-toast" /> } as ToastOptions);
+      }, [toast]);
+      return <ActivityIndicator size={size} color={color} testID={LENDER} />;
+    };
+    const lenders: { remove(): void }[] = [];
+    let finished = false;
+    const button = { title: "Retitling workspace…", icon: Lender, disabled: true, behavior: { kind: "action" as const, onPress() {} } };
+    // Button ids must match /^[a-z][a-z0-9-]*$/; workspace ids carry an underscore (wks_…).
+    const idOf = (id: string) => `retitling-workspace-${id.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`;
+    void client.paseo.agents.list().then(({ entries }) => {
+      if (finished) return;
+      for (const { agent } of entries) {
+        if (agent.workspaceId === workspaceId && !agent.archivedAt) lenders.push(client.addComposerPill({ id: idOf(`${workspaceId}-${agent.id}`), workspaceId, agentId: agent.id, button }));
+      }
+    }, error => console.warn("titles: couldn't list the workspace's tabs", error));
+    let feedback: { text: string; variant: ToastVariant };
     try {
+      lenders.push(client.addHeaderButton({ id: idOf(workspaceId), workspaceId, button }));
       const result = await client.rpc(retitleWorkspace, { workspaceId });
-      if (result.outcome === "failed") throw new Error(`Couldn't retitle the workspace: ${result.message}`);
-    } finally { retitling.delete(workspaceId); }
+      feedback = result.outcome === "renamed"
+        ? { text: `Workspace renamed to ${result.title}${result.previous && result.previous.length <= 30 ? ` (was ${result.previous})` : ""}`, variant: "success" }
+        : { text: `Couldn't retitle the workspace: ${result.message}`, variant: "error" };
+    } catch (error) {
+      feedback = { text: `Couldn't retitle the workspace: ${error instanceof Error ? error.message : String(error)}`, variant: "error" };
+    } finally {
+      finished = true;
+      retitling.delete(workspaceId);
+      lenders.forEach(lender => lender.remove());
+    }
+    if (lent.toast) lent.toast.show(feedback.text, { variant: feedback.variant, durationMs: feedback.variant === "error" ? 6000 : 2500 });
+    else if (feedback.variant === "error") throw new Error(feedback.text);
   };
 
   const cleanups = [

@@ -21,6 +21,7 @@ export function observeTitle(observed, title, at) {
 // "unnamed": empty or Paseo's placeholder (one of `placeholders`, the first-prompt lines);
 // "paseo": Paseo's generated title (see PASEO_TITLE_WINDOW_MS; needs `observed`);
 // "hand": anything else, never changed automatically.
+/** @param {string | null} title @param {{ chosen?: string | null, placeholders?: string[], observed?: { createdAt: number, initial?: string | null, changes: { title: string | null, at: number }[] } | null }} [options] */
 export function workspaceOwnership(title, { chosen = null, placeholders = [], observed = null } = {}) {
   if (!title) return "unnamed";
   if (title === chosen) return "named";
@@ -52,9 +53,10 @@ export function splitWorkspaces(workspaces, self, limit = 40) {
 }
 
 // The agent whose first prompt became the workspace's placeholder: its
-// earliest tab, archived or not, never an internal or sub-agent (`isDelegated`).
-export function firstAgent(agents, workspaceId, isDelegated) {
+// earliest tab, archived or not. `include` decides what counts (a tab whose
+// history can be read; see isTab and readable in agent-titles.mjs).
+export function firstAgent(agents, workspaceId, include) {
   return agents
-    .filter(agent => agent.workspaceId === workspaceId && !agent.internal && !isDelegated(agent))
+    .filter(agent => agent.workspaceId === workspaceId && include(agent))
     .reduce((first, agent) => (!first || agent.createdAt < first.createdAt ? agent : first), null);
 }

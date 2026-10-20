@@ -14,6 +14,7 @@ export function defaultTitle(prompt) {
 export const LABEL_NAMED = "titles.named"; // the title Titles chose
 export const LABEL_UNNAMED = "titles.unnamed"; // Paseo's placeholder, still waiting for a subject
 
+/** @param {string | null} title @param {Record<string, string> | undefined} labels @param {string | null} [placeholder] */
 export function titleOwnership(title, labels, placeholder = null) {
   if (!title) return "hand";
   if (title === labels?.[LABEL_NAMED]) return "named";
@@ -29,6 +30,25 @@ export function siblingEntry(title, labels, promptLines = []) {
   const ownership = titleOwnership(title, labels, promptLines.includes(title) ? title : null);
   if (ownership === "named") return title;
   return { title, note: ownership === "unnamed" ? "placeholder: first prompt line, not a title" : "named by hand" };
+}
+
+// Whether Paseo shows this agent as a tab of its own workspace, as Paseo decides
+// it (agent-manager.js): never an internal agent; a delegated (sub-)agent only
+// with an open-tab label or when it lives outside its parent's workspace (a
+// missing parent counts as outside). `byId` holds the agents, archived included;
+// `labels` brings Paseo's label helpers (@getpaseo/protocol/agent-labels).
+export function isTab(agent, byId, { isDelegatedAgent, hasOpenAgentTab, getParentAgentIdFromLabels }) {
+  if (agent.internal) return false;
+  if (!isDelegatedAgent(agent) || hasOpenAgentTab(agent.labels)) return true;
+  return byId.get(getParentAgentIdFromLabels(agent.labels))?.workspaceId !== agent.workspaceId;
+}
+
+// Whether an agent's timeline can be read without starting it. Daemon 0.12 loads
+// an agent to serve its timeline; a stored (not loaded) live agent would be
+// resumed with its provider process, which stays running. Archived agents load
+// for history only. A stored agent reports default capabilities (no streaming).
+export function readable(agent) {
+  return !!agent.archivedAt || agent.capabilities?.supportsStreaming !== false;
 }
 
 // Model answer → { kind: "keep" } | { kind: "rename", title }. The title is used

@@ -19,8 +19,10 @@ it also sees the workspace's other tabs (below).
 
 ## Sibling tabs
 
-Before each Haiku call Titles lists the other agents of the same workspace
-(not archived, no sub-agents, not the tab being titled) and passes them as
+Before each Haiku call Titles lists the other tabs of the same workspace (not
+archived, not the tab being titled; by Paseo's own rule, so a side agent opened
+in another workspace or as an open tab counts, a sub-agent inside its parent's
+workspace doesn't) and passes them as
 `siblings`. Haiku is told: "Like a hand-named sibling would, your title must
 make clear what sets this conversation apart from the tabs in "siblings": its
 own subject or angle, not a synonym or near-twin of theirs." So a second
@@ -65,8 +67,9 @@ it back. Every rename is a compare-and-set, so a rename while Claude thinks
 wins.
 
 Not adopted: tabs that existed before Titles was loaded with this version
-(until you Retitle them once), and agents started from the CLI (`paseo run`),
-whose first prompt isn't in the timeline Titles reads.
+(until you Retitle them once). On daemon 0.11.4, agents started from the CLI
+(`paseo run`) had no first prompt in their timeline and stayed untouched; on
+0.12.0 one such agent was titled normally (2026-10-20, one observation).
 
 ## Retitle on demand
 
@@ -103,8 +106,9 @@ outcome (it replaces the Retitling… toast):
 | Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
 
 Pressing a trigger again while a check is running does nothing; the spinner
-shows that a check is already under way. Two clients retitling the same tab at
-once get `Already retitling this tab`.
+shows that a check is already under way. A retitle pressed while an automatic
+check of the same tab runs waits for it (2–3 s) and then names the tab. Two
+clients retitling the same tab at once get `Already retitling this tab`.
 
 Toasts are a hook-only plugin API, so a composer pill's icon component lends
 one. On web that pill is hidden by CSS (`button:has([data-testid="titles-retitling-pill"])`);
@@ -186,10 +190,19 @@ a hand rename in the milliseconds between is overwritten. Workspaces created
 while Titles wasn't running, or still waiting for a prompt across a plugin
 reload or daemon restart, are not adopted: retitle them on demand.
 
-Feedback on demand: the new title shows in the sidebar and header; failures
-arrive as Paseo's error toast (`Couldn't retitle the workspace: …`). There is
-no spinner or Retitling… toast (the toast-lending composer pill needs an agent,
-and the workspace command context has none).
+Feedback on demand: a **Retitling workspace…** toast shows at once (about
+0.2 s), then one toast with the outcome (`Workspace renamed to Kite Units
+(was Wind Speed Units)` or `Couldn't retitle the workspace: …`); the new title
+shows in the sidebar and header. The toast is lent by a hidden header button
+(desktop layouts) and hidden composer pills on the workspace's tabs (phone
+layouts show no plugin header buttons). A Retitle workspace pressed during an
+automatic workspace title waits for it, like tabs.
+
+Which tab is "first": the earliest tab, archived ones included, whose history
+can be read without starting it (see *Speed*). If the real first tab is a
+stored (not loaded) agent, the next readable one stands in. A workspace whose
+only tab is a side agent has no prompt of its own in that tab's opening, so
+Haiku names it from its tab title alone.
 
 ## Model
 
@@ -199,7 +212,8 @@ Stefan's subscription login, so no API keys are used: the
 PATH omits `~/.local/bin`, Titles adds it for this Claude subprocess so native
 Claude installations still work. The call uses
 `--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
-retries. It takes about 2.5–5 s end to end, depending on CLI startup.
+retries. It takes about 1.5–3.5 s end to end (median ~2.5 s), most of it
+Haiku's thinking; see *Speed*.
 
 The rules (`server/prompts.ts`) ask for one distinctive noun that sets this
 tab apart from the `siblings`, two words at most. They
@@ -350,29 +364,58 @@ paseo plugin logs titles        # one line per automatic decision and per retitl
 paseo plugin disable titles
 ```
 
+## Speed (audit 2026-10-20)
+
+Audit and measurements: `~/agentspace/index/.scratch/paseo-grievances/titles-perf.md`.
+
+- Over 98% of the wait is the Claude CLI. The plugin sets
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for it (no telemetry, update or
+  flag traffic): the CLI now exits 15 ms after answering instead of ~700 ms,
+  about −0.7 s per call (wall median 3.2 s → 2.5 s, same model and answers).
+  Live: first-reply titles median ~2.5 s (was 3.9 s), hotkey retitle 2.5–3.2 s,
+  Retitle workspace 2.8–4.8 s. Retitle workspace progress toast: ~0.2 s desktop, ~0.45 s phone width (the phone lender waits for the agent list).
+- Plugin's own work: 10–20 ms warm per decision; Retitle workspace lists
+  agents and workspaces once (−6 to −8 ms). Key → tab spinner 5–7 ms; phone
+  tap → Retitling… toast ~0.1 s.
+- Timelines of other tabs are read only when the tab is loaded in the daemon
+  or archived: daemon 0.12 serves a timeline by loading the agent, and a stored
+  agent would be resumed with its provider process (~1.3 s, ~250 MB, never
+  unloaded). A stored sibling that still shows a pre-Titles placeholder is then
+  described as named by hand.
+- A new tab's placeholder is recorded in `titles.unnamed` before Claude is
+  called, so a failed call (weekly limit, timeout) retries on the next reply
+  and sibling lookups know it without a timeline read.
+- Not taken (trade-offs): `--effort low` (−1.1 s, but titles drift to two-word
+  abbreviations), a warm CLI process, direct API calls.
+
 ## Code layout and tests
 
-- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, answer parsing, conversation excerpt).
+- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, Paseo's tab rule, which timelines can be read, answer parsing, conversation excerpt).
+- `shared/exclusive.mjs`: one title decision per tab or workspace; a manual one waits for an automatic one.
 - `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
 - `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`) and *Automatic workspace titles* (`workspaces`, on/off).
 - `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
 - `server/model.ts`: Claude CLI call.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
+- `server/agents.ts`: the agent listing (archived included) and Paseo's tab rule over it.
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
 - `server/workspaces.ts`: workspace titling (creation tracking, title-change subscription, sibling lookups, the `retitle-workspace` RPC, ownership file).
-- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity, the sibling lookup with its first-prompt cache; registers workspace titling.
+- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, the sibling lookup with its first-prompt cache; registers workspace titling.
 - `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers, the tab spinner, the toasts, the settings screen.
 
-`npm test` runs 8 tests on the pure policy: the placeholder rule, which titles
-automatic titling may touch (hand names never), how siblings are described
-(Titles' own, placeholder, hand-named, including a Titles title renamed by
-hand), keep-versus-rename parsing with titles passed through as written,
-malformed answers, excerpt filtering, merging of agentic turns, and bounds on
-long replies.
+`npm test` runs 19 tests on the pure policy. `tests/agent-titles.test.mjs` (8):
+the placeholder rule, which titles automatic titling may touch (hand names
+never), how siblings are described (Titles' own, placeholder, hand-named,
+including a Titles title renamed by hand), keep-versus-rename parsing with
+titles passed through as written, malformed answers, excerpt filtering,
+merging of agentic turns, and bounds on long replies.
+`tests/tabs-and-runs.test.mjs` (4): Paseo's tab rule for side agents, which
+timelines can be read without starting an agent, and a manual retitle waiting
+for an automatic check while a second one is refused.
 
-`tests/workspace-titles.test.mjs` adds 7 on the workspace policy: title
+`tests/workspace-titles.test.mjs` (7) covers the workspace policy: title
 history, which titles automatic titling may touch (empty, placeholder, its
 own, Paseo's generated one; hand names never, including Paseo-like changes
 that are late, repeated or from a title given at creation), how project
 siblings are marked, splitting and capping the sibling lists, and picking the
-first agent.
+first agent (archived included, a stored one skipped).

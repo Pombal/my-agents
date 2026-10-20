@@ -29,6 +29,9 @@ async function askHaiku(systemPrompt: string, request: object) {
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDECODE$|CLAUDE_CODE_OAUTH_TOKEN$)/.test(key)) delete env[key];
   }
+  // No telemetry, update checks or flag fetches for a one-shot title call: about
+  // 1 s less per call (1.3 s before the answer, 0.7 s exit flush after it).
+  env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
   const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
   const stdout = await new Promise<string>((resolve, reject) => {
     const child = execFile("claude", args, { cwd: tmpdir(), env, timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
