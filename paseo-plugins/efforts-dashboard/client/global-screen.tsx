@@ -283,6 +283,10 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
           </Text>
         ) : null}
       </View>
+      {data.warnings.length ? (
+        // Problems the server noticed (a mistyped Extra folder, unreadable settings); otherwise silent.
+        <Text style={{ ...SMALL, color: c.muted, paddingHorizontal: gutter, paddingTop: 6 }}>{data.warnings.join(" · ")}</Text>
+      ) : null}
       {query.trim() ? (
         <SearchResults
           c={c}

@@ -142,10 +142,10 @@ export class EffortsService {
       for (const folder of settings.values.extraFolders) {
         const root = await scratchFor(folder, home);
         if (root) rootSet.add(root);
-        else warnings.push(`No .scratch folder at ${folder}`);
+        else warnings.push(`Extra folder ${folder} has no .scratch folder (Settings → Plugins → efforts-dashboard → Efforts)`);
       }
     } else {
-      warnings.push(`Settings unreadable: ${settings.error}`);
+      warnings.push(`Efforts settings unreadable: ${settings.error}`);
     }
 
     const scansByRoot = new Map<string, EffortScan[]>();
@@ -173,7 +173,7 @@ export class EffortsService {
         if (!binding && root) {
           if (!agents) {
             agents = await listAgents(paseo).catch((error: unknown) => {
-              warnings.push(`Agent list unavailable: ${String(error)}`);
+              warnings.push(`Agent list unavailable, so no suggestions from chats: ${String(error)}`);
               return [];
             });
           }

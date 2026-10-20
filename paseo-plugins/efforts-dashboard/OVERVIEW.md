@@ -22,7 +22,9 @@ folder, so it only shows up while listed under extra folders).
   opens the whole effort as a sheet.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project
-  chips, columns Done / Effort / Open tickets / Workspaces / Next / Touched. Per `.scratch`
+  chips, a muted warnings line under them only when the server noticed a problem (an Extra folder
+  with no `.scratch`, unreadable settings, no agent list), columns Done / Effort / Open tickets /
+  Workspaces / Next / Touched. Per `.scratch`
   group: efforts with a bound or suggested workspace, then **Touched this week, no workspace**,
   then the older ones folded (newest first), then workspaces with no effort and no suggestion.
   Opened from a workspace (pill or ⋯ → All efforts): that project only ("show all" undoes it) and
