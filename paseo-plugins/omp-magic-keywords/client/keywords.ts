@@ -20,13 +20,17 @@ export const MAGIC_KEYWORDS: readonly MagicKeyword[] = [
 ];
 
 /** Color stops swept across each word. */
-export const STOPS = 14;
+export const STOPS = 60;
 /** One full trip of the gradient across a word. */
 export const SHIMMER_PERIOD_MS = 1800;
-export const SATURATION = 90;
-/** OMP's lightness, tuned for dark terminals. */
-export const DARK_LIGHTNESS = 62;
-/** OMP has no light variant; 62% is too pale on a light bubble. */
+/**
+ * Brighter than OMP's 90% / 62%: Paseo's dark bubbles are lighter than a terminal and sit next to
+ * white text, where OMP's tones read as pastel.
+ */
+export const DARK_SATURATION = 100;
+export const DARK_LIGHTNESS = 68;
+/** OMP has no light variant; its tones are too pale on a light bubble. */
+export const LIGHT_SATURATION = 90;
 export const LIGHT_LIGHTNESS = 42;
 
 export interface KeywordMatch {
