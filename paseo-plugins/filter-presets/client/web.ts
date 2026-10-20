@@ -8,13 +8,18 @@ interface StyleElement {
 }
 declare const document: {
   createElement(tag: "style"): StyleElement;
+  querySelector(selector: string): StyleElement | null;
   head: { appendChild(element: StyleElement): void };
 };
+declare const location: { pathname: string };
 declare const localStorage: {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem(key: string): void;
 };
 const storageKey = "paseo-plugin:filter-presets:selected";
+// Last stylesheet per host, applied before the definitions and projects arrive after a page load.
+const cssCacheKey = "paseo-plugin:filter-presets:css";
 
 export function readSelection(): string {
   if (Platform.OS !== "web") return "all";
@@ -80,20 +85,62 @@ export function sidebarCss(hostId: string, projects: Project[], hidden: Project[
 }
 
 export interface SidebarFilter {
-  apply(css: string): void;
+  /** Shows `css`; with `hostId` it is also remembered for the next page load. */
+  apply(css: string, hostId?: string): void;
   remove(): void;
+}
+
+function readCssCache(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(cssCacheKey) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed as Record<string, string> : {};
+  } catch { return {}; }
+}
+
+const bootSelector = 'style[data-plugin="filter-presets-boot"]';
+
+/**
+ * Shows the route host's last sheet until a switcher applies the current one (about a second after a page load).
+ * One shared element: every host's installation runs this, but only the route host's switcher mounts to clear it.
+ */
+function showBootSheet(): void {
+  if (document.querySelector(bootSelector)) return;
+  const cache = readCssCache();
+  const routeHost = /^\/h\/([^/]+)/.exec(location.pathname)?.[1];
+  const hosts = Object.keys(cache);
+  const css = routeHost !== undefined ? cache[routeHost] : hosts.length === 1 ? cache[hosts[0]] : undefined;
+  if (!css) return;
+  const boot = document.createElement("style");
+  boot.setAttribute("data-plugin", "filter-presets-boot");
+  boot.textContent = css;
+  document.head.appendChild(boot);
 }
 
 export function createSidebarFilter(): SidebarFilter {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     return { apply() {}, remove() {} };
   }
+  showBootSheet();
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "filter-presets");
   document.head.appendChild(style);
   return {
-    // An identical sheet would still cost the browser a full style recalculation.
-    apply(css: string) { if (style.textContent !== css) style.textContent = css; },
-    remove() { style.remove(); },
+    apply(css: string, hostId?: string) {
+      document.querySelector(bootSelector)?.remove();
+      // An identical sheet would still cost the browser a full style recalculation.
+      if (style.textContent !== css) style.textContent = css;
+      if (hostId === undefined) return;
+      const cache = readCssCache();
+      if ((cache[hostId] ?? "") === css) return;
+      if (css) cache[hostId] = css; else delete cache[hostId];
+      try {
+        if (Object.keys(cache).length) localStorage.setItem(cssCacheKey, JSON.stringify(cache));
+        else localStorage.removeItem(cssCacheKey);
+      } catch { /* Private browsing can deny storage. */ }
+    },
+    remove() {
+      document.querySelector(bootSelector)?.remove();
+      style.remove();
+    },
   };
 }

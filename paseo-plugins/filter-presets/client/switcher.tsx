@@ -24,14 +24,19 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
     const ready = !!groups && !!projects.data;
     const active = ready && choices.some(({ id }) => id === selected) ? selected : "all";
     function select(id: string) { writeSelection(id); setSelected(id); }
+    // The workspace list is awaited too, so the first sheet is complete: it replaces the cached one shown since page load.
+    const sheetReady = ready && workspaces !== undefined;
     useEffect(() => {
-      if (!ready) return;
+      if (!sheetReady) return;
       const group = groups.find(({ id }) => id === active);
       const hidden = active === "all" ? [] : active === "other"
         ? projects.data.filter((project) => !other!.includes(project))
         : projects.data.filter((project) => !group!.matches(project));
-      filter.apply(sidebarCss(host.id, projects.data, hidden, workspaces ?? []));
-    }, [ready, groups, projects.data, workspaces, other, active, host.id]);
+      filter.apply(sidebarCss(host.id, projects.data, hidden, workspaces), host.id);
+    }, [sheetReady, groups, projects.data, workspaces, other, active, host.id]);
+    const failed = projects.isError || settings.status === "error" || settings.status === "invalid";
+    // Without definitions or projects nothing is hidden, not even the cached sheet.
+    useEffect(() => { if (failed && !ready) filter.apply(""); }, [failed, ready]);
     // Cleared only when the switcher goes away, not between two applies.
     useEffect(() => () => filter.apply(""), []);
     useEffect(() => {
@@ -43,7 +48,7 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
       return () => remove.forEach((cleanup) => cleanup());
     }, [ready, choices]);
     if (!ready) return <Text style={{ color: theme.colors.foregroundMuted, fontSize: 11, padding: 6 }}>
-      {projects.isError || settings.status === "error" || settings.status === "invalid" ? "Filter presets unavailable" : "Loading filter presets…"}
+      {failed ? "Filter presets unavailable" : "Loading filter presets…"}
     </Text>;
     // Small-caps labels; the active one sits on a 2px accent bar (no hairline: Paseo already draws dividers here).
     return <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 14, marginHorizontal: 16, marginTop: 2, marginBottom: 2 }}>

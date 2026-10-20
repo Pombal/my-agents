@@ -45,7 +45,9 @@ Save shows the saved state at once and applies it to the sidebar; the daemon con
 
 ## Selection
 
-The selected button is browser-local and survives page and plugin reloads using `paseo-plugin:filter-presets:selected`. Definitions changing or a missing Other group can make the effective selection fall back to All.
+The selected button is browser-local by design: each browser and the desktop app keep their own choice, and it survives page and plugin reloads using `paseo-plugin:filter-presets:selected`. Definitions changing or a missing Other group can make the effective selection fall back to All.
+
+The browser also remembers the last stylesheet per host (`paseo-plugin:filter-presets:css`) and shows it the moment the plugin loads, so a page load doesn't show every project while definitions and projects are fetched. The current sheet replaces it as soon as they arrive (typically 0.5 to 4 s later through app.paseo.sh); a project added or changed since the last visit can be hidden or shown wrongly for that moment. Choosing All forgets it. Before Paseo loads its plugins (about 2 to 3 s after a page load through app.paseo.sh) no plugin can hide anything, so the full sidebar still shows briefly.
 
 ## Behavior and limits
 
@@ -53,4 +55,4 @@ The plugin reads the selected host's project names, root paths, and project keys
 
 Both sidebar groupings are filtered: "group by project" hides whole project groups, "group by status" hides the individual workspace rows of non-matching projects, and a status section whose rows are all hidden disappears with its heading. A section with "Show more" stays (its unshown rows may match), and its count still includes hidden rows. Pinned workspace rows are never filtered, in either grouping. Built-in Project filters and collapsed project groups still affect what is shown. These are sidebar display presets, not access controls.
 
-The plugin keeps a live workspace list from the daemon, so a workspace created in a hidden project is hidden about half a second after it appears in "group by status" (measured 0.5 s through app.paseo.sh; the gap is the project lookup for a brand-new project). The project list is reused for 30 s (opening settings shows it at once without a refetch) and refreshed immediately when the daemon reports a project change. Switching presets costs about 1 to 3 ms before the sidebar restyles. After a page load the sidebar shows every project for about a second until the definitions and project list arrive.
+The plugin keeps a live workspace list from the daemon, so a workspace created in a hidden project is hidden about half a second after it appears in "group by status" (measured 0.5 s through app.paseo.sh; the gap is the project lookup for a brand-new project). The project list is reused for 30 s (opening settings shows it at once without a refetch) and refreshed immediately when the daemon reports a project change. Switching presets costs about 1 to 3 ms before the sidebar restyles. Pinned workspaces always stay visible, by design.

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Project } from "../shared/presets";
-import { applyWorkspaceUpdate, sidebarCss } from "../client/web";
+import { applyWorkspaceUpdate, createSidebarFilter, sidebarCss } from "../client/web";
 
 // vi.mock is hoisted above the imports; react-native itself does not load outside a bundler.
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
@@ -81,5 +81,50 @@ describe("workspace updates", () => {
     expect(applyWorkspaceUpdate(start, { kind: "remove", id: "wks_nilo" })).toEqual([]);
     expect(applyWorkspaceUpdate(start, { kind: "upsert", workspace: { id: "wks_nilo", projectId: "prj_game" } }))
       .toEqual([{ id: "wks_nilo", projectId: "prj_game" }]);
+  });
+});
+
+describe("the last filter is shown at page load", () => {
+  const sheets = () => [...document.head.querySelectorAll("style")].map((style) => style.textContent ?? "").filter(Boolean);
+  const css = sidebarCss(host, projects, [game], workspaces);
+
+  beforeEach(() => {
+    document.head.innerHTML = "";
+    localStorage.clear();
+    history.replaceState(null, "", `/h/${host}/workspace/wks_nilo`);
+  });
+
+  test("a reload shows the route host's last sheet until the switcher applies the current one", () => {
+    const first = createSidebarFilter();
+    first.apply(css, host);
+    first.remove();
+    expect(sheets()).toEqual([]);
+
+    const afterReload = createSidebarFilter();
+    expect(sheets()).toEqual([css]);
+    afterReload.apply("", host); // switched to All
+    expect(sheets()).toEqual([]);
+    afterReload.remove();
+    createSidebarFilter();
+    expect(sheets()).toEqual([]);
+  });
+
+  test("another host's sheet is not shown, and one host installation per host shows it once", () => {
+    createSidebarFilter().apply(css, host);
+    createSidebarFilter().apply("[data-testid=x] { display: none !important; }", "srv_other");
+    document.head.innerHTML = "";
+    createSidebarFilter();
+    createSidebarFilter();
+    expect(sheets()).toEqual([css]);
+  });
+
+  test("a failed load clears the cached sheet without forgetting it", () => {
+    createSidebarFilter().apply(css, host);
+    document.head.innerHTML = "";
+    createSidebarFilter().apply("");
+    expect(sheets()).toEqual([]);
+    document.head.innerHTML = "";
+    createSidebarFilter();
+    expect(sheets()).toEqual([css]);
   });
 });

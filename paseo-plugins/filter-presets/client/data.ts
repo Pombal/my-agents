@@ -73,7 +73,11 @@ export function useWorkspaceRefs(client: PluginClientContext, hostId: string): W
       });
       release = () => { off(); void subscription.release(); };
       void load(result);
-    }).catch((error: unknown) => console.error("filter-presets: workspace list failed", error));
+    }).catch((error: unknown) => {
+      // Project groups can still be hidden; only "group by status" rows need this list.
+      console.error("filter-presets: workspace list failed", error);
+      if (live) setWorkspaces((current) => current ?? []);
+    });
     return () => { live = false; release(); };
   }, [client, hostId]);
   return workspaces;
