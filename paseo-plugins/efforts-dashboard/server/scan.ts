@@ -107,7 +107,8 @@ async function parseTicket(effortDir: string, file: string, num: string, mtimeMs
     ticket = {
       num,
       rel: `issues/${file}`,
-      title: head.title ?? file.replace(/\.md$/, ""),
+      // Some titles repeat the number: `# 04 — Slice-1 spec`.
+      title: (head.title ?? file.replace(/\.md$/, "")).replace(/^#?\d{1,3}\s*[—–:.)-]\s*/, ""),
       type: head.fields.get("type")?.replace(/^wayfinder:/i, "").split(/[\s,;(]/)[0].toLowerCase() || null,
       statusRaw,
       statusWord: word,
