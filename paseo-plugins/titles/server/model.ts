@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { parseDecision } from "../shared/agent-titles.mjs";
-import { PROMPTS, type TitleSituation } from "./prompts";
+import { PROMPTS, WORKSPACE_PROMPTS, type TitleSituation, type WorkspaceSituation } from "./prompts";
 
 const TIMEOUT_MS = 20_000;
 
@@ -11,9 +11,16 @@ const TIMEOUT_MS = 20_000;
 export type Sibling = string | { title: string; note: string };
 export type TitleRequest = { workspace: string; siblings: Sibling[]; conversation: string; title?: string; rejected?: string[] };
 
+// For a workspace: this project's other workspaces (marked like sibling tabs) and
+// the most recently active ones of other projects; "tabs" and "rejected" for a manual retitle.
+export type WorkspaceTitleRequest = { projectName: string; project: Sibling[]; elsewhere: { title: string; project: string }[]; conversation: string; tabs?: string[]; rejected?: string[] };
+
+export const decideTitle = (situation: TitleSituation, request: TitleRequest) => askHaiku(PROMPTS[situation], request);
+export const decideWorkspaceTitle = (situation: WorkspaceSituation, request: WorkspaceTitleRequest) => askHaiku(WORKSPACE_PROMPTS[situation], request);
+
 // Claude Haiku through Stefan's Claude Code subscription login: no tools, MCP,
 // customizations or saved session, and never an inherited API key or 3P routing.
-export async function decideTitle(situation: TitleSituation, request: TitleRequest) {
+async function askHaiku(systemPrompt: string, request: object) {
   const env = { ...process.env };
   // Service-launched daemons may omit Claude's native install directory from PATH.
   const nativeBin = join(homedir(), ".local", "bin");
@@ -22,7 +29,7 @@ export async function decideTitle(situation: TitleSituation, request: TitleReque
   for (const key of Object.keys(env)) {
     if (/^(ANTHROPIC_|CLAUDE_CODE_USE_|CLAUDECODE$|CLAUDE_CODE_OAUTH_TOKEN$)/.test(key)) delete env[key];
   }
-  const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", PROMPTS[situation], "--output-format", "text"];
+  const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
   const stdout = await new Promise<string>((resolve, reject) => {
     const child = execFile("claude", args, { cwd: tmpdir(), env, timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);

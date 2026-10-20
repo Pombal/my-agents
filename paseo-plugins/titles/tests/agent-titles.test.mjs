@@ -1,17 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, isShortTitle, parseDecision, siblingEntry, titleOwnership } from "../shared/agent-titles.mjs";
+import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, parseDecision, siblingEntry, titleOwnership } from "../shared/agent-titles.mjs";
 
 test("default title matches Paseo's first-prompt rule: first nonblank line, collapsed, 60 chars", () => {
   assert.equal(defaultTitle("\r\n  \r\n  Explain\t  caching  \r\nIgnore this second line"), "Explain caching");
   assert.equal(defaultTitle("  " + "x".repeat(70) + "\nSecond"), "x".repeat(60));
   assert.equal(defaultTitle("x".repeat(59) + " y"), "x".repeat(59));
   assert.equal(defaultTitle("\n \t \n"), null);
-});
-
-test("only one- or two-word titles of plain word characters are in our format", () => {
-  for (const title of ["Volcanoes", "Dark Mode", "OAuth", "C++", "Node.js"]) assert(isShortTitle(title), title);
-  for (const title of [null, "", "Explain database indexes", "My Galaxy Notes", "* Cache", "Cache!"]) assert(!isShortTitle(title), String(title));
 });
 
 test("automatic titling touches only the placeholder or a title it chose itself; any other name is hand-chosen", () => {
@@ -38,17 +33,14 @@ test("siblings: Titles' own titles go in bare; placeholders and hand names carry
   assert.equal(siblingEntry(null, { [LABEL_NAMED]: "Inventory" }), null);
 });
 
-test("keep wins over a stray title; renames are Title Cased without flattening identifiers", () => {
+test("keep wins over a stray title; a title comes back as Haiku wrote it, fence and outer whitespace aside", () => {
   assert.deepEqual(parseDecision('{"keep":true,"title":"Unwanted"}'), { kind: "keep" });
-  assert.deepEqual(parseDecision('```json\n{"title":"caching"}\n```'), { kind: "rename", title: "Caching" });
-  assert.deepEqual(parseDecision('{"title":"dark mode"}'), { kind: "rename", title: "Dark Mode" });
-  assert.deepEqual(parseDecision('{"title":"iOS"}'), { kind: "rename", title: "iOS" });
-  assert.deepEqual(parseDecision('{"title":"eBPF maps"}'), { kind: "rename", title: "eBPF Maps" });
-  assert.deepEqual(parseDecision('{"title":"Volcanoes."}'), { kind: "rename", title: "Volcanoes" });
+  assert.deepEqual(parseDecision('```json\n{"title":" dark mode "}\n```'), { kind: "rename", title: "dark mode" });
+  assert.deepEqual(parseDecision('{"title":"Opus Thinking Levels"}'), { kind: "rename", title: "Opus Thinking Levels" });
 });
 
-test("verbose, decorated or malformed answers are rejected, never truncated into a title", () => {
-  for (const answer of ['{"title":"Fix The Cache"}', '{"title":""}', '{"title":"* Cache"}', '{"title":"Cache!"}', '{"keep":false}', "{}", "Here is your title: Cache"]) {
+test("answers that are not JSON or carry no title are malformed", () => {
+  for (const answer of ['{"title":""}', '{"title":42}', '{"keep":false}', "{}", "Here is your title: Cache"]) {
     assert.throws(() => parseDecision(answer), answer);
   }
 });

@@ -2,10 +2,12 @@ import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
 // When titles change without Stefan asking. Manual Retitle always works.
+// `workspaces`: name a new workspace once its first tab has a subject. A new
+// field with a default needs no version bump: older documents parse unchanged.
 export const settings = defineSettings({
   id: "automatic",
   scope: "host",
   version: 1,
-  schema: z.object({ automatic: z.enum(["off", "first", "every"]).default("first") }),
+  schema: z.object({ automatic: z.enum(["off", "first", "every"]).default("first"), workspaces: z.boolean().default(true) }),
 });
 export type Automatic = z.output<typeof settings.schema>["automatic"];

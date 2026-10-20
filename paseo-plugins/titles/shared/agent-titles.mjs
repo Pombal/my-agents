@@ -1,5 +1,5 @@
-// Agent-tab naming policy, pure and runtime-free. Workspace titles would get a
-// sibling module with their own rules; nothing here assumes agents are the only target.
+// Agent-tab naming policy, pure and runtime-free. Workspace titles have their own
+// in workspace-titles.mjs; nothing here assumes agents are the only target.
 
 // Mirrors Paseo 0.11.4's provisional agent title (create-agent-title.js):
 // first nonblank prompt line, whitespace collapsed, clamped to 60 characters.
@@ -31,25 +31,16 @@ export function siblingEntry(title, labels, promptLines = []) {
   return { title, note: ownership === "unnamed" ? "placeholder: first prompt line, not a title" : "named by hand" };
 }
 
-const WORD = /^[\p{L}\p{N}][\p{L}\p{N}'’+.#-]*$/u;
-
-// A title in our own format: one word, or two, made of plain word characters.
-export function isShortTitle(title) {
-  const words = title?.trim().split(/\s+/) ?? [];
-  return words.length >= 1 && words.length <= 2 && words.every(word => WORD.test(word));
-}
-
-// Model answer → { kind: "keep" } | { kind: "rename", title }. Anything else throws;
-// over-long or decorated titles are rejected rather than silently truncated.
+// Model answer → { kind: "keep" } | { kind: "rename", title }. The title is used
+// as Haiku wrote it; style is the prompt's job. A non-JSON answer or one without
+// a title throws.
 export function parseDecision(text) {
   const json = text.trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
   let value;
   try { value = JSON.parse(json); } catch { throw new Error(`Model answered with something other than JSON: ${text.trim().slice(0, 80)}`); }
   if (value?.keep === true) return { kind: "keep" };
-  const raw = typeof value?.title === "string" ? value.title.trim().replace(/[.]$/, "") : "";
-  if (!isShortTitle(raw)) throw new Error(`Model suggested an unusable title: ${JSON.stringify(value?.title ?? null)}`);
-  // Title Case without flattening identifiers: "dark mode" → "Dark Mode", but iOS, eBPF and OAuth stay as written.
-  const title = raw.split(/\s+/).map(word => word === word.toLocaleLowerCase() ? word[0].toLocaleUpperCase() + word.slice(1) : word).join(" ");
+  const title = typeof value?.title === "string" ? value.title.trim() : "";
+  if (!title) throw new Error(`Model answered without a title: ${json.slice(0, 80)}`);
   return { kind: "rename", title };
 }
 

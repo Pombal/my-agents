@@ -1,7 +1,8 @@
 # Titles
 
 Short agent-tab titles: one word (two only when one word means nothing), Title
-Case. No workspace titles, no tab or workspace icons.
+Case. Workspace titles in the style of the project's other workspaces (see
+[Workspace titles](#workspace-titles)). No tab or workspace icons.
 
 ## Three situations, three instructions
 
@@ -76,10 +77,10 @@ Three triggers:
 - **`/retitle`** in the composer. It's a plugin command, so nothing is sent to the agent.
 
 Retitling always picks a new title: pressing it means you dislike the current
-one, whatever it is. The new title names what the **latest user message** is
-about, and differs from the current title and the tab's last five rejected
-titles (remembered until the plugin reloads), so pressing again gives yet
-another one.
+one, whatever it is. The prompt asks for a title that names what the **latest
+user message** is about and differs from the current title and the tab's last
+five rejected titles (remembered until the plugin reloads), so pressing again
+gives yet another one.
 
 ### Feedback
 
@@ -98,7 +99,6 @@ outcome (it replaces the Retitling… toast):
 | --- | --- |
 | Renamed | ✓ `Renamed to Sky Scattering (was Rayleigh)` (the "was" part only for short old names) |
 | Nothing to name | ⚠ `Couldn't retitle: Claude found no subject to name` |
-| Claude repeated a rejected title | ⚠ `Couldn't retitle: Claude offered “Rayleigh” again` |
 | Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
 | Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
 
@@ -122,6 +122,75 @@ shortcut modifiers exactly, so adding Shift avoids both Cycle theme and
 Ctrl+Shift+T (new terminal). Chrome doesn't use Ctrl+Shift+Alt+T either.
 Keyboard layouts where Ctrl+Alt acts as AltGr are skipped (AltGraph check).
 
+## Workspace titles
+
+A new workspace is named once its first tab has a prompt; **Ctrl+K / ⌘K →
+Retitle workspace** or **`/retitle-workspace`** in any of its composers names
+any workspace on demand (Paseo 0.12 has no plugin slot in the sidebar row's ⋯
+menu). The setting **Automatic workspace titles** (on by default, next to
+*Automatic titles*) switches the automatic part off; retitling on demand works
+regardless. Code: `server/workspaces.ts`, policy in
+`shared/workspace-titles.mjs`, prompts in `WORKSPACE_PROMPTS`
+(`server/prompts.ts`).
+
+**What Haiku sees.** The first tab's conversation, the project's name, and two
+lists: `project`, the project's other titled workspaces, marked like sibling
+tabs (Titles' own bare; a first-prompt placeholder or a hand-chosen name with a
+note), and `elsewhere`, the 40 most recently active titled workspaces of other
+projects, each with its project's name. Archived workspaces and projects and
+background workspaces aren't listed. There are no format rules: naming habits
+(a prefix for reviews, how projects are told apart) come only from the lists.
+A fitting habit's format is copied exactly (fixed words, order, casing,
+punctuation) with only the identifying part filled in; with no habit, one to
+three Title Case words. A retitle on demand also gets the
+workspace's tab titles and must differ from the current title and up to five
+rejected ones. As for tabs, the answer is used exactly as written. A failed
+lookup is logged (`titles: siblings of workspace <id> unavailable: …`) and
+the workspace is titled without siblings.
+
+**When.** Titles tracks workspaces created while it runs (`workspace.created`,
+background and internal ones excluded). The first turn start of one of their
+tabs (not sub-agents or Paseo's internal agents) whose prompt is readable
+triggers one Haiku call; if the prompt isn't in the timeline yet, the turn's
+end tries once more. If the prompt has no subject yet ("hi"), the next turn
+tries again. A workspace created empty waits for its first tab. Once Titles
+has named it, automatic titling never touches it again.
+
+**Ownership.** Workspace labels are visible coloured chips, so the title
+Titles chose is kept in `<PASEO_HOME>/plugin-data/titles/workspaces.json`
+(`{"version":1,"workspaces":{"<workspace id>":"<title>"}}`, mode 0600, written
+atomically; not under `plugins/`, which Paseo deletes with npm/Git installs).
+A workspace whose title differs from its entry was renamed by hand and shows as
+hand-named to Haiku. Entries outlive archiving. If the file is unreadable, it
+counts as empty: Titles' earlier titles then look hand-named, never the
+reverse.
+
+**Paseo's own title.** Paseo gives a new workspace its first prompt line as a
+placeholder, generates a title in the background, and applies it only while
+the title is still empty or that placeholder. If Titles lands first, Paseo
+drops its title; if Paseo lands first, Titles replaces it. Paseo marks neither
+its own titles nor hand renames, so Titles watches the workspace's title
+changes (a `workspaces.list` subscription, started with the first
+`workspace.created`) and treats a title as Paseo's only if it is the **first**
+change away from an empty or placeholder title, **within 3 minutes** of
+creation, and still current. Anything else (a second change, a later one, a
+change from a title given at creation) is hand-named and left alone; the log
+reads `left hand-named "…"` or `skipped: renamed meanwhile to "…"`.
+
+Residual risks: a hand rename made within 3 minutes, while the placeholder
+still shows and Paseo's title hasn't landed, looks like Paseo's and is
+replaced. If Paseo's title landed before Titles first read the workspace (in
+practice it takes seconds to generate), it looks hand-named and stays. Paseo
+has no conditional rename, so Titles re-reads the title right before writing;
+a hand rename in the milliseconds between is overwritten. Workspaces created
+while Titles wasn't running, or still waiting for a prompt across a plugin
+reload or daemon restart, are not adopted: retitle them on demand.
+
+Feedback on demand: the new title shows in the sidebar and header; failures
+arrive as Paseo's error toast (`Couldn't retitle the workspace: …`). There is
+no spinner or Retitling… toast (the toast-lending composer pill needs an agent,
+and the workspace command context has none).
+
 ## Model
 
 The plugin runs the installed **Claude Code CLI** with `--model haiku` through
@@ -135,9 +204,10 @@ retries. It takes about 2.5–5 s end to end, depending on CLI startup.
 The rules (`server/prompts.ts`) ask for one distinctive noun that sets this
 tab apart from the `siblings`, two words at most. They
 rule out words that fit any tab (Help, Fix, Bug, Task, Features, Setup) and the
-workspace name, and keep identifiers' own casing (iOS, eBPF). Answers are
-strict JSON. Anything over two words, decorated, or otherwise malformed is
-rejected rather than truncated.
+workspace name, and keep identifiers' own casing (iOS, eBPF). The prompt alone
+controls style: the title is used exactly as Haiku wrote it (only trimmed),
+with no length, casing or punctuation checks in code. Answers are strict JSON;
+one that isn't JSON or carries neither a title nor `keep` is an error.
 
 Prompt trials (2026-10-20, 25 calls, all valid): first → *SD Card*,
 *Inventory*, and "keep" for "hi, quick question"; every-reply → kept *SD Card*
@@ -157,7 +227,7 @@ of the same or a similar title → keep 6/6; moved to CSV export next to *CSV
 Import* → *Stock Export* (once bare *Export*), next to *Stock Export* → *CSV
 Stream* / *CSV*. Manual retitles avoided the siblings too. Two wording details
 mattered: as a rule bullet the sibling sentence pushed Haiku to three-word
-answers ("SD Card Corruption", 2 of 3 rejected), so it opens the prompt
+answers ("SD Card Corruption", 2 of 3 runs), so it opens the prompt
 instead; and "Resemblance to a sibling alone is no reason to rename" still
 renamed 3/3 when a sibling had the exact title, while "keep … even when a
 sibling has the same or a similar title. "siblings" matter only for a new
@@ -217,6 +287,24 @@ A temporary log line showed one timeline read for "Supplier Import" across
 three lookups (cache), and a second only when tab 3 needed one. The setting
 stayed *After the first reply*; test agents, workspace and project were deleted.
 
+### Workspace titles (same day)
+
+Offline, ~60 Haiku calls through the plugin's own code: a project habit
+(`PR #812 review`, …) was copied exactly only 2 of 8 times and titles without
+any siblings ran 4–6 words, until the "copy its format exactly" and "one to
+three words" wording; then `PR #821 review` ×3, a project's `X review` habit
+beat other projects' `Review: X`, and no-sibling titles stayed at 2–3 words.
+Manual retitles never repeated a rejected title.
+
+Live (web app + 390 px phone layout, throwaway project, Haiku 5.5 agents),
+before that wording change: the plugin's title landed 2.6–4 s after the first
+turn started; Paseo's own title landed first in some workspaces and was
+replaced, otherwise dropped by Paseo; hand renames stayed (log `left
+hand-named …`); `/retitle-workspace` and ⌘K gave a new title each time; with
+the setting off Paseo's title stayed; toggling either setting kept the other;
+a workspace created empty was titled on its first tab; three-word tab titles
+(*Ship of Theseus*) were applied as written.
+
 ## Earlier verification (2026-10-19, hosted web app, daemon 0.11.4)
 
 These predate the three situations: manual retitles could then answer
@@ -264,17 +352,27 @@ paseo plugin disable titles
 
 ## Code layout and tests
 
-- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
-- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`).
-- `server/prompts.ts`: the shared rules and the three situation tasks.
+- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, answer parsing, conversation excerpt).
+- `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
+- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`) and *Automatic workspace titles* (`workspaces`, on/off).
+- `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
 - `server/model.ts`: Claude CLI call.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
-- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity, the sibling lookup with its first-prompt cache.
-- `index.client.tsx`, `client/settings.tsx`: the three triggers, the tab spinner, the toasts, the settings screen.
+- `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
+- `server/workspaces.ts`: workspace titling (creation tracking, title-change subscription, sibling lookups, the `retitle-workspace` RPC, ownership file).
+- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity, the sibling lookup with its first-prompt cache; registers workspace titling.
+- `index.client.tsx`, `client/settings.tsx`: the tab and workspace triggers, the tab spinner, the toasts, the settings screen.
 
-`npm test` runs 9 tests on the pure policy: the placeholder rule, which titles
-count as short, which titles automatic titling may touch (hand names never),
-how siblings are described (Titles' own, placeholder, hand-named, including a
-Titles title renamed by hand), keep-versus-rename parsing with identifier-safe
-Title Case, rejection of bad answers, excerpt filtering, merging of agentic
-turns, and bounds on long replies.
+`npm test` runs 8 tests on the pure policy: the placeholder rule, which titles
+automatic titling may touch (hand names never), how siblings are described
+(Titles' own, placeholder, hand-named, including a Titles title renamed by
+hand), keep-versus-rename parsing with titles passed through as written,
+malformed answers, excerpt filtering, merging of agentic turns, and bounds on
+long replies.
+
+`tests/workspace-titles.test.mjs` adds 7 on the workspace policy: title
+history, which titles automatic titling may touch (empty, placeholder, its
+own, Paseo's generated one; hand names never, including Paseo-like changes
+that are late, repeated or from a title given at creation), how project
+siblings are marked, splitting and capping the sibling lists, and picking the
+first agent.

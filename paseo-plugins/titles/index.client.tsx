@@ -2,7 +2,7 @@ import { ActivityIndicator, Platform } from "react-native";
 import type { PluginButtonIconProps, PluginClientContext } from "@getpaseo/plugin/client";
 import { useToast, type ToastApi, type ToastOptions, type ToastVariant } from "@getpaseo/plugin/client/react-native";
 import { useEffect } from "react";
-import { retitle } from "./shared/rpc";
+import { retitle, retitleWorkspace } from "./shared/rpc";
 import { TitlesSettings } from "./client/settings";
 
 const TAB = '[data-testid^="workspace-tab-agent_"][aria-selected="true"]';
@@ -85,10 +85,25 @@ export default function contribute(client: PluginClientContext) {
     else if (feedback.variant === "error") throw new Error(feedback.text); // Command hosts toast thrown errors.
   };
 
+  // Workspaces: the new title shows in the sidebar and header; a failure throws,
+  // and command hosts toast thrown errors. No row-menu entry: Paseo 0.12 has no
+  // plugin slot in the workspace ⋯ menu.
+  const retitling = new Set<string>();
+  const runWorkspace = async (workspaceId: string) => {
+    if (retitling.has(workspaceId)) return;
+    retitling.add(workspaceId);
+    try {
+      const result = await client.rpc(retitleWorkspace, { workspaceId });
+      if (result.outcome === "failed") throw new Error(`Couldn't retitle the workspace: ${result.message}`);
+    } finally { retitling.delete(workspaceId); }
+  };
+
   const cleanups = [
     // Command Center requires a built-in glyph; tab and workspace icons are left alone except for the spinner.
     client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
     client.addSlashCommand({ name: "retitle", description: "Give this tab a new title", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
+    client.addCommandCenterItem({ id: "retitle-workspace", title: "Retitle workspace", icon: "Type", keywords: ["title", "rename", "workspace"], context: "workspace", onSelect: ({ workspace }) => runWorkspace(workspace.id) }),
+    client.addSlashCommand({ name: "retitle-workspace", description: "Give this workspace a new title", argumentHint: "", context: "workspace", onSubmit: ({ workspace }) => runWorkspace(workspace.id) }),
     client.addSettingsScreen({ id: "automatic", title: "Titles", icon: "Type", Component: TitlesSettings }),
     () => style?.remove(),
   ];

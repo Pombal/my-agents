@@ -1,0 +1,80 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { PASEO_TITLE_WINDOW_MS, firstAgent, observeTitle, projectEntry, splitWorkspaces, workspaceOwnership } from "../shared/workspace-titles.mjs";
+
+const PROMPT = "Why does the inventory page jump on sort?";
+const created = (...titles) => titles.reduce((observed, [title, at]) => observeTitle(observed, title, at), { createdAt: 0, changes: [] });
+
+test("observing a new workspace keeps its first title and each later different one", () => {
+  const observed = created([PROMPT, 1], [PROMPT, 2], ["Fix inventory sort jump", 3], ["Fix inventory sort jump", 4], [null, 5]);
+  assert.equal(observed.initial, PROMPT);
+  assert.deepEqual(observed.changes, [{ title: "Fix inventory sort jump", at: 3 }, { title: null, at: 5 }]);
+  assert.equal(created([null, 1]).initial, null);
+});
+
+test("Titles may name an empty or placeholder title, and keeps managing its own", () => {
+  assert.equal(workspaceOwnership(null), "unnamed");
+  assert.equal(workspaceOwnership(PROMPT, { placeholders: [PROMPT] }), "unnamed");
+  assert.equal(workspaceOwnership("Sticky Header", { chosen: "Sticky Header" }), "named");
+});
+
+test("Paseo's generated title is the first change away from the placeholder, soon after creation", () => {
+  const generated = "Fix inventory sort jump";
+  const paseo = created([PROMPT, 0], [generated, 8_000]);
+  assert.equal(workspaceOwnership(generated, { placeholders: [PROMPT], observed: paseo }), "paseo");
+  // Created without a prompt line: an empty title is replaced the same way.
+  assert.equal(workspaceOwnership(generated, { observed: created([null, 0], [generated, 8_000]) }), "paseo");
+});
+
+test("any other title is hand-named and never changed automatically", () => {
+  const generated = "Fix inventory sort jump";
+  // Renamed again after Paseo's title landed.
+  const renamedAfter = created([PROMPT, 0], [generated, 8_000], ["Inventory UI", 20_000]);
+  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: renamedAfter }), "hand");
+  // A change long after creation.
+  const late = created([PROMPT, 0], ["Inventory UI", PASEO_TITLE_WINDOW_MS + 1]);
+  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: late }), "hand");
+  // Paseo never replaces a title chosen at creation, so a change from one is Stefan's.
+  const explicit = created(["Inventory", 0], ["Inventory UI", 5_000]);
+  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: explicit }), "hand");
+  assert.equal(workspaceOwnership("Inventory", { placeholders: [PROMPT], observed: explicit }), "hand");
+  // Titles named it, then Stefan renamed it.
+  assert.equal(workspaceOwnership("My Inventory Notes", { chosen: "Sticky Header", placeholders: [PROMPT] }), "hand");
+  // A workspace Titles didn't see created has no observed history.
+  assert.equal(workspaceOwnership(generated, { placeholders: [PROMPT] }), "hand");
+});
+
+test("project siblings: Titles' own bare; placeholders and hand names carry a note", () => {
+  assert.equal(projectEntry("Sticky Header", "Sticky Header"), "Sticky Header");
+  assert.deepEqual(projectEntry("Inventory UI", "Sticky Header"), { title: "Inventory UI", note: "named by hand" });
+  assert.deepEqual(projectEntry(PROMPT, null, [PROMPT]), { title: PROMPT, note: "placeholder: first prompt line, not a title" });
+});
+
+test("workspaces split into this project's (all) and other projects' (most recently active, capped)", () => {
+  const at = minute => `2026-10-20T08:${String(minute).padStart(2, "0")}:00.000Z`;
+  const self = { id: "self", projectId: "shop", title: null, activityAt: at(59) };
+  const workspaces = [
+    self,
+    { id: "a", projectId: "shop", title: "Sticky Header", activityAt: at(1) },
+    { id: "b", projectId: "shop", title: "Supplier Import", activityAt: at(5) },
+    { id: "c", projectId: "shop", title: null, activityAt: at(9) },
+    { id: "d", projectId: "blog", projectDisplayName: "blog", projectCustomName: "Blog", title: "Review: RSS feed", activityAt: at(3) },
+    { id: "e", projectId: "infra", projectDisplayName: "infra", title: "Review: Caddy", activityAt: at(7) },
+    { id: "f", projectId: "infra", projectDisplayName: "infra", title: "Backups", activityAt: null },
+  ];
+  const { project, elsewhere } = splitWorkspaces(workspaces, self, 2);
+  assert.deepEqual(project.map(workspace => workspace.id), ["b", "a"]);
+  assert.deepEqual(elsewhere, [{ title: "Review: Caddy", project: "infra" }, { title: "Review: RSS feed", project: "Blog" }]);
+});
+
+test("a workspace's first agent is its earliest tab, never an internal or sub-agent", () => {
+  const agents = [
+    { id: "generator", workspaceId: "w", internal: true, createdAt: "2026-10-20T08:00:00Z" },
+    { id: "sub", workspaceId: "w", delegated: true, createdAt: "2026-10-20T08:00:01Z" },
+    { id: "second", workspaceId: "w", createdAt: "2026-10-20T08:05:00Z" },
+    { id: "first", workspaceId: "w", archivedAt: "2026-10-20T09:00:00Z", createdAt: "2026-10-20T08:00:02Z" },
+    { id: "other", workspaceId: "x", createdAt: "2026-10-20T07:00:00Z" },
+  ];
+  assert.equal(firstAgent(agents, "w", agent => !!agent.delegated)?.id, "first");
+  assert.equal(firstAgent(agents, "empty", () => false), null);
+});

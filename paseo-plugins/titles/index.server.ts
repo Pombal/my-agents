@@ -1,5 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import type { PaseoAgent, PaseoAgentHandle, PaseoApi } from "@getpaseo/client";
+import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import { basename } from "node:path";
 import { retitle, type RetitleResult } from "./shared/rpc";
@@ -7,12 +7,15 @@ import { settings, type Automatic } from "./shared/settings";
 import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, siblingEntry, titleOwnership } from "./shared/agent-titles.mjs";
 import { decideTitle, type Sibling } from "./server/model";
 import { renameAgent } from "./server/rename";
+import { openingPromptLines, recentTimeline } from "./server/timeline";
+import { registerWorkspaceTitles } from "./server/workspaces";
 
 // Manual retitles avoid the current title and this many earlier ones.
 const REJECTED_MEMORY = 5;
 
 export default function contribute(server: PluginServerContext) {
   const preferences = server.registerSettings(settings);
+  const stopWorkspaces = registerWorkspaceTitles(server, preferences);
   // Agents created while the plugin runs, until their first completed turn:
   // only then is Paseo's placeholder (the first prompt line) known.
   const awaitingFirstTurn = new Set<string>();
@@ -139,7 +142,6 @@ export default function contribute(server: PluginServerContext) {
       const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), siblings: await siblingsOf(paseo, snapshot.agent), conversation, rejected: avoid });
       if (disposed) return failed("Titles was disabled meanwhile");
       if (decision.kind === "keep") return failed("Claude found no subject to name");
-      if (avoid.some(title => title.toLocaleLowerCase() === decision.title.toLocaleLowerCase())) return failed(`Claude offered “${decision.title}” again`);
       const renamed = await renameAgent(agentId, current, decision.title, { [LABEL_NAMED]: decision.title });
       if (renamed === "gone") return failed("This tab no longer exists");
       if (renamed === "changed") return failed("The tab was renamed meanwhile; that name stays");
@@ -150,26 +152,5 @@ export default function contribute(server: PluginServerContext) {
     return result;
   });
 
-  return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); awaitingFirstTurn.clear(); rejected.clear(); promptLines.clear(); };
-}
-
-// Enough recent history to see the latest subjects: pages back until six user
-// turns are in view, at most 500 items.
-async function recentTimeline(handle: PaseoAgentHandle) {
-  const items = [];
-  let page = await handle.timeline.refetch({ direction: "tail", limit: 100, projection: "canonical" });
-  for (let pages = 1; ; pages++) {
-    if (page.error) throw new Error(page.error);
-    items.unshift(...page.entries.map(entry => entry.item));
-    if (pages >= 5 || !page.hasOlder || !page.startCursor || items.filter(item => item.type === "user_message").length >= 6) return items;
-    page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, limit: 100, projection: "canonical" });
-  }
-}
-
-// Paseo's placeholder is the first line of the first prompt. Like the tab's own
-// check, accept any user message near the start: other user items can precede it.
-async function openingPromptLines(handle: PaseoAgentHandle) {
-  const page = await handle.timeline.refetch({ direction: "after", limit: 20, projection: "canonical" });
-  if (page.error) throw new Error(page.error);
-  return page.entries.flatMap(({ item }) => item.type === "user_message" && item.text ? [defaultTitle(item.text)] : []).filter((line): line is string => !!line);
+  return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); stopWorkspaces(); awaitingFirstTurn.clear(); rejected.clear(); promptLines.clear(); };
 }

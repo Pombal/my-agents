@@ -9,3 +9,4 @@ const result = z.discriminatedUnion("outcome", [
 export type RetitleResult = z.infer<typeof result>;
 
 export const retitle = defineRpc({ name: "retitle", input: z.object({ agentId: z.string().min(1) }), output: result });
+export const retitleWorkspace = defineRpc({ name: "retitle-workspace", input: z.object({ workspaceId: z.string().min(1) }), output: result });

@@ -1,6 +1,6 @@
 import { Text } from "react-native";
 import { useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect } from "@getpaseo/plugin/client/ui";
+import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { settings as definition, type Automatic } from "../shared/settings";
 
 const OPTIONS: { label: string; value: Automatic }[] = [
@@ -27,9 +27,11 @@ export function TitlesSettings({ theme }: PluginSurfaceProps) {
   return <SettingsSection title="Titles">
     <SettingsCard>
       <SettingsSelect label="Automatic titles" hint={EXPLAIN[state.values.automatic]} value={state.values.automatic} options={OPTIONS}
-        disabled={state.saving} onValueChange={automatic => { void state.save({ automatic: automatic as Automatic }, state.revision); }} />
+        disabled={state.saving} onValueChange={automatic => { void state.save({ ...state.values, automatic: automatic as Automatic }, state.revision); }} />
+      <SettingsSwitch label="Automatic workspace titles" hint="A new workspace is named once its first tab has a subject, in the style of the project's other workspaces."
+        value={state.values.workspaces} disabled={state.saving} onValueChange={workspaces => { void state.save({ ...state.values, workspaces }, state.revision); }} />
     </SettingsCard>
-    <Text style={muted}>Names you set by hand are never changed automatically. Retitle (Ctrl+Shift+Alt+T, ⌘K, /retitle) always picks a new title.</Text>
+    <Text style={muted}>Names you set by hand are never changed automatically. Retitle (Ctrl+Shift+Alt+T, ⌘K, /retitle) always picks a new title; for the workspace, ⌘K → Retitle workspace or /retitle-workspace.</Text>
     {state.saveError ? <Text accessibilityRole="alert" style={{ color: theme.colors.foreground }}>{state.saveError}</Text> : null}
   </SettingsSection>;
 }

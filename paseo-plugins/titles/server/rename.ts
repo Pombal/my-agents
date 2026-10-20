@@ -6,13 +6,16 @@ import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 
 export type RenameOutcome = "renamed" | "changed" | "gone";
 
+// The daemon's home directory (PASEO_HOME, "~" expanded), shared with the plugin process.
+export const paseoHome = () => resolve((process.env.PASEO_HOME ?? join(homedir(), ".paseo")).replace(/^~(?=\/|$)/, homedir()));
+
 // The public PaseoApi (0.11.4) cannot rename agents. Use the same local RPC as
 // `paseo agent update --name`, against this daemon's own loopback endpoint.
 // Compare-and-set: the title must still be `expected` right before the update,
 // so a name typed by hand while the model was thinking always wins. `labels`
 // go into the same update; a null title writes only the labels.
 export async function renameAgent(agentId: string, expected: string | null, title: string | null, labels?: Record<string, string>): Promise<RenameOutcome> {
-  const home = resolve((process.env.PASEO_HOME ?? join(homedir(), ".paseo")).replace(/^~(?=\/|$)/, homedir()));
+  const home = paseoHome();
   const instance = JSON.parse(await readFile(join(home, "paseo.pid"), "utf8"));
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(instance.listen)) throw new Error("Titles needs a local loopback daemon endpoint");
   const daemon = new DaemonClient({
