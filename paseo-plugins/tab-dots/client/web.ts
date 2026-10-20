@@ -103,11 +103,11 @@ const CSS = `
 [${DOTS}] > i[data-state="finished"], [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
 [${DOTS}] > i[data-state="error"], [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
 [${DOTS}] > i[data-state="permission"], [data-tab-dots-tip] i[data-state="permission"] { background: var(--td-warn); }
-[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); animation: tab-dots-pulse ${PULSE_MS}ms ease-out infinite; }
+[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); animation: tab-dots-pulse ${PULSE_MS}ms ease-in-out infinite; }
 [${DOTS}] > i[data-state="read"], [data-tab-dots-tip] i[data-state="read"] { background: currentColor; opacity: .35; }
 [${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
-/* Spark + swell: resting small and dim; a short flash grows each dot to full size and brightness. */
-@keyframes tab-dots-pulse { 0%, 40%, 100% { opacity: .3; transform: scale(.6); } 12% { opacity: 1; transform: scale(1); } }
+/* Spark + swell, wide: resting small and dim; a soft flash grows each dot to full size and brightness. */
+@keyframes tab-dots-pulse { 0%, 60%, 100% { opacity: .3; transform: scale(.6); } 20% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { [${DOTS}] > i, [data-tab-dots-tip] i { animation: none !important; } }
 /* Right edge: the time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
 [${REPLACE}] [data-testid="sidebar-workspace-timestamp"] { display: none !important; }

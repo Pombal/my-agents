@@ -7,7 +7,7 @@ Colours follow Paseo's own status colours:
 - Green: the agent finished and you haven't looked yet.
 - Red: error.
 - Amber: waiting for your permission.
-- Blue: running (only in the "Unread and running" and "Every tab" modes). A running dot rests small and dim, and a short flash grows it to full size; several running dots flash one after another, left to right, and all rows keep the same beat. Still dots when the system asks for reduced motion.
+- Blue: running (only in the "Unread and running" and "Every tab" modes). A running dot rests small and dim, and a soft flash grows it to full size; several running dots flash one after another, left to right, and all rows keep the same beat. Still dots when the system asks for reduced motion.
 - Gray: read (only in "Every tab").
 
 Hover a dot to see the tab's title and state; click it to open that tab (which marks it read). Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
