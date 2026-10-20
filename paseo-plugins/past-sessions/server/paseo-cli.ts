@@ -5,8 +5,9 @@ import { pathToFileURL } from "node:url";
 /**
  * The plugin SDK's PaseoApi (0.11.4) covers neither importing, unarchiving nor listing provider
  * sessions. The Paseo CLI installed next to the daemon's Node does, over the daemon's normal API,
- * so this plugin borrows it: the `paseo` binary for import/reload and the CLI's daemon client for
- * `fetch_recent_provider_sessions_request`.
+ * so this plugin borrows the CLI's daemon client (`importAgent`, `refreshAgent`,
+ * `fetchRecentProviderSessions`), and falls back to running the `paseo` binary for import/reload
+ * when that client can't be loaded.
  */
 export function paseoBinary(): string {
   const sibling = path.join(path.dirname(process.execPath), "paseo");
@@ -24,16 +25,20 @@ export interface RecentProviderSession {
 }
 
 /** The subset of the CLI's `DaemonClient` this plugin calls. */
-export interface RecentSessionsClient {
+export interface DaemonClientSubset {
   fetchRecentProviderSessions(options: { providers: string[]; limit: number; cwd?: string }): Promise<{
     entries: RecentProviderSession[];
     providerErrors?: { provider: string; message: string }[];
   }>;
+  /** What `paseo import` sends; `sessionId` is the OMP session file or the provider's id. */
+  importAgent(input: { provider: string; sessionId: string; cwd: string }): Promise<{ id: string }>;
+  /** What `paseo agent reload` sends: unarchives and loads the agent. */
+  refreshAgent(agentId: string): Promise<{ agentId: string }>;
   close(): Promise<void>;
 }
 
 interface CliModules {
-  connectToDaemon(options: { target: unknown }): Promise<RecentSessionsClient>;
+  connectToDaemon(options: { target: unknown }): Promise<DaemonClientSubset>;
   selectDaemonTarget(options: object, env: NodeJS.ProcessEnv, localOnly: boolean): unknown;
 }
 
@@ -57,8 +62,16 @@ function cliModules(): Promise<CliModules> {
   return modules;
 }
 
+/** Whether the CLI's daemon client loads (it can't when `paseo` is only a bare name on PATH). */
+export function daemonClientAvailable(): Promise<boolean> {
+  return cliModules().then(
+    () => true,
+    () => false,
+  );
+}
+
 /** A short-lived connection to the local daemon, closed after `use`. */
-export async function withDaemonClient<T>(use: (client: RecentSessionsClient) => Promise<T>): Promise<T> {
+export async function withDaemonClient<T>(use: (client: DaemonClientSubset) => Promise<T>): Promise<T> {
   const { connectToDaemon, selectDaemonTarget } = await cliModules();
   const client = await connectToDaemon({ target: selectDaemonTarget({}, process.env, true) });
   try {

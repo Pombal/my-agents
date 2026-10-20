@@ -2,12 +2,12 @@ import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { reopenPastSession } from "../shared/rpc";
-import { paseoBinary } from "./paseo-cli";
+import { daemonClientAvailable, paseoBinary, withDaemonClient } from "./paseo-cli";
 import type { StarStore } from "./stars";
 
-// `paseo agent reload` → `refreshAgent` (unarchives and loads an archived agent);
-// `paseo import` → `importAgent` (a provider session becomes a Paseo agent).
-
+// Restore = `refreshAgent` (unarchives and loads an archived agent); Import = `importAgent` (a
+// provider session becomes a Paseo agent). Both go through the CLI's daemon client, ~4 ms; the
+// `paseo` binary (~300 ms of startup per click) is only the fallback when that client won't load.
 async function runPaseo(args: string[]): Promise<unknown> {
   let stdout: string;
   try {
@@ -40,12 +40,16 @@ export async function reopenHandler(
   input: RpcInput<typeof reopenPastSession>,
   stars: StarStore,
 ): Promise<RpcOutput<typeof reopenPastSession>> {
+  const direct = await daemonClientAvailable();
   if (input.source === "paseo") {
+    if (direct) return withDaemonClient(async (client) => ({ agentId: (await client.refreshAgent(input.agentId)).agentId }));
     return { agentId: agentIdOf(await runPaseo(["agent", "reload", input.agentId])) };
   }
-  const agentId = agentIdOf(
-    await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.handle]),
-  );
+  const agentId = direct
+    ? await withDaemonClient(
+        async (client) => (await client.importAgent({ provider: input.provider, sessionId: input.handle, cwd: input.cwd })).id,
+      )
+    : agentIdOf(await runPaseo(["import", "--provider", input.provider, "--cwd", input.cwd, input.handle]));
   // The session is listed as this agent from now on; a star stays with it.
   await stars.move(input.key, `paseo:${agentId}`);
   return { agentId };

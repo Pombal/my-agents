@@ -241,8 +241,13 @@ function StarMark({ filled, size, color }: { filled: boolean; size: number; colo
 
 interface RowProps {
   entry: PastSession;
-  chip: { label: string; path: string } | null;
-  now: number;
+  // Primitives only, so `memo` skips rows whose output didn't change: a `now` timestamp or a fresh
+  // chip object re-rendered all ~120 mounted rows on every keystroke (~50 ms a render).
+  /** "2 d ago" / "2d", built by the list with its `now`. */
+  time: string;
+  timeTitle: string;
+  chipLabel: string | null;
+  chipPath: string | null;
   busy: boolean;
   disabled: boolean;
   divider: boolean;
@@ -270,7 +275,7 @@ let ignorePressUntil = 0;
  * shows on starred rows and, on hover, as an outline to click; phones star by long press.
  */
 const SessionRow = memo(function SessionRow(props: RowProps) {
-  const { entry, chip, now, busy, density, compact, starred, styles, theme } = props;
+  const { entry, chipLabel, chipPath, busy, density, compact, starred, styles, theme } = props;
   const fromPaseo = entry.source === "paseo";
   const dense = density === "compact";
   const actionLabel = fromPaseo ? "Restore" : "Import";
@@ -361,11 +366,11 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
             {entry.title}
           </Text>
         );
-        const folder = chip ? (
-          <View ref={tooltip(chip.path)} style={[styles.chip, hot ? styles.chipHot : null]}>
+        const folder = chipLabel ? (
+          <View ref={tooltip(chipPath ?? chipLabel)} style={[styles.chip, hot ? styles.chipHot : null]}>
             <Icon name="Folder" size={11} color={theme.colors.foregroundMuted} />
             <Text style={styles.chipText} numberOfLines={1}>
-              {chip.label}
+              {chipLabel}
             </Text>
           </View>
         ) : null;
@@ -386,8 +391,8 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
                 <Text style={styles.action}>{actionLabel}</Text>
               </>
             ) : (
-              <Text ref={tooltip(`Last active ${absoluteTime(entry.at)}`)} style={styles.meta}>
-                {relativeTime(entry.at, now, dense)}
+              <Text ref={tooltip(props.timeTitle)} style={styles.meta}>
+                {props.time}
               </Text>
             )}
           </View>
@@ -855,11 +860,14 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           </Interactive>
         );
       }
+      const chip = folderChip(item.entry.cwd, data.folder, data.home);
       return (
         <SessionRow
           entry={item.entry}
-          chip={folderChip(item.entry.cwd, data.folder, data.home)}
-          now={now}
+          chipLabel={chip?.label ?? null}
+          chipPath={chip?.path ?? null}
+          time={relativeTime(item.entry.at, now, density === "compact")}
+          timeTitle={`Last active ${absoluteTime(item.entry.at)}`}
           busy={busyKey === item.entry.key}
           disabled={mutation.isPending}
           divider={items[index - 1]?.kind === "row"}

@@ -92,13 +92,14 @@ agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, n
 The search box filters by every word against title and folder, in the list and the section.
 
 Click a row to reopen it:
-- Paseo → `paseo agent reload <id>` (daemon `refreshAgent`): unarchives and loads the agent, then
-  the app opens it.
-- OMP → `paseo import --provider <omp provider> --cwd <session cwd> <session file>` (daemon
-  `importAgent`, Paseo's own import), then the app opens the new agent with its history.
+- Paseo → daemon `refreshAgent` (what `paseo agent reload <id>` sends): unarchives and loads the
+  agent, then the app opens it.
+- OMP, Claude Code, Codex → daemon `importAgent` (what `paseo import --provider … --cwd … <file or
+  id>` sends, Paseo's own import), then the app opens the new agent with its history.
 
-The plugin SDK's `PaseoApi` (0.11.4) has no import/unarchive calls, so the daemon-side handler runs
-the `paseo` CLI installed next to the daemon's Node; the CLI talks to the same daemon API.
+The plugin SDK's `PaseoApi` has no import/unarchive calls, so the daemon-side handler borrows the
+daemon client of the `paseo` CLI installed next to the daemon's Node (~4 ms per call). If that
+client can't be loaded, it runs the `paseo` binary instead (~300 ms of startup per click).
 
 ## Claude Code & Codex sessions
 
@@ -129,12 +130,21 @@ subagent transcripts are skipped.
 
 ## Speed
 
-Per file it stats, and on first sight or change reads only the first 64 KB (title record, header,
-first prompt) and, for previews and dates, the last 64 KB; both are cached in the plugin's
-daemon-side process by mtime and size. Measured 2026-10-19: index workspace 123 files, 22–85 ms;
-nilo whole project (95 worktrees, 876 files) 134 ms cold for the scan; tail reads for its 797
-listed sessions 78 ms cold, 2 ms warm; scanner alone on drimgar-compendium (522 files) 414 ms
-cold, 7 ms warm.
+Per file it stats (synchronously: it's the plugin's own process, and 2,400 local stats take
+2–5 ms that way against 30–40 ms async), and on first sight or change reads the first 64 KB
+(header, title record, first prompt; parsing stops once it has all three) and, for previews and
+dates, the last 16 KB (64 KB when those 16 KB lack a reply or message time). All candidate
+session folders are listed at once; cold reads run 64 at a time. Results are cached in the
+plugin's daemon-side process by mtime and size. Scope checks are string-prefix compares of
+resolved paths (`path.relative` cost 67 ms per large Project request).
+
+Measured 2026-10-20 (audit `~/agentspace/index/.scratch/paseo-grievances/past-sessions-perf.md`,
+then old vs new code on the same data, output byte-identical): nilo whole project (96 worktrees,
+829 listed sessions) scan warm 82–89 → 16–18 ms, cold 500–620 → 265–270 ms; tail summaries warm
+9.8 → 1.5 ms. In the web app a search keystroke on that list took 66–87 ms of handler time before
+(every row re-rendered; rows now get only plain values, so unchanged rows skip rendering) and
+3–18 ms after. Restore: 308 ms through the CLI, 178 ms on the first direct call (most of it
+loading the client once).
 
 ## Proof (live web app, 2026-10-19/20, `screenshots/`)
 
@@ -187,7 +197,8 @@ Earlier, before the toolbar change:
   daemon-wide on 2026-10-19); Folder and Project scopes find them by cwd.
 - Importing from the section lets the daemon pick the workspace for that folder, which may be a
   sibling workspace in the same folder rather than the one being viewed.
-- Reopening needs the `paseo` CLI on the daemon host (next to the daemon's Node, else on `PATH`).
+- Reopening needs the `paseo` CLI package on the daemon host (next to the daemon's Node, else on
+  `PATH`, which only allows the slower binary fallback).
 - Titles come from the first 64 KB: a session whose first prompt starts later shows "Empty session".
   Short automated sessions (e.g. "Reply with just: ok" probes) are listed like any other.
 - Switch lists active Paseo workspaces only. Live agents are not listed (they are in the sidebar).

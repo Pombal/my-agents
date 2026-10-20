@@ -1,7 +1,10 @@
-import { open, stat } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { open } from "node:fs/promises";
 
 /** Bytes read from the end of a session file for its last reply. */
 export const TAIL_BYTES = 64 * 1024;
+/** Read first: the last reply and message are nearly always this close to the end. */
+const SMALL_TAIL_BYTES = 16 * 1024;
 /** Longer previews are pointless: the UI shows at most two lines. */
 export const PREVIEW_MAX = 400;
 
@@ -79,6 +82,11 @@ export interface TailSummary {
  * line is partial and skipped.
  */
 export function summarizeTail(tail: string, startsMidFile: boolean): TailSummary {
+  return walkTail(tail, startsMidFile).summary;
+}
+
+/** `complete`: the walk found both the reply and a message time, so a longer tail can't differ. */
+function walkTail(tail: string, startsMidFile: boolean): { summary: TailSummary; complete: boolean } {
   const lines = tail.split("\n");
   const first = startsMidFile ? 1 : 0;
   let reply: string | null = null;
@@ -103,11 +111,18 @@ export function summarizeTail(tail: string, startsMidFile: boolean): TailSummary
     lastMessageAt ??= at;
     if (!reply && role === "assistant") reply = previewText(textOf(record.message?.content));
   }
-  return { reply, lastActiveAt: lastMessageAt ?? lastRecordAt };
+  return {
+    summary: { reply, lastActiveAt: lastMessageAt ?? lastRecordAt },
+    complete: reply !== null && lastMessageAt !== null,
+  };
 }
 
-export async function readTail(file: string, size: number): Promise<{ text: string; startsMidFile: boolean }> {
-  const start = Math.max(0, size - TAIL_BYTES);
+export async function readTail(
+  file: string,
+  size: number,
+  bytes = TAIL_BYTES,
+): Promise<{ text: string; startsMidFile: boolean }> {
+  const start = Math.max(0, size - bytes);
   const handle = await open(file, "r");
   try {
     const buffer = Buffer.alloc(size - start);
@@ -116,6 +131,20 @@ export async function readTail(file: string, size: number): Promise<{ text: stri
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * The 16 KB tail first; the full TAIL_BYTES only when it lacks the reply or a message time. The
+ * backward walk stops at the same line either way, so the summary is the same.
+ */
+async function summarizeFile(file: string, size: number): Promise<TailSummary> {
+  if (size > SMALL_TAIL_BYTES) {
+    const small = await readTail(file, size, SMALL_TAIL_BYTES);
+    const walked = walkTail(small.text, small.startsMidFile);
+    if (walked.complete) return walked.summary;
+  }
+  const tail = await readTail(file, size);
+  return summarizeTail(tail.text, tail.startsMidFile);
 }
 
 const EMPTY: TailSummary = { reply: null, lastActiveAt: null };
@@ -127,16 +156,17 @@ export class TailCache {
   async summary(file: string): Promise<TailSummary> {
     let info;
     try {
-      info = await stat(file);
+      // Synchronous: a local stat is microseconds; an async one is a threadpool round trip.
+      info = statSync(file, { throwIfNoEntry: false });
     } catch {
       return EMPTY;
     }
+    if (!info) return EMPTY;
     const cached = this.#cache.get(file);
     if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.summary;
     let summary = EMPTY;
     try {
-      const tail = await readTail(file, info.size);
-      summary = summarizeTail(tail.text, tail.startsMidFile);
+      summary = await summarizeFile(file, info.size);
     } catch {
       summary = EMPTY;
     }

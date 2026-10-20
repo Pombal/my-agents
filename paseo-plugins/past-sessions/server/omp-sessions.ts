@@ -1,4 +1,5 @@
-import { open, readdir, realpath, stat } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { isSameOrInside, ompDirNames, subtreeDirMatcher, type PathRoots } from "./slug";
 
@@ -57,15 +58,21 @@ function messageText(content: unknown): string | null {
  * Reads what the list needs from the start of an OMP session file. OMP keeps a padded
  * `title` record as the first line and rewrites it in place, so the head carries the
  * current title; older files only have `title_change` / `session_info` records.
- * A chunk cut mid-line just loses that last line.
+ * A chunk cut mid-line just loses that last line. Parsing stops once the header, the pinned
+ * title and the first prompt are known: nothing later can change them (OMP writes one `title`
+ * record per file), and the rest of the 64 KB is often large tool output.
  */
 export function parseSessionHead(chunk: string): SessionHead | null {
   let header: { sessionId: string; cwd: string; createdAt: string | null } | null = null;
   let pinnedTitle: string | null = null;
   let laterTitle: string | null = null;
   let firstPrompt: string | null = null;
-  for (const line of chunk.split("\n")) {
-    const entry = asRecord(line);
+  let start = 0;
+  while (start < chunk.length && !(header && pinnedTitle && firstPrompt)) {
+    let end = chunk.indexOf("\n", start);
+    if (end < 0) end = chunk.length;
+    const entry = asRecord(chunk.slice(start, end));
+    start = end + 1;
     if (!entry) continue;
     switch (entry.type) {
       case "session": {
@@ -129,11 +136,29 @@ export interface ScanStats {
   filesRead: number;
 }
 
+/** Cold reads open files; more at once than this risks EMFILE on a project with many sessions. */
+const READ_CONCURRENCY = 64;
+
+/** `map` with at most `limit` calls in flight, results in input order. */
+async function mapLimited<T, R>(items: T[], limit: number, map: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await map(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /**
  * Lists top-level OMP sessions (subagent transcripts live in nested folders and are skipped)
  * whose recorded cwd is `folder` (scope folder) or inside one of `roots` (scope project).
- * Only candidate directories are listed; each new or changed file costs one stat and one
- * HEAD_BYTES read, unchanged files only a stat.
+ * Only candidate directories are listed, all at once; each new or changed file costs one stat
+ * and one HEAD_BYTES read, unchanged files only a stat. Stats are synchronous: this runs in the
+ * plugin's own process, and 2,400 local stats take 2–5 ms that way against 30–40 ms async.
  */
 export class OmpSessionIndex {
   readonly #cache = new Map<string, CacheEntry>();
@@ -155,56 +180,59 @@ export class OmpSessionIndex {
       input.includeSubfolders
         ? targets.some((target) => isSameOrInside(target, resolvedCwd))
         : targets.includes(resolvedCwd);
+    const dirs = (
+      await Promise.all(
+        input.sessionRoots.map(async (root) => {
+          try {
+            return (await readdir(root.dir, { withFileTypes: true }))
+              .filter((entry) => entry.isDirectory() && isCandidate(entry.name))
+              .map((entry) => ({ dir: path.join(root.dir, entry.name), provider: root.provider }));
+          } catch {
+            return [];
+          }
+        }),
+      )
+    ).flat();
+    stats.dirsScanned = dirs.length;
+    const files = (
+      await Promise.all(
+        dirs.map(async ({ dir, provider }) => {
+          try {
+            return (await readdir(dir, { withFileTypes: true }))
+              .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+              .map((entry) => ({ file: path.join(dir, entry.name), provider }));
+          } catch {
+            return [];
+          }
+        }),
+      )
+    ).flat();
+    stats.filesSeen = files.length;
+    const entries = await mapLimited(files, READ_CONCURRENCY, ({ file }) => this.#read(file, stats));
     const sessions: OmpSession[] = [];
-    for (const root of input.sessionRoots) {
-      let dirNames: string[];
-      try {
-        dirNames = (await readdir(root.dir, { withFileTypes: true }))
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => entry.name);
-      } catch {
-        continue;
-      }
-      const candidates = dirNames.filter(isCandidate);
-      for (const dirName of candidates) {
-        stats.dirsScanned += 1;
-        const dir = path.join(root.dir, dirName);
-        let files: string[];
-        try {
-          files = (await readdir(dir, { withFileTypes: true }))
-            .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-            .map((entry) => path.join(dir, entry.name));
-        } catch {
-          continue;
-        }
-        stats.filesSeen += files.length;
-        const read = await Promise.all(files.map((file) => this.#read(file, stats)));
-        for (const item of read) {
-          if (!item?.entry.head || !item.entry.resolvedCwd) continue;
-          if (!matches(item.entry.resolvedCwd)) continue;
-          sessions.push({
-            ...item.entry.head,
-            file: item.file,
-            provider: root.provider,
-            mtime: new Date(item.entry.mtimeMs).toISOString(),
-          });
-        }
-      }
-    }
+    entries.forEach((entry, index) => {
+      const source = files[index];
+      if (!source || !entry?.head || !entry.resolvedCwd || !matches(entry.resolvedCwd)) return;
+      sessions.push({
+        ...entry.head,
+        file: source.file,
+        provider: source.provider,
+        mtime: new Date(entry.mtimeMs).toISOString(),
+      });
+    });
     return { sessions, stats };
   }
 
-  async #read(file: string, stats: ScanStats): Promise<{ file: string; entry: CacheEntry } | null> {
+  async #read(file: string, stats: ScanStats): Promise<CacheEntry | null> {
     let info;
     try {
-      info = await stat(file);
+      info = statSync(file, { throwIfNoEntry: false });
     } catch {
       return null;
     }
+    if (!info) return null;
     const cached = this.#cache.get(file);
-    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
-      return { file, entry: cached };
-    }
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached;
     stats.filesRead += 1;
     let head: SessionHead | null = null;
     try {
@@ -219,6 +247,6 @@ export class OmpSessionIndex {
       resolvedCwd: head ? await resolvedOrSelf(head.cwd) : null,
     };
     this.#cache.set(file, entry);
-    return { file, entry };
+    return entry;
   }
 }
