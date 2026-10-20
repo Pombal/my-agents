@@ -1,4 +1,4 @@
-# Working indicator (`spinners`)
+# Working indicator (`turn-status`)
 
 Replaces what Paseo shows at the bottom of a turn while an agent works. Three separate settings,
 each with its own "Off":
@@ -42,7 +42,7 @@ real turn. Saved per host; other open windows pick it up on focus.
 - Elements it adds carry `data-spn-own`, so their own animations never wake the page observer.
   Disabling the plugin puts every footer back exactly as Paseo drew it.
 
-Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload spinners`.
+Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload turn-status`.
 
 ## Limits
 
@@ -63,7 +63,7 @@ Installed from this folder; tested on a real running OMP turn in the web app:
 - Picking tiles in the settings screen updated the running turn's footer immediately: Jelly dots +
   Icon label ("Running code" with omp's Eval icon) + Rolling time; then Orbit + Typed + Warming
   (amber at 12 min).
-- `paseo plugin disable spinners` removed every added element and style live (Paseo's dots back);
+- `paseo plugin disable` removed every added element and style live (Paseo's dots back);
   `enable` restored ours. Settings were set back to the defaults afterwards.
 
 Design history (mock pages, picks, research): `~/www/webshare/pages/paseo-spinners.html`,

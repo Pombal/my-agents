@@ -28,7 +28,7 @@ export default function contribute(client: PluginClientContext) {
       if (result.status !== "ready" || edits !== editsAtStart) return; // a save landed while this read was in flight
       const parsed = preferences.schema.safeParse(result.values);
       if (parsed.success) indicator.setPreferences(parsed.data);
-    }, (error: unknown) => console.error("[spinners] settings read failed", error));
+    }, (error: unknown) => console.error("[turn-status] settings read failed", error));
   };
   refresh();
   window.addEventListener("focus", refresh);

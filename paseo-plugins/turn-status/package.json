@@ -1,5 +1,5 @@
 {
-  "name": "spinners",
+  "name": "turn-status",
   "private": true,
   "version": "0.0.0",
   "files": ["paseo-plugin.json", "OVERVIEW.md", "index.client.tsx", "index.server.ts", "client/", "shared/", "screenshots/"],

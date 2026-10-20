@@ -60,7 +60,7 @@ export function retainCatalogStyle(): () => void {
   if (!isWeb) return () => {};
   if (styleUsers++ === 0) {
     styleElement = document.createElement("style");
-    styleElement.setAttribute("data-plugin", "spinners");
+    styleElement.setAttribute("data-plugin", "turn-status");
     styleElement.textContent = CATALOG_CSS;
     document.head.appendChild(styleElement);
   }
@@ -391,7 +391,7 @@ export function startIndicator(): Indicator {
   if (!isWeb) return { setPreferences() {}, dispose() {} };
   const releaseCatalog = retainCatalogStyle();
   const style = document.createElement("style");
-  style.setAttribute("data-plugin", "spinners-footer");
+  style.setAttribute("data-plugin", "turn-status-footer");
   style.textContent = FOOTER_CSS;
   document.head.appendChild(style);
 
