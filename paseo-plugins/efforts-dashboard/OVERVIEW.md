@@ -3,13 +3,32 @@ Paseo 0.12.0 from the final mockups `http://axalon:8080/pages/efforts-dashboard-
 approved additions in `/home/cx/agentspace/index/.scratch/paseo-grievances/efforts-dashboard-overcorrection-check.md`.
 
 ## Status (2026-10-20)
-- **Step 1, Efforts tab in the explorer: built and checked live** (web app, dark, 320 and 240 px).
-- Step 2 header pill, step 3 global screen + sidebar row, step 4 phone composer pill: **not built yet**.
-  The server already answers everything they need (overview with bindings/suggestions, search).
+All four steps built and checked live in the web app (dark; desktop 1440 px, explorer 320/240 px,
+phone 390 px). Not yet checked: light theme; "Grill in new chat" pressed for real (the throwaway
+Haiku agent landed in another folder, so it was deleted untested).
 
 ## Where Stefan sees it
-Explorer panel → `+` → **Efforts** (also ⌘K "Efforts for this workspace"). Settings → Efforts:
-extra folders.
+- Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
+- **Header pill** per workspace: map icon + effort name + chevron; `bind?` when unbound with a
+  suggestion; nothing when there is none. Popover (option B): name + status, path, counts,
+  `Not committed · N`, the next ticket (opens it in the panel), Open Efforts panel, "Switch this
+  workspace to" (efforts it leans on, then Other effort…), All efforts, Unbind. Unbound: the
+  suggestion with Bind · New effort · No effort. On phones the header button is icon-only and
+  opens the whole effort as a sheet.
+- **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
+  and workspace names (results grouped, replacing the table while typing; `/` focuses), project
+  chips, columns Done / Effort / Open tickets / Workspaces / Next / Touched. Per `.scratch`
+  group: efforts with a bound or suggested workspace, then **Touched this week, no workspace**,
+  then the older ones folded (newest first), then workspaces with no effort and no suggestion.
+  Opened from a workspace (pill or ⋯ → All efforts): that project only ("show all" undoes it) and
+  the effort marked "you came from …". Clicking a row reads the effort in a right column (the
+  same component as the panel, keyed by effort path, so efforts without a workspace are
+  readable); chips open that workspace with its Efforts panel. Phones: two-line rows (name /
+  `Next 01 …`, done count + bar), the effort opens full screen.
+- **Phone composer pill** `wa-ftue · 0/9 done` on every chat of a bound workspace, compact
+  layouts only (< 720 px); tap → sheet with all rows; a row opens in place with its Question,
+  status line, the chat button and Read.
+- Settings → Efforts: extra folders.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at
