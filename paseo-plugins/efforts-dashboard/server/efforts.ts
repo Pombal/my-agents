@@ -1,6 +1,7 @@
 import type { PaseoAgentListResult, PaseoApi, PaseoWorkspace } from "@getpaseo/client";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginHandlerContext, PluginSettings } from "@getpaseo/plugin/server";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import type {
@@ -103,6 +104,20 @@ function rootLabel(root: string): string {
   return path.basename(path.dirname(root));
 }
 
+/**
+ * The response, or `{ unchanged: true }` when it is identical to the one the client holds
+ * (`since`). Idle 5 s polls then carry a few bytes instead of 25–100 KB.
+ */
+function unlessUnchanged<T extends object>(value: T, since: string | undefined): (T & { etag: string }) | { unchanged: true; etag: string } {
+  const etag = createHash("sha1").update(JSON.stringify(value)).digest("base64url");
+  return etag === since ? { unchanged: true, etag } : { ...value, etag };
+}
+
+/** An effort is one folder directly inside `.scratch`. */
+function checkSlug(slug: string): void {
+  if (!slug || slug === "." || slug === ".." || slug.includes("/") || slug.includes(path.sep)) throw new Error(`Not an effort folder: ${slug}`);
+}
+
 export class EffortsService {
   constructor(
     private readonly bindings: BindingStore,
@@ -112,8 +127,7 @@ export class EffortsService {
   /** Roots this service has listed; reads are refused anywhere else. */
   private knownRoots = new Set<string>();
 
-  async overview(_input: RpcInput<typeof overviewRpc>, { paseo }: PluginHandlerContext): Promise<RpcOutput<typeof overviewRpc>> {
-    const started = Date.now();
+  async overview({ since }: RpcInput<typeof overviewRpc>, { paseo }: PluginHandlerContext): Promise<RpcOutput<typeof overviewRpc>> {
     const warnings: string[] = [];
     const [workspaces, bindings, settings] = await Promise.all([
       listAll((cursor) => paseo.workspaces.list({ page: { limit: 200, ...(cursor ? { cursor } : {}) } })),
@@ -185,11 +199,10 @@ export class EffortsService {
           skipped,
           binding,
           suggestion,
-          activityAt: workspace.activityAt,
         };
       }),
     );
-    return { home, roots: out, workspaces: infos, elapsedMs: Date.now() - started, warnings };
+    return unlessUnchanged({ home, roots: out, workspaces: infos, warnings }, since);
   }
 
   private async guardRoot(root: string): Promise<void> {
@@ -197,7 +210,8 @@ export class EffortsService {
     if (path.basename(root) !== ".scratch" || (await realOrNull(root)) !== root) throw new Error(`Not a .scratch folder: ${root}`);
   }
 
-  async detail({ root, slug }: RpcInput<typeof detailRpc>): Promise<RpcOutput<typeof detailRpc>> {
+  async detail({ root, slug, since }: RpcInput<typeof detailRpc>): Promise<RpcOutput<typeof detailRpc>> {
+    checkSlug(slug);
     await this.guardRoot(root);
     const [scan, siblings] = await Promise.all([scanEffort(root, slug), scanRoot(root)]);
     if (!scan) throw new Error(`No effort ${slug} in ${root}`);
@@ -212,12 +226,10 @@ export class EffortsService {
     const git = await effortChanges(scan.key, root);
     const changes = git?.changes ?? [];
     const changedRels = new Set(changes.map((change) => change.rel));
-    const mapDiff =
-      git && changes.some((change) => change.rel === "map.md" && change.kind === "modified")
-        ? await sectionChanges(git.top, mapFile)
-        : { sections: [], added: new Set<number>() };
+    const mapChange = changes.find((change) => change.rel === "map.md" && change.kind === "modified");
+    const mapDiff = git && mapChange ? await sectionChanges(git.top, mapFile, mapChange.sig) : { sections: [], added: new Set<number>() };
     const changedHeadings = new Set(mapDiff.sections.map(([heading]) => heading));
-    const stats = git ? await numstat(git.top, scan.key) : new Map<string, { added: number; removed: number }>();
+    const stats = git ? await numstat(git.top, scan.key, changes) : new Map<string, { added: number; removed: number }>();
     const mapStat = stats.get("map.md");
 
     const tickets: Ticket[] = scan.tickets.map((ticket) => ({
@@ -280,12 +292,14 @@ export class EffortsService {
         heading: section.heading,
         count: bullets.length,
         tail,
-        markdown: section.body.trim(),
+        // Folds with bullets draw `items`; the body is only drawn when there are none.
+        markdown: bullets.length ? "" : section.body.trim(),
         items: bullets.map((bullet) => {
           let changed = false;
           for (let line = bullet.first; line <= bullet.last && !changed; line++) changed = mapDiff.added.has(bodyStart + line);
           return {
-            markdown: bullet.markdown,
+            // Decisions rows show the title and open map.md there; the bullet body isn't drawn.
+            markdown: fold.name === "Decisions" ? "" : bullet.markdown,
             title: lead(bullet.text, 120),
             date: /\b(20\d\d-\d\d-\d\d)\b/.exec(bullet.markdown)?.[1] ?? null,
             changed,
@@ -335,7 +349,7 @@ export class EffortsService {
           })),
       });
     }
-    const artifacts = await listArtifacts(artifactsDir(root, slug));
+    const artifacts = listArtifacts(artifactsDir(root, slug));
     if (artifacts.count) {
       docs.push({
         name: ".artifacts",
@@ -369,26 +383,29 @@ export class EffortsService {
 
     const log = git ? await commits(git.top, scan.key) : [];
     const rows = git ? await this.uncommittedRows(git.top, scan.key, changes, mapDiff.sections, stats) : [];
-    return {
-      summary,
-      displayPath: path.join(rootLabel(root), ".scratch", slug),
-      title: summary.title,
-      mapStatusRaw: head.fields.get("status") ?? null,
-      destination: summary.destination,
-      deadline: head.fields.get("deadline") ? plain(head.fields.get("deadline")!) : null,
-      tickets,
-      sections: folds,
-      docs,
-      mapChanges: {
-        lines: mapStat ? mapStat.added + mapStat.removed : 0,
-        sections: mapDiff.sections.map(([heading, added]) => ({ heading, added })),
-      },
-      anomalies,
-      uncommitted: git ? { rows, paths: changes.map((change) => path.join(scan.key, change.rel)), repo: git.top } : null,
-      leansOn,
-      commits: log.slice(0, 100),
-      moreCommits: log.length > 100,
-    } satisfies EffortDetail;
+    return unlessUnchanged(
+      {
+        summary,
+        displayPath: path.join(rootLabel(root), ".scratch", slug),
+        title: summary.title,
+        mapStatusRaw: head.fields.get("status") ?? null,
+        destination: summary.destination,
+        deadline: head.fields.get("deadline") ? plain(head.fields.get("deadline")!) : null,
+        tickets,
+        sections: folds,
+        docs,
+        mapChanges: {
+          lines: mapStat ? mapStat.added + mapStat.removed : 0,
+          sections: mapDiff.sections.map(([heading, added]) => ({ heading, added })),
+        },
+        anomalies,
+        uncommitted: git ? { rows, paths: changes.map((change) => path.join(scan.key, change.rel)), repo: git.top } : null,
+        leansOn,
+        commits: log.slice(0, 100),
+        moreCommits: log.length > 100,
+      } satisfies Omit<EffortDetail, "etag">,
+      since,
+    );
   }
 
   /**
@@ -417,7 +434,7 @@ export class EffortsService {
           change.rel === "map.md"
             ? mapSectionChanges
             : change.kind === "modified" && change.rel.endsWith(".md")
-              ? (await sectionChanges(top, path.join(effortDir, change.rel))).sections
+              ? (await sectionChanges(top, path.join(effortDir, change.rel), change.sig)).sections
               : [];
         let mtimeMs: number | null = null;
         if (change.kind !== "deleted") mtimeMs = await readText(path.join(effortDir, change.rel)).then((read) => read.mtimeMs, () => null);
@@ -451,11 +468,13 @@ export class EffortsService {
     return rows.sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
   }
 
-  async search({ query, root, current }: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {
+  async search({ query, root, current }: RpcInput<typeof searchRpc>, context: PluginHandlerContext): Promise<RpcOutput<typeof searchRpc>> {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const empty = { efforts: [], tickets: [], docs: [] };
     if (!words.length) return empty;
     if (root) await this.guardRoot(root);
+    // Right after a plugin restart nothing is known yet: list the roots first, instead of finding nothing.
+    else if (!this.knownRoots.size) await this.overview({}, context);
     const roots = root ? [root] : [...this.knownRoots];
     const number = words.length === 1 && /^#?\d{1,3}$/.test(words[0]) ? words[0].replace("#", "").padStart(2, "0") : null;
     const hits = (text: string) => {
@@ -506,6 +525,7 @@ export class EffortsService {
   }
 
   async read({ root, slug, rel }: RpcInput<typeof readRpc>): Promise<RpcOutput<typeof readRpc>> {
+    checkSlug(slug);
     await this.guardRoot(root);
     const artifacts = artifactsDir(root, slug);
     const abs = rel.startsWith(".artifacts/") ? path.resolve(artifacts, rel.slice(".artifacts/".length)) : path.resolve(root, slug, rel);
@@ -520,6 +540,7 @@ export class EffortsService {
     if (target.kind === "clear") await this.bindings.set(workspaceId, null);
     else if (target.kind === "none") await this.bindings.set(workspaceId, { kind: "none", at });
     else {
+      checkSlug(target.slug);
       await this.guardRoot(target.root);
       await this.bindings.set(workspaceId, { kind: "effort", root: target.root, slug: target.slug, at });
     }

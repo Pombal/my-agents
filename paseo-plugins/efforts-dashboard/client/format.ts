@@ -1,4 +1,5 @@
-import type { Counts } from "../shared/rpc";
+import type { Counts, Doc } from "../shared/rpc";
+import type { Page } from "./state";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -71,7 +72,13 @@ export function tildify(target: string, home: string): string {
 /** Resolves a Markdown link inside an effort: `../research/x.md` from `issues/01.md` → `research/x.md`. */
 export function resolveRel(fromRel: string, href: string): string | null {
   if (/^[a-z]+:/i.test(href) || href.startsWith("#") || href.startsWith("/")) return null;
-  const clean = decodeURI(href.split("#")[0]);
+  let clean: string;
+  try {
+    clean = decodeURI(href.split("#")[0]);
+  } catch {
+    // A malformed `%` escape: not a link the panel can follow.
+    return null;
+  }
   if (!clean) return null;
   const parts = fromRel.split("/").slice(0, -1);
   for (const part of clean.split("/")) {
@@ -82,4 +89,24 @@ export function resolveRel(fromRel: string, href: string): string | null {
     } else parts.push(part);
   }
   return parts.join("/");
+}
+
+/**
+ * Where a Markdown link inside the effort opens: a folder the effort lists opens its file list,
+ * anything else the doc page. Null for links that leave the effort or the page.
+ */
+export function linkPage(docs: readonly Pick<Doc, "kind" | "rel">[], fromRel: string, href: string): Page | null {
+  const rel = resolveRel(fromRel, href);
+  if (!rel) return null;
+  const folder = docs.find((doc) => (doc.kind === "folder" || doc.kind === "artifacts") && doc.rel === rel);
+  return folder ? { kind: "folder", rel: folder.rel } : { kind: "doc", rel };
+}
+
+/** The ticket text below its title, without the head lines (`Status:`, `Type:`, `Blocked by:`) the meta line already says. */
+export function ticketBody(text: string): string {
+  const withoutTitle = text.replace(/^#\s.*\n?/m, "");
+  const sectionAt = withoutTitle.search(/^##\s/m);
+  const head = sectionAt === -1 ? withoutTitle : withoutTitle.slice(0, sectionAt);
+  const rest = sectionAt === -1 ? "" : withoutTitle.slice(sectionAt);
+  return (head.replace(/^\s*\**(Status|Type|Blocked by)\**\s*:.*\n?/gim, "") + rest).trim();
 }

@@ -1,15 +1,17 @@
 import type { PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
+import { useToast } from "@getpaseo/plugin/client/react-native";
 import { Text, View } from "react-native";
 import { useOverview, useVisible } from "./data";
 import { EffortView } from "./effort-view";
 import { colorsOf, ROW, SMALL } from "./marks";
-import { bind } from "./runtime";
+import { bindOrToast } from "./runtime";
 import { Button } from "./ui";
 import { UnboundView } from "./unbound-view";
 
 /** The Efforts tab: this workspace's effort, or the suggestion and picker when it has none. */
 export function EffortsPanel({ workspaceId, theme, layout, navigation }: PluginWorkspacePanelProps) {
   const c = colorsOf(theme);
+  const toast = useToast();
   const { visible, onLayout } = useVisible();
   const overview = useOverview(visible);
   const workspace = overview.data?.workspaces.find((candidate) => candidate.id === workspaceId);
@@ -39,7 +41,7 @@ export function EffortsPanel({ workspaceId, theme, layout, navigation }: PluginW
         <Text style={{ ...ROW, color: c.fg, fontWeight: "600" }}>No effort</Text>
         <Text style={{ ...SMALL, color: c.muted }}>You said {workspace?.name ?? "this workspace"} serves no effort, so nothing is suggested.</Text>
         <View style={{ flexDirection: "row" }}>
-          <Button c={c} label="Choose an effort" onPress={() => void bind(workspaceId, { kind: "clear" })} />
+          <Button c={c} label="Choose an effort" onPress={() => bindOrToast(toast, workspaceId, { kind: "clear" })} />
         </View>
       </View>
     );

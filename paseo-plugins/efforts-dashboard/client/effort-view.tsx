@@ -3,12 +3,12 @@ import { copyText, Icon, ScrollView, useToast } from "@getpaseo/plugin/client/re
 import { useState, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import type { EffortDetail, Section, Ticket } from "../shared/rpc";
-import { useDetail, useDoc, useVisible } from "./data";
-import { age, daysSince, isoDay, resolveRel, shortDate, stamp } from "./format";
+import { useDetail, useDoc, usePrefetch, useVisible } from "./data";
+import { age, daysSince, isoDay, linkPage, shortDate, stamp, ticketBody } from "./format";
 import { Menu, type MenuItem } from "./legend";
 import { MarkdownView } from "./markdown-view";
 import { Bar, colorsOf, Dot, Glyph, LABEL, MONO, ROW, SMALL, Tag, type Palette } from "./marks";
-import { bind, chatVerb, client, openAllEfforts, startTicketChat } from "./runtime";
+import { bindOrToast, chatSettings, chatVerb, client, openAllEfforts, startTicketChat } from "./runtime";
 import { useViewState, viewKey, type Page, type ViewState } from "./state";
 import { BackRow, Button, CountsLine, FoldHeader, GroupLabel, IconButton, RowButton, TicketRow, styles as ui } from "./ui";
 import { UnboundView } from "./unbound-view";
@@ -74,6 +74,7 @@ function statusLine(ticket: Ticket): string {
 export function EffortView(props: EffortViewProps) {
   const { theme, effort } = props;
   const c = colorsOf(theme);
+  const toast = useToast();
   const { visible, width, onLayout } = useVisible();
   const key = viewKey(props.workspaceId, effort);
   const [state, update] = useViewState(key);
@@ -83,7 +84,8 @@ export function EffortView(props: EffortViewProps) {
   let body: ReactNode;
   if (detail.isPending) {
     body = <ActivityIndicator style={{ marginTop: 40 }} color={c.muted} />;
-  } else if (detail.isError || !detail.data) {
+  } else if (!detail.data) {
+    // A failed poll keeps the effort it already shows; this is only for one never read.
     body = (
       <View style={{ padding: 16, gap: 10 }}>
         <Text style={{ ...ROW, color: c.fg, fontWeight: "600" }}>{effort.slug}</Text>
@@ -93,7 +95,7 @@ export function EffortView(props: EffortViewProps) {
         {props.workspaceId ? (
           <View style={{ flexDirection: "row", gap: 6 }}>
             <Button c={c} label="Switch effort" onPress={() => update({ page: { kind: "switch" } })} />
-            <Button c={c} kind="ghost" label="Unbind" onPress={() => void bind(props.workspaceId!, { kind: "clear" })} />
+            <Button c={c} kind="ghost" label="Unbind" onPress={() => bindOrToast(toast, props.workspaceId!, { kind: "clear" })} />
           </View>
         ) : null}
       </View>
@@ -149,7 +151,11 @@ function useChat(props: InnerProps) {
       setBusy(null);
     }
   };
-  return { busy, start };
+  // Reads the workspace's chat settings ahead, so the click only has to create the chat.
+  const warm = () => {
+    if (props.workspaceId) chatSettings(props.workspaceId).catch(() => {});
+  };
+  return { busy, start, warm };
 }
 
 function Overview(props: InnerProps & { narrow: boolean }) {
@@ -168,6 +174,7 @@ function Overview(props: InnerProps & { narrow: boolean }) {
       () => toast.error("Copying is not available here"),
     );
   const chat = useChat(props);
+  const prefetch = usePrefetch();
 
   const ticketRows = (tickets: Ticket[]) =>
     tickets.map((ticket) => {
@@ -184,6 +191,8 @@ function Overview(props: InnerProps & { narrow: boolean }) {
             next={next}
             big={mode === "sheet"}
             onPress={() => openTicket(ticket)}
+            onHoverIn={() => prefetch.doc(props.effort, ticket.rel)}
+            onHoverOut={prefetch.cancel}
           />
           {next && !open && ticket.question ? (
             <Text numberOfLines={1} style={[styles.question, { color: c.muted, backgroundColor: c.s2 }, mode === "sheet" ? { paddingLeft: 59 } : null]}>
@@ -200,7 +209,16 @@ function Overview(props: InnerProps & { narrow: boolean }) {
               </Text>
               <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
                 {props.workspaceId && ticket.state !== "done" ? (
-                  <Button c={c} kind="primary" big icon="MessageCircle" label={chatVerb(ticket.type)} busy={chat.busy === ticket.num} onPress={() => void chat.start(ticket)} />
+                  <Button
+                    c={c}
+                    kind="primary"
+                    big
+                    icon="MessageCircle"
+                    label={chatVerb(ticket.type)}
+                    busy={chat.busy === ticket.num}
+                    onHoverIn={chat.warm}
+                    onPress={() => void chat.start(ticket)}
+                  />
                 ) : null}
                 <Button c={c} big label="Read" onPress={() => update({ page: { kind: "ticket", rel: ticket.rel } })} />
               </View>
@@ -216,7 +234,7 @@ function Overview(props: InnerProps & { narrow: boolean }) {
     { icon: "Copy", label: "Copy path", hint: `.scratch/${summary.slug}`, onPress: () => void copy(summary.key, "the effort path") },
     { icon: "LayoutGrid", label: "All efforts", onPress: () => openAllEfforts(props.workspaceId ?? undefined, summary.key) },
     ...(props.workspaceId
-      ? [{ icon: "Unlink", label: `Unbind from ${props.workspaceName ?? "this workspace"}`, muted: true, onPress: () => void bind(props.workspaceId!, { kind: "clear" }) }]
+      ? [{ icon: "Unlink", label: `Unbind from ${props.workspaceName ?? "this workspace"}`, muted: true, onPress: () => bindOrToast(toast, props.workspaceId!, { kind: "clear" }) }]
       : []),
   ];
 
@@ -423,7 +441,7 @@ function Overview(props: InnerProps & { narrow: boolean }) {
 }
 
 function SectionFold(props: InnerProps & { section: Section; open: boolean; onToggle(): void }) {
-  const { c, section, update } = props;
+  const { c, data, section, update } = props;
   const isDecisions = section.name === "Decisions";
   // Decisions: newest first by their date; undated ones keep map order after the dated.
   const items = isDecisions
@@ -433,8 +451,8 @@ function SectionFold(props: InnerProps & { section: Section; open: boolean; onTo
         .map(({ item }) => item)
     : section.items;
   const onLink = (href: string) => {
-    const rel = resolveRel("map.md", href);
-    if (rel) update({ page: { kind: "doc", rel } });
+    const page = linkPage(data.docs, "map.md", href);
+    if (page) update({ page });
   };
   return (
     <>
@@ -496,10 +514,7 @@ function TicketPage(props: InnerProps & { rel: string; visible: boolean }) {
   };
   const rawDiffers = ticket.statusRaw && ticket.statusRaw.trim().toLowerCase() !== ticket.statusWord;
   // The body without the title and the key lines the meta line already says.
-  const body = (doc.data?.text ?? "")
-    .replace(/^#\s.*\n?/m, "")
-    .replace(/^\s*\**(Status|Type|Blocked by)\**\s*:.*\n?/gim, "")
-    .trim();
+  const body = ticketBody(doc.data?.text ?? "");
   const abs = `${data.summary.key}/${ticket.rel}`;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -543,8 +558,8 @@ function TicketPage(props: InnerProps & { rel: string; visible: boolean }) {
           </Text>
         ) : null}
         {doc.isPending ? <ActivityIndicator color={c.muted} /> : <MarkdownView source={body} c={c} onLink={(href) => {
-          const rel = resolveRel(ticket.rel, href);
-          if (rel) update({ page: { kind: "doc", rel } });
+          const page = linkPage(data.docs, ticket.rel, href);
+          if (page) update({ page });
         }} />}
       </ScrollView>
       <View style={[styles.foot, { borderTopColor: c.border }]}>
@@ -556,6 +571,7 @@ function TicketPage(props: InnerProps & { rel: string; visible: boolean }) {
             label={chatVerb(ticket.type)}
             busy={chat.busy === ticket.num}
             title={`Starts a chat in this workspace on ${ticket.rel}`}
+            onHoverIn={chat.warm}
             onPress={() => void chat.start(ticket)}
           />
         ) : null}
@@ -605,8 +621,8 @@ function DocPage(props: InnerProps & { rel: string; section?: string; visible: b
   const name = props.rel.replace(/^\.artifacts\//, "").split("/").pop() ?? props.rel;
   const changed = data.uncommitted?.rows.some((row) => row.rel === props.rel) ?? false;
   const onLink = (href: string) => {
-    const rel = resolveRel(props.rel, href);
-    if (rel) update({ page: { kind: "doc", rel } });
+    const page = linkPage(data.docs, props.rel, href);
+    if (page) update({ page });
   };
   const meta = [
     doc.data ? `edited ${stamp(doc.data.mtimeMs)}` : "",
@@ -616,10 +632,10 @@ function DocPage(props: InnerProps & { rel: string; section?: string; visible: b
     .join(" · ");
   let content: ReactNode;
   if (doc.isPending) content = <ActivityIndicator color={c.muted} />;
-  else if (doc.isError) content = <Text style={{ ...SMALL, color: c.muted }}>Couldn't read {props.rel}.</Text>;
-  else if (doc.data!.binary) content = <Text style={{ ...SMALL, color: c.muted }}>Not a text file. Copy its path to open it elsewhere.</Text>;
-  else if (isMap) content = <MapOutline c={c} text={doc.data!.text} data={data} open={openSection} onOpen={setOpenSection} onLink={onLink} />;
-  else content = <MarkdownView source={doc.data!.text} c={c} onLink={onLink} />;
+  else if (!doc.data) content = <Text style={{ ...SMALL, color: c.muted }}>Couldn't read {props.rel}.</Text>;
+  else if (doc.data.binary) content = <Text style={{ ...SMALL, color: c.muted }}>Not a text file. Copy its path to open it elsewhere.</Text>;
+  else if (isMap) content = <MapOutline c={c} text={doc.data.text} data={data} open={openSection} onOpen={setOpenSection} onLink={onLink} />;
+  else content = <MarkdownView source={doc.data.text} c={c} onLink={onLink} />;
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       <BackRow

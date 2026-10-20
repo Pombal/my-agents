@@ -12,7 +12,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(overviewRpc, (input, context) => service.overview(input, context));
   server.handle(detailRpc, (input) => service.detail(input));
   server.handle(readRpc, (input) => service.read(input));
-  server.handle(searchRpc, (input) => service.search(input));
+  server.handle(searchRpc, (input, context) => service.search(input, context));
   server.handle(bindRpc, (input) => service.bind(input));
   return () => {};
 }

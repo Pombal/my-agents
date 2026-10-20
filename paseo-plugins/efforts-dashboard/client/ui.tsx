@@ -13,6 +13,9 @@ export function RowButton(props: {
   hot?: boolean;
   label?: string;
   title?: string;
+  /** Web hover, used to read ahead what `onPress` opens. */
+  onHoverIn?(): void;
+  onHoverOut?(): void;
   children: ReactNode;
 }) {
   const { c } = props;
@@ -23,6 +26,8 @@ export function RowButton(props: {
       ref={props.title ? tooltip(props.title) : undefined}
       disabled={!props.onPress}
       onPress={props.onPress}
+      onHoverIn={props.onHoverIn}
+      onHoverOut={props.onHoverOut}
       style={({ hovered, pressed, focused }) => [
         props.style,
         props.hot ? { backgroundColor: c.s2 } : hovered ? { backgroundColor: c.s1 } : null,
@@ -64,6 +69,7 @@ export function Button(props: {
   icon?: string;
   busy?: boolean;
   title?: string;
+  onHoverIn?(): void;
   big?: boolean;
 }) {
   const { c } = props;
@@ -75,6 +81,7 @@ export function Button(props: {
       ref={props.title ? tooltip(props.title) : undefined}
       disabled={props.busy}
       onPress={props.onPress}
+      onHoverIn={props.onHoverIn}
       style={({ hovered, pressed }) => [
         styles.button,
         props.big ? { height: 34, paddingHorizontal: 14 } : null,
@@ -245,6 +252,8 @@ export function TicketRow(props: {
   onPress?(): void;
   big?: boolean;
   label?: string;
+  onHoverIn?(): void;
+  onHoverOut?(): void;
 }) {
   const { c } = props;
   const dim = props.state === "blocked" || props.state === "parked" || props.state === "done";
@@ -252,6 +261,8 @@ export function TicketRow(props: {
     <RowButton
       c={c}
       onPress={props.onPress}
+      onHoverIn={props.onHoverIn}
+      onHoverOut={props.onHoverOut}
       hot={props.next}
       label={props.label ?? `${props.num} ${props.title}`}
       style={[styles.ticket, props.big ? { height: 40, paddingHorizontal: 14 } : null]}

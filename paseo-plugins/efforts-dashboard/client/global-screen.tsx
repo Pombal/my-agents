@@ -1,10 +1,10 @@
 import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { EffortSummary, Overview, Root, WorkspaceInfo } from "../shared/rpc";
-import { useOverview, useSearch, useVisible } from "./data";
+import { usePrefetch, useOverview, useSearch, useVisible } from "./data";
 import { EffortView } from "./effort-view";
 import { age, openWords } from "./format";
 import { Menu } from "./legend";
@@ -43,9 +43,32 @@ function groupsOf(overview: Overview): Group[] {
       else others.push(effort);
     }
     served.sort((a, b) => Number(!workspacesOf(overview, a).bound.length) - Number(!workspacesOf(overview, b).bound.length) || b.touchedMs - a.touchedMs);
+    others.sort((a, b) => b.touchedMs - a.touchedMs);
     const idle = workspaces.filter((workspace) => !workspace.binding && !workspace.suggestion);
     return { root, workspaces, served, recent, others, idle };
   });
+}
+
+/** Position of every group and row as drawn, by `.scratch` path and effort key. */
+function ranksOf(groups: Group[]): Map<string, number> {
+  const ranks = new Map<string, number>();
+  for (const group of groups) {
+    ranks.set(group.root.root, ranks.size);
+    for (const effort of [...group.served, ...group.recent, ...group.others]) ranks.set(effort.key, ranks.size);
+  }
+  return ranks;
+}
+
+/**
+ * The groups in the order they had when the pointer came in: rows that were there keep their
+ * place; new ones go last. Which list a row is in (served, this week, older) stays live.
+ */
+function heldOrder(groups: Group[], ranks: Map<string, number>): Group[] {
+  const rank = (key: string) => ranks.get(key) ?? Number.MAX_SAFE_INTEGER;
+  const byRank = (efforts: EffortSummary[]) => [...efforts].sort((a, b) => rank(a.key) - rank(b.key));
+  return [...groups]
+    .sort((a, b) => rank(a.root.root) - rank(b.root.root))
+    .map((group) => ({ ...group, served: byRank(group.served), recent: byRank(group.recent), others: byRank(group.others) }));
 }
 
 /** The workspace an effort opens with on this screen: its first bound one. */
@@ -66,7 +89,12 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState(false);
   const [selected, setSelected] = useState<{ root: string; slug: string } | null>(null);
-  const search = useSearch(query, {});
+  /** Row order frozen while the pointer is over the list, so polls don't move rows under it. */
+  const [held, setHeld] = useState<Map<string, number> | null>(null);
+  const drawn = useRef<Group[]>([]);
+  const prefetch = usePrefetch();
+  // A bare number finds the effort you came from first.
+  const search = useSearch(query, { current: params.effort });
   const gutter = compact ? 14 : 20;
 
   if (!data) {
@@ -88,7 +116,9 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
     setSelected({ root: effort.root, slug: effort.slug });
   };
   const hereKey = params.effort;
-  const groups = groupsOf(data).filter((group) => shown.has(group.root.root));
+  const live = groupsOf(data).filter((group) => shown.has(group.root.root));
+  const groups = held ? heldOrder(live, held) : live;
+  drawn.current = groups;
   const wide = !compact && width > 900;
 
   const detail = selected ? (
@@ -158,6 +188,8 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         c={c}
         hot={hot}
         onPress={() => open(effort)}
+        onHoverIn={() => prefetch.detail(effort)}
+        onHoverOut={prefetch.cancel}
         label={`Read ${effort.slug}`}
         style={[styles.grow, { paddingHorizontal: gutter }, here ? { borderLeftWidth: 3, borderLeftColor: c.fg, paddingLeft: gutter - 3 } : null]}
       >
@@ -256,7 +288,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
           c={c}
           gutter={gutter}
           result={search.data}
-          pending={search.isFetching}
+          pending={search.isFetching || search.settling}
           extraEfforts={workspaceMatches}
           onEffort={(effort) => open(effort)}
           onTicket={(ticket) => open(ticket, { kind: "ticket", rel: ticket.rel })}
@@ -278,7 +310,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
             const isCollapsed = collapsed.has(group.root.root);
             const elsewhere = new Map<string, number>();
             group.workspaces.forEach((workspace) => workspace.projectName !== group.root.label && elsewhere.set(workspace.projectName, (elsewhere.get(workspace.projectName) ?? 0) + 1));
-            const others = [...group.others].sort((a, b) => b.touchedMs - a.touchedMs);
+            const others = group.others;
             return (
               <View key={group.root.root}>
                 <RowButton c={c} onPress={() => setCollapsed(toggleIn(collapsed, group.root.root))} style={[styles.ghead, { paddingHorizontal: gutter }]}>
@@ -334,7 +366,7 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
 
   return (
     <View style={{ flex: 1, flexDirection: "row", backgroundColor: c.s0 }} onLayout={onLayout}>
-      <View style={{ flex: 1, minWidth: 0 }}>
+      <View style={{ flex: 1, minWidth: 0 }} onPointerEnter={() => setHeld(ranksOf(drawn.current))} onPointerLeave={() => setHeld(null)}>
         {list}
         {menu ? <Menu c={c} items={[]} legend="global" top={44} onClose={() => setMenu(false)} /> : null}
       </View>

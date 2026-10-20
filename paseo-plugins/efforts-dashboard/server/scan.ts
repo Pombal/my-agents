@@ -1,4 +1,5 @@
-import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { readdirSync, statSync } from "node:fs";
+import { open, readdir, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { Counts, EffortSummary, TicketState } from "../shared/rpc";
 import {
@@ -56,9 +57,13 @@ interface CachedText {
 }
 const texts = new Map<string, CachedText>();
 
-/** File text, cached by mtime and size; capped at 512 KB. */
+/**
+ * File text, cached by mtime and size; capped at 512 KB. Stats are synchronous throughout the scan:
+ * on a local disk a `statSync` costs microseconds, while ~1,100 `stat` promises per overview cost
+ * ~17 ms of the plugin process's time.
+ */
 export async function readText(file: string): Promise<{ text: string; mtimeMs: number; truncated: boolean }> {
-  const info = await stat(file);
+  const info = statSync(file);
   const cached = texts.get(file);
   if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
     return { text: cached.text, mtimeMs: info.mtimeMs, truncated: info.size > MAX_TEXT };
@@ -170,19 +175,17 @@ async function listFolder(dir: string): Promise<{ name: string; mtimeMs: number 
   } catch {
     return [];
   }
-  const files = await Promise.all(
-    entries
-      .filter((entry) => !entry.name.startsWith(".") && (entry.isFile() || entry.isSymbolicLink()))
-      .map(async (entry) => {
-        try {
-          const info = await stat(path.join(dir, entry.name));
-          return info.isFile() ? { name: entry.name, mtimeMs: info.mtimeMs } : null;
-        } catch {
-          return null;
-        }
-      }),
-  );
-  return files.filter((file): file is { name: string; mtimeMs: number } => file !== null);
+  const files: { name: string; mtimeMs: number }[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || !(entry.isFile() || entry.isSymbolicLink())) continue;
+    try {
+      const info = statSync(path.join(dir, entry.name), { throwIfNoEntry: false });
+      if (info?.isFile()) files.push({ name: entry.name, mtimeMs: info.mtimeMs });
+    } catch {
+      // Unreadable entry: skipped, as before.
+    }
+  }
+  return files;
 }
 
 export async function scanEffort(root: string, slug: string): Promise<EffortScan | null> {
@@ -202,10 +205,11 @@ export async function scanEffort(root: string, slug: string): Promise<EffortScan
       const abs = path.join(dir, entry.name);
       let info;
       try {
-        info = await stat(abs);
+        info = statSync(abs, { throwIfNoEntry: false });
       } catch {
         return;
       }
+      if (!info) return;
       if (info.isFile()) topFiles.push({ name: entry.name, mtimeMs: info.mtimeMs, size: info.size });
       else if (info.isDirectory() && !SKIP_DIRS.has(entry.name)) {
         if (entry.name === "issues") hasIssues = true;
@@ -246,8 +250,23 @@ export async function scanEffort(root: string, slug: string): Promise<EffortScan
   };
 }
 
-/** Every effort in a `.scratch` folder; folders with no map, issues or Markdown are skipped. */
-export async function scanRoot(root: string): Promise<EffortScan[]> {
+const scanning = new Map<string, Promise<EffortScan[]>>();
+
+/**
+ * Every effort in a `.scratch` folder; folders with no map, issues or Markdown are skipped.
+ * Callers that overlap (two clients polling, overview and detail landing together) share one
+ * pending scan; a finished scan is never reused.
+ */
+export function scanRoot(root: string): Promise<EffortScan[]> {
+  let pending = scanning.get(root);
+  if (!pending) {
+    pending = scanRootNow(root).finally(() => scanning.delete(root));
+    scanning.set(root, pending);
+  }
+  return pending;
+}
+
+async function scanRootNow(root: string): Promise<EffortScan[]> {
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -406,13 +425,14 @@ const ARTIFACT_LIST_CAP = 200;
  * Files under `.artifacts/<slug>/`, newest first, hidden folders and node_modules skipped.
  * Counting stops at 999 (one effort's has ~14,000 files); 200 are listed.
  */
-export async function listArtifacts(dir: string): Promise<{ count: number; more: boolean; files: { rel: string; mtimeMs: number }[] }> {
+export function listArtifacts(dir: string): { count: number; more: boolean; files: { rel: string; mtimeMs: number }[] } {
   const files: { rel: string; mtimeMs: number }[] = [];
   let count = 0;
-  const walk = async (folder: string, prefix: string): Promise<void> => {
+  // Synchronous on purpose: 999 awaited stats took 37 ms, the same walk with sync calls 2 ms.
+  const walk = (folder: string, prefix: string): void => {
     let entries;
     try {
-      entries = await readdir(folder, { withFileTypes: true });
+      entries = readdirSync(folder, { withFileTypes: true });
     } catch {
       return;
     }
@@ -420,17 +440,22 @@ export async function listArtifacts(dir: string): Promise<{ count: number; more:
       if (count > ARTIFACT_COUNT_CAP) return;
       if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) await walk(path.join(folder, entry.name), rel);
+      if (entry.isDirectory()) walk(path.join(folder, entry.name), rel);
       else if (entry.isFile()) {
         count++;
         if (files.length < ARTIFACT_LIST_CAP * 4) {
-          const info = await stat(path.join(folder, entry.name)).catch(() => null);
+          let info;
+          try {
+            info = statSync(path.join(folder, entry.name), { throwIfNoEntry: false });
+          } catch {
+            info = undefined;
+          }
           if (info) files.push({ rel, mtimeMs: info.mtimeMs });
         }
       }
     }
   };
-  await walk(dir, "");
+  walk(dir, "");
   files.sort((a, b) => b.mtimeMs - a.mtimeMs);
   return { count: Math.min(count, ARTIFACT_COUNT_CAP), more: count > ARTIFACT_COUNT_CAP, files: files.slice(0, ARTIFACT_LIST_CAP) };
 }

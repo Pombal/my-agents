@@ -83,20 +83,41 @@ folder, so it only shows up while listed under extra folders).
   workspace's chats of the last 3 days (3+ and twice the runner-up), workspace name, newest files
   (only when no other workspace shares the `.scratch`).
 - Files are cached by mtime; the client re-reads every 5 s only while the surface is on screen.
-  Overview ~170 ms cold, ~30 ms warm on the real roots.
 - Colours come only from Paseo's theme. One derived colour: the done-bar track and quote bars use
   surface2 on dark themes, and on light ones 35 % of the muted text over surface0 (light surface2
   is near-white and the empty bar vanished). Chips and the Status tag on a highlighted row
   (surface2) switch to surface0 so they stay visible.
+
+## Speed (measured live 2026-10-20, audit `/home/cx/agentspace/index/.scratch/paseo-grievances/efforts-dashboard-perf.md`)
+- Server: overview 34 → 13 ms, wa-ftue detail poll 32 → 10.5 ms, world-agent-subagents ~70 → 16 ms,
+  search 18 → 5 ms. File stats are synchronous (the scan and `.artifacts/` walk), overlapping callers
+  share one pending root scan, and `git diff` results are reused while a file's `git status` v2
+  record (HEAD/index blob hashes) and mtime/size stay the same.
+- Polls send the etag of what they hold (`since`); an unchanged overview or detail comes back as
+  `{ unchanged: true }` (55 B) and the client keeps the same object, so nothing re-renders. Idle
+  relay traffic with the tab open: ~115 KB → ~1.4 KB per 5 s; 0 React commits per idle poll.
+- Detail folds don't carry Markdown the client never draws (fold bodies with bullets, Decisions
+  bullets): chat-widgets 96 → 48 KB, wa-ftue 34 → 25 KB.
+- Feels instant: Bind / Unbind / No effort show at once, popovers close at once; a failed write
+  puts the old binding back with an error toast, and a poll already in flight can't undo a bind.
+  Hovering a global row reads its detail ahead (row → column 436 → ~150 ms), hovering a ticket
+  row reads its text (click → body 330 → 90 ms), hovering Grill/Work reads the chat settings
+  (kept 5 s; click → chat 760 ms). The global list holds its order while the pointer is over it and
+  re-sorts when it leaves. Polls never show a spinner. Header labels call the host's `update`
+  only when they change; the 30 s header refresh is skipped while a surface polls.
 
 ## Limits
 - Plugins can't open a file in Paseo's file tab or write into the current composer: the viewer is
   built in; chats are new chats.
 - Phones: Paseo's compact explorer has no plugin panels (step 4 adds the composer pill).
 - Over the app.paseo.sh relay the very first load after a plugin reload takes several seconds.
+- After Unbind the header pill disappears for ~0.5 s before `bind?` returns: the server computes
+  suggestions only for unbound workspaces, so the instant update has none to show yet.
+- A poll that fails keeps showing what was on screen, with no stale marker.
 
 ## Files
 `index.server.ts`, `server/` (scan, git, suggest, bindings, service), `shared/` (RPC contracts,
 parser, settings), `client/` (panel, effort view, unbound view, search results, marks, Markdown
-renderer copied from omp-slash-aliases). Parser tests: `npx vitest run` (real status/blocked-by
-variants, symlinked roots). Screenshots: `screenshots/`.
+renderer copied from omp-slash-aliases). Tests: `npx vitest run` (parser variants, symlinked
+roots, bindings store, uncommitted line counts, bind/poll races, ticket body, links). Screenshots:
+`screenshots/`.

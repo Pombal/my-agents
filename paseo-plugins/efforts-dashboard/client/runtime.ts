@@ -1,4 +1,5 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { ToastApi } from "@getpaseo/plugin/client/react-native";
 import { bindRpc, overviewRpc, type Overview } from "../shared/rpc";
 
 /** The client context of this installation, set by `contribute`; popovers get no props for it. */
@@ -18,10 +19,19 @@ export const SCREEN_ID = "all";
 
 /** Newest overview, shared by every surface and the header/composer registrations. */
 let latest: Overview | null = null;
+let latestAt = 0;
 const listeners = new Set<(overview: Overview) => void>();
+/** Bumped by every bind; a poll that started before the newest bind doesn't publish. */
+let generation = 0;
+let bindsInFlight = 0;
 
 export function latestOverview(): Overview | null {
   return latest;
+}
+
+/** When the newest overview arrived (ms), 0 before the first. */
+export function latestOverviewAt(): number {
+  return latestAt;
 }
 
 export function onOverview(listener: (overview: Overview) => void): () => void {
@@ -29,32 +39,74 @@ export function onOverview(listener: (overview: Overview) => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export async function fetchOverview(): Promise<Overview> {
-  const overview = await client().rpc(overviewRpc, {});
+function publish(overview: Overview): void {
   latest = overview;
   listeners.forEach((listener) => listener(overview));
-  return overview;
+}
+
+/**
+ * The overview, sent only when it changed since the one held (`since`). An unchanged answer, or one
+ * that a bind overtook while it travelled, returns what is held and notifies nobody.
+ */
+export async function fetchOverview(): Promise<Overview> {
+  const asked = generation;
+  const result = await client().rpc(overviewRpc, { since: latest?.etag });
+  if (latest && (generation !== asked || bindsInFlight > 0)) return latest;
+  latestAt = Date.now();
+  if (!("unchanged" in result)) {
+    publish(result);
+    return result;
+  }
+  if (latest) return latest;
+  // Only possible if the held overview vanished mid-flight; ask for the whole thing.
+  const fresh = await client().rpc(overviewRpc, {});
+  if ("unchanged" in fresh) throw new Error("Efforts server answered “unchanged” to a first read");
+  publish(fresh);
+  return fresh;
 }
 
 type Target = { kind: "effort"; root: string; slug: string } | { kind: "none" } | { kind: "clear" };
 
 /**
- * Writes the binding, then refreshes everything that shows it. The change shows at once; RPCs
- * through the relay can take seconds.
+ * Writes the binding, then refreshes everything that shows it. The change shows at once (RPCs
+ * through the relay can take a second); when the write fails, the old binding comes back and the
+ * error is thrown.
  */
 export async function bind(workspaceId: string, target: Target): Promise<void> {
+  generation++;
+  bindsInFlight++;
+  const before = latest;
+  let optimistic: Overview | null = null;
   if (latest) {
     const at = new Date().toISOString();
     const binding = target.kind === "effort" ? { kind: "effort" as const, root: target.root, slug: target.slug, at } : target.kind === "none" ? { kind: "none" as const, at } : null;
-    latest = {
+    optimistic = {
       ...latest,
       workspaces: latest.workspaces.map((workspace) => (workspace.id === workspaceId ? { ...workspace, binding } : workspace)),
     };
-    const optimistic = latest;
-    listeners.forEach((listener) => listener(optimistic));
+    publish(optimistic);
   }
-  await client().rpc(bindRpc, { workspaceId, target });
+  try {
+    await client().rpc(bindRpc, { workspaceId, target });
+  } catch (error) {
+    // Put back what the server still has, unless a newer bind already replaced it.
+    if (before && latest === optimistic) publish(before);
+    throw error;
+  } finally {
+    bindsInFlight--;
+  }
   await fetchOverview();
+}
+
+/**
+ * `bind` for buttons: returns at once, since the change already shows; a failure says so in a
+ * toast after putting the old binding back.
+ */
+export function bindOrToast(toast: ToastApi, workspaceId: string, target: Target): void {
+  bind(workspaceId, target).catch((error: unknown) => {
+    const what = target.kind === "effort" ? `bind ${target.slug}` : target.kind === "none" ? "set No effort" : "unbind";
+    toast.error(`Couldn't ${what}: ${error instanceof Error ? error.message : String(error)}`);
+  });
 }
 
 export function openPanel(workspaceId: string): void {
@@ -73,8 +125,33 @@ export function openAllEfforts(fromWorkspaceId?: string, effortKey?: string): vo
   client().openScreen({ screenId: SCREEN_ID, params });
 }
 
-/** Settings of the workspace's most recent chat (provider/model, mode, thinking), else of any chat. */
-async function chatSettings(workspaceId: string) {
+const settingsCache = new Map<string, { at: number; result: Promise<ChatSettings> }>();
+/**
+ * Read ahead on hover, so the click doesn't wait for the agent list (360 KB over the relay). Kept
+ * only for the hover-to-click moment, so a model changed just before still counts.
+ */
+const SETTINGS_FRESH_MS = 5_000;
+
+interface ChatSettings {
+  provider: string;
+  modeId?: string;
+  thinkingOptionId?: string;
+}
+
+/**
+ * Settings of the workspace's most recent chat (provider/model, mode, thinking), else of any chat.
+ * A read under 5 s old (the hover's) is reused; a failed one isn't.
+ */
+export function chatSettings(workspaceId: string): Promise<ChatSettings> {
+  const cached = settingsCache.get(workspaceId);
+  if (cached && Date.now() - cached.at < SETTINGS_FRESH_MS) return cached.result;
+  const result = readChatSettings(workspaceId);
+  settingsCache.set(workspaceId, { at: Date.now(), result });
+  result.catch(() => settingsCache.get(workspaceId)?.result === result && settingsCache.delete(workspaceId));
+  return result;
+}
+
+async function readChatSettings(workspaceId: string): Promise<ChatSettings> {
   const { entries } = await client().paseo.agents.list({
     filter: { includeArchived: true },
     sort: [{ key: "updated_at", direction: "desc" }],

@@ -3,7 +3,7 @@ import { AppState, Dimensions } from "react-native";
 import type { Overview, WorkspaceInfo } from "../shared/rpc";
 import { findEffort } from "./model";
 import { EffortPopover } from "./popover";
-import { fetchOverview, latestOverview, onOverview } from "./runtime";
+import { fetchOverview, latestOverview, latestOverviewAt, onOverview } from "./runtime";
 
 /** Paseo's compact layouts are the breakpoints below `md` (720 px). */
 const COMPACT_WIDTH = 720;
@@ -29,8 +29,9 @@ function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null 
  * compact layouts only, one composer pill per chat with the effort and its done count.
  */
 export function startButtons(client: PluginClientContext): () => void {
-  const headers = new Map<string, { registration: PluginButtonRegistration; label: string }>();
-  const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
+  /** What each registration shows now; `update` is only called when that changes. */
+  const headers = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
+  const pills = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
   /** agentId → workspaceId of live chats. */
   const agents = new Map<string, string>();
   let compact = Dimensions.get("window").width < COMPACT_WIDTH;
@@ -48,13 +49,16 @@ export function startButtons(client: PluginClientContext): () => void {
       const label = headerLabel(workspace);
       const current = headers.get(workspace.id);
       if (!label) {
-        if (current) current.registration.update({ visible: false });
+        if (current?.visible) {
+          current.registration.update({ visible: false });
+          current.visible = false;
+        }
         continue;
       }
       if (current) {
-        if (current.label !== label) current.registration.update({ label, visible: true });
-        else current.registration.update({ visible: true });
+        if (current.label !== label || !current.visible) current.registration.update({ label, visible: true });
         current.label = label;
+        current.visible = true;
         continue;
       }
       try {
@@ -63,7 +67,7 @@ export function startButtons(client: PluginClientContext): () => void {
           workspaceId: workspace.id,
           button: { title: "Effort of this workspace", icon: "Map", label, behavior: { kind: "popover", Content: EffortPopover } },
         });
-        headers.set(workspace.id, { registration, label });
+        headers.set(workspace.id, { registration, label, visible: true });
       } catch (error) {
         console.warn("[efforts] header button failed", error);
       }
@@ -78,8 +82,13 @@ export function startButtons(client: PluginClientContext): () => void {
       const label = workspace ? pillLabel(overview, workspace) : null;
       const current = pills.get(agentId);
       if (current) {
-        current.registration.update(label ? { label, visible: compact } : { visible: false });
-        if (label) current.label = label;
+        const visible = !!label && compact;
+        const nextLabel = label ?? current.label;
+        if (visible !== current.visible || nextLabel !== current.label) {
+          current.registration.update(label ? { label, visible } : { visible: false });
+        }
+        current.label = nextLabel;
+        current.visible = visible;
         continue;
       }
       if (!label) continue;
@@ -90,7 +99,7 @@ export function startButtons(client: PluginClientContext): () => void {
           agentId,
           button: { title: "Effort", icon: "Map", label, visible: compact, behavior: { kind: "popover", Content: EffortPopover } },
         });
-        pills.set(agentId, { registration, label });
+        pills.set(agentId, { registration, label, visible: compact });
       } catch (error) {
         console.warn("[efforts] composer pill failed", error);
       }
@@ -133,7 +142,8 @@ export function startButtons(client: PluginClientContext): () => void {
   });
   const refresh = () => void fetchOverview().catch((error: unknown) => console.warn("[efforts] overview failed", error));
   refresh();
-  const timer = setInterval(() => AppState.currentState === "active" && refresh(), REFRESH_MS);
+  // Only when no surface polled lately: an open Efforts tab already refreshes every 5 s.
+  const timer = setInterval(() => AppState.currentState === "active" && Date.now() - latestOverviewAt() >= REFRESH_MS - 1_000 && refresh(), REFRESH_MS);
 
   return () => {
     lifetime.abort();

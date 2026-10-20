@@ -7,7 +7,7 @@ import { useOverview, useSearch, useVisible } from "./data";
 import { age } from "./format";
 import { Bar, colorsOf, LABEL, ROW, SMALL, Tag, WsChip, type Palette } from "./marks";
 import { chipPrefix, findEffort, workspacesOf } from "./model";
-import { bind, startNewEffort } from "./runtime";
+import { bindOrToast, startNewEffort } from "./runtime";
 import { SearchResults } from "./search-results";
 import { setViewState, viewKey, type Page } from "./state";
 import { BackRow, Button, CountsLine, FoldHeader, GroupLabel, RowButton, SearchField, styles as ui } from "./ui";
@@ -70,17 +70,15 @@ export function UnboundView(props: {
   const data = overview.data;
   const workspace = data?.workspaces.find((candidate) => candidate.id === props.workspaceId);
   const root = data?.roots.find((candidate) => candidate.root === (props.current?.root ?? workspace?.root));
-  const search = useSearch(query, { root: root?.root });
+  // A bare number finds the current effort's ticket first (the server compares `<root>/<slug>`).
+  const search = useSearch(query, { root: root?.root, current: props.current ? `${props.current.root}/${props.current.slug}` : undefined });
 
-  const choose = async (effort: { root: string; slug: string }, page?: Page) => {
-    try {
-      await bind(props.workspaceId, { kind: "effort", root: effort.root, slug: effort.slug });
-      if (page) setViewState(viewKey(props.workspaceId, effort), { page });
-      setQuery("");
-      props.onDone?.();
-    } catch (error) {
-      toast.error(`Couldn't bind: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  /** Shows the effort at once; a failed bind puts the old one back and says so. */
+  const choose = (effort: { root: string; slug: string }, page?: Page) => {
+    bindOrToast(toast, props.workspaceId, { kind: "effort", root: effort.root, slug: effort.slug });
+    if (page) setViewState(viewKey(props.workspaceId, effort), { page });
+    setQuery("");
+    props.onDone?.();
   };
 
   let body;
@@ -112,15 +110,15 @@ export function UnboundView(props: {
             c={c}
             effort={suggestion}
             reason={workspace.suggestion.reason}
-            onBind={() => void choose(suggestion)}
+            onBind={() => choose(suggestion)}
             onNew={() => setCreating(true)}
-            onNone={() => void bind(props.workspaceId, { kind: "none" })}
+            onNone={() => bindOrToast(toast, props.workspaceId, { kind: "none" })}
           />
         ) : props.mode === "unbound" ? (
           <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingTop: 12, flexWrap: "wrap", alignItems: "center" }}>
             <Text style={{ ...SMALL, color: c.muted, flexBasis: "100%", marginBottom: 4 }}>No effort for {workspace.name} yet. Pick one below.</Text>
             <Button c={c} label="New effort" onPress={() => setCreating(true)} />
-            <Button c={c} kind="ghost" label="No effort" title="This workspace has no effort; stop suggesting" onPress={() => void bind(props.workspaceId, { kind: "none" })} />
+            <Button c={c} kind="ghost" label="No effort" title="This workspace has no effort; stop suggesting" onPress={() => bindOrToast(toast, props.workspaceId, { kind: "none" })} />
           </View>
         ) : null}
         <View style={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 4 }}>
@@ -137,23 +135,23 @@ export function UnboundView(props: {
           <SearchResults
             c={c}
             result={search.data}
-            pending={search.isFetching}
-            onEffort={(effort) => void choose(effort)}
-            onTicket={(ticket) => void choose(ticket, { kind: "ticket", rel: ticket.rel })}
-            onDoc={(doc) => void choose(doc, { kind: "doc", rel: doc.rel })}
+            pending={search.isFetching || search.settling}
+            onEffort={(effort) => choose(effort)}
+            onTicket={(ticket) => choose(ticket, { kind: "ticket", rel: ticket.rel })}
+            onDoc={(doc) => choose(doc, { kind: "doc", rel: doc.rel })}
           />
         ) : (
           <>
             <GroupLabel c={c} text={`Recent in ${root.label} · ${recent.length}`} />
             {recent.map((effort) => (
-              <EffortRow key={effort.key} c={c} overview={data} root={root} effort={effort} onPress={() => void choose(effort)} />
+              <EffortRow key={effort.key} c={c} overview={data} root={root} effort={effort} onPress={() => choose(effort)} />
             ))}
             {others.length > recent.length ? (
               <View style={{ marginTop: 8 }}>
                 <FoldHeader c={c} name={`All efforts in ${root.label}`} count={root.efforts.length} open={allOpen} onToggle={() => setAllOpen(!allOpen)} />
                 {allOpen
                   ? others.slice(recent.length).map((effort) => (
-                      <EffortRow key={effort.key} c={c} overview={data} root={root} effort={effort} onPress={() => void choose(effort)} />
+                      <EffortRow key={effort.key} c={c} overview={data} root={root} effort={effort} onPress={() => choose(effort)} />
                     ))
                   : null}
               </View>

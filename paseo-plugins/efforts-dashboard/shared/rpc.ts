@@ -80,22 +80,30 @@ export const WorkspaceInfoSchema = z.object({
   binding: BindingSchema.nullable(),
   /** Only for workspaces with no binding. */
   suggestion: SuggestionSchema.nullable(),
-  activityAt: z.string().nullable(),
 });
 export type WorkspaceInfo = z.infer<typeof WorkspaceInfoSchema>;
 
+/**
+ * Polls send the `etag` of the response they hold; when the new response would be identical the
+ * server answers `{ unchanged: true }` instead, and the client keeps what it has.
+ */
+const UnchangedSchema = z.object({ unchanged: z.literal(true), etag: z.string() });
+const SinceSchema = z.object({ since: z.string().optional() });
+
+const OverviewSchema = z.object({
+  home: z.string(),
+  roots: z.array(RootSchema),
+  workspaces: z.array(WorkspaceInfoSchema),
+  warnings: z.array(z.string()),
+  etag: z.string(),
+});
+export type Overview = z.output<typeof OverviewSchema>;
+
 export const overviewRpc = defineRpc({
   name: "efforts.overview",
-  input: z.object({}),
-  output: z.object({
-    home: z.string(),
-    roots: z.array(RootSchema),
-    workspaces: z.array(WorkspaceInfoSchema),
-    elapsedMs: z.number(),
-    warnings: z.array(z.string()),
-  }),
+  input: SinceSchema,
+  output: z.union([OverviewSchema, UnchangedSchema]),
 });
-export type Overview = z.output<typeof overviewRpc.output>;
 
 export const TicketSchema = z.object({
   num: z.string(),
@@ -121,7 +129,7 @@ export const TicketSchema = z.object({
 export type Ticket = z.infer<typeof TicketSchema>;
 
 export const SectionItemSchema = z.object({
-  /** The bullet with its nested lines, as Markdown. */
+  /** The bullet with its nested lines, as Markdown; empty for Decisions, whose rows show only the title. */
   markdown: z.string(),
   /** Bold lead or first clause. */
   title: z.string(),
@@ -139,6 +147,7 @@ export const SectionSchema = z.object({
   heading: z.string(),
   count: z.number(),
   tail: z.string(),
+  /** The section body, only when it has no bullets (otherwise `items` is drawn and this is empty). */
   markdown: z.string(),
   /** Bullets in map order. */
   items: z.array(SectionItemSchema),
@@ -187,34 +196,37 @@ export const UncommittedRowSchema = z.object({
 });
 export type UncommittedRow = z.infer<typeof UncommittedRowSchema>;
 
+const EffortDetailSchema = z.object({
+  summary: EffortSummarySchema,
+  /** `nilo-wayfinder/.scratch/wa-ftue`. */
+  displayPath: z.string(),
+  title: z.string().nullable(),
+  mapStatusRaw: z.string().nullable(),
+  destination: z.string().nullable(),
+  deadline: z.string().nullable(),
+  tickets: z.array(TicketSchema),
+  sections: z.array(SectionSchema),
+  docs: z.array(DocSchema),
+  /** Added + removed lines of map.md not committed, and the sections they fall in. */
+  mapChanges: z.object({ lines: z.number(), sections: z.array(z.object({ heading: z.string(), added: z.number() })) }),
+  /** Parser-detectable oddities, one line each (duplicate numbers, unknown Status words, foreign blockers). */
+  anomalies: z.array(z.string()),
+  /** Null when the effort is not inside a git repo. */
+  uncommitted: z
+    .object({ rows: z.array(UncommittedRowSchema), paths: z.array(z.string()), repo: z.string() })
+    .nullable(),
+  leansOn: z.array(RelatedSchema),
+  commits: z.array(z.object({ hash: z.string(), atMs: z.number(), subject: z.string() })),
+  moreCommits: z.boolean(),
+  etag: z.string(),
+});
+export type EffortDetail = z.output<typeof EffortDetailSchema>;
+
 export const detailRpc = defineRpc({
   name: "efforts.detail",
-  input: z.object({ root: z.string(), slug: z.string() }),
-  output: z.object({
-    summary: EffortSummarySchema,
-    /** `nilo-wayfinder/.scratch/wa-ftue`. */
-    displayPath: z.string(),
-    title: z.string().nullable(),
-    mapStatusRaw: z.string().nullable(),
-    destination: z.string().nullable(),
-    deadline: z.string().nullable(),
-    tickets: z.array(TicketSchema),
-    sections: z.array(SectionSchema),
-    docs: z.array(DocSchema),
-    /** Added + removed lines of map.md not committed, and the sections they fall in. */
-    mapChanges: z.object({ lines: z.number(), sections: z.array(z.object({ heading: z.string(), added: z.number() })) }),
-    /** Parser-detectable oddities, one line each (duplicate numbers, unknown Status words, foreign blockers). */
-    anomalies: z.array(z.string()),
-    /** Null when the effort is not inside a git repo. */
-    uncommitted: z
-      .object({ rows: z.array(UncommittedRowSchema), paths: z.array(z.string()), repo: z.string() })
-      .nullable(),
-    leansOn: z.array(RelatedSchema),
-    commits: z.array(z.object({ hash: z.string(), atMs: z.number(), subject: z.string() })),
-    moreCommits: z.boolean(),
-  }),
+  input: SinceSchema.extend({ root: z.string(), slug: z.string() }),
+  output: z.union([EffortDetailSchema, UnchangedSchema]),
 });
-export type EffortDetail = z.output<typeof detailRpc.output>;
 
 export const readRpc = defineRpc({
   name: "efforts.read",

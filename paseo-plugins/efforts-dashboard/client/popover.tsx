@@ -1,11 +1,11 @@
 import type { PluginButtonContentProps } from "@getpaseo/plugin/client";
-import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
+import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { Text, View } from "react-native";
 import { useDetail, useOverview } from "./data";
 import { EffortView } from "./effort-view";
 import { Bar, colorsOf, Dot, Glyph, LABEL, SMALL, Tag, WsChip, type Palette } from "./marks";
 import { findEffort, workspacesOf } from "./model";
-import { bind, openAllEfforts, openPanel } from "./runtime";
+import { bindOrToast, openAllEfforts, openPanel } from "./runtime";
 import { setViewState, viewKey, type Page } from "./state";
 import { CountsLine, RowButton, styles as ui } from "./ui";
 import { SuggestionCard, UnboundView } from "./unbound-view";
@@ -31,6 +31,7 @@ function Item(props: { c: Palette; icon?: string; label: string; right?: React.R
  */
 export function EffortPopover({ workspaceId, theme, layout, close }: PluginButtonContentProps) {
   const c = colorsOf(theme);
+  const toast = useToast();
   const overview = useOverview(true);
   const workspace = overview.data?.workspaces.find((candidate) => candidate.id === workspaceId);
   const binding = workspace?.binding?.kind === "effort" ? workspace.binding : null;
@@ -65,9 +66,12 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
           flat
           effort={suggestion}
           reason={workspace.suggestion.reason}
-          onBind={() => void bind(workspaceId, { kind: "effort", root: suggestion.root, slug: suggestion.slug })}
+          onBind={() => bindOrToast(toast, workspaceId, { kind: "effort", root: suggestion.root, slug: suggestion.slug })}
           onNew={() => go()}
-          onNone={() => void bind(workspaceId, { kind: "none" }).then(close)}
+          onNone={() => {
+            bindOrToast(toast, workspaceId, { kind: "none" });
+            close();
+          }}
         />
       </View>
     );
@@ -115,7 +119,10 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
               lead={<Bar done={related.counts.done} total={related.counts.total} c={c} />}
               label={related.slug}
               right={chip ? <WsChip c={c} name={chip.name} /> : null}
-              onPress={() => void bind(workspaceId, { kind: "effort", root: related.root, slug: related.slug }).then(close)}
+              onPress={() => {
+                bindOrToast(toast, workspaceId, { kind: "effort", root: related.root, slug: related.slug });
+                close();
+              }}
             />
           );
         })}
@@ -123,7 +130,16 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
       </View>
       <View style={{ marginTop: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: c.border }}>
         <Item c={c} icon="LayoutGrid" label="All efforts" onPress={() => { close(); openAllEfforts(workspaceId, summary?.key); }} />
-        <Item c={c} icon="Unlink" muted label="Unbind" onPress={() => void bind(workspaceId, { kind: "clear" }).then(close)} />
+        <Item
+          c={c}
+          icon="Unlink"
+          muted
+          label="Unbind"
+          onPress={() => {
+            bindOrToast(toast, workspaceId, { kind: "clear" });
+            close();
+          }}
+        />
       </View>
       {detail.isPending ? <Text style={{ ...LABEL, color: c.muted, paddingHorizontal: 12 }}>Reading the effort…</Text> : null}
     </ScrollView>

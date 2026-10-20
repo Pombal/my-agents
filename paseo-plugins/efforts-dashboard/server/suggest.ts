@@ -1,4 +1,5 @@
-import { open, readFile, stat } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { open, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Suggestion } from "../shared/rpc";
 import { nameMatch } from "../shared/parse";
@@ -14,7 +15,7 @@ const tails = new Map<string, { mtimeMs: number; size: number; counts: Map<strin
 
 /** `.scratch/<slug>/` mentions in the last 256 KB of a transcript, cached by mtime and size. */
 async function mentions(file: string): Promise<Map<string, number>> {
-  const info = await stat(file);
+  const info = statSync(file);
   const cached = tails.get(file);
   if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) return cached.counts;
   const handle = await open(file, "r");
