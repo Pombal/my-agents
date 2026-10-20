@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react";
+import { useEffect } from "react";
 import { View } from "react-native";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 
@@ -14,13 +14,19 @@ export function createOpenTabScreen() {
   const opened = new Set<string>();
   return function OpenTab({ params, navigation, theme }: PluginScreenProps) {
     const { agentId, serverId, nonce } = params;
-    useLayoutEffect(() => {
+    useEffect(() => {
       // Older hosts give no `navigation`: stay on the blank screen rather than fake history.
       if (!agentId || !nonce || !navigation) return;
       const key = `${serverId ?? ""}:${agentId}:${nonce}`;
       if (opened.has(key)) return;
-      opened.add(key);
-      navigation.openAgent(serverId ? { agentId, serverId } : { agentId });
+      // Not during the commit that mounts this screen: the app's navigation ref is null then,
+      // so a layout effect's request is dropped. One task later the ref is back.
+      const timer = setTimeout(() => {
+        if (opened.has(key)) return;
+        opened.add(key);
+        navigation.openAgent(serverId ? { agentId, serverId } : { agentId });
+      }, 0);
+      return () => clearTimeout(timer);
     }, [agentId, serverId, nonce, navigation]);
     return <View style={{ flex: 1, backgroundColor: theme.colors.surface0 }} />;
   };
