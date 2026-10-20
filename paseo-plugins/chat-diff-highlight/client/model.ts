@@ -395,6 +395,8 @@ const PAIR_WINDOW = 8;
 const PAIR_SIMILARITY = 0.5;
 /** Larger differing middles (token count × token count) get one changed range instead of a word diff. */
 const MAX_DIFF_CELLS = 250_000;
+/** A pair whose marks would cover more than this share of both lines is a rewrite after all. */
+const MAX_MARKED_SHARE = 0.8;
 
 interface Tokens {
   text: string;
@@ -466,13 +468,25 @@ function wordEdits(text: string, lines: DiffLine[]): Array<Span<EditKind>> {
       if (best < 0) continue;
       next = best + 1;
       const add = adds[best]!;
-      for (const group of changedGroups(a, addTokens[best]!)) {
+      const b = addTokens[best]!;
+      const groups = changedGroups(a, b);
+      if (markedShare(a.text, groups.map((g) => [g.aStart, g.aEnd])) > MAX_MARKED_SHARE && markedShare(b.text, groups.map((g) => [g.bStart, g.bEnd])) > MAX_MARKED_SHARE) continue;
+      for (const group of groups) {
         pushEdit(edits, a.text, del.start + 1, group.aStart, group.aEnd, "delEdit");
-        pushEdit(edits, addTokens[best]!.text, add.start + 1, group.bStart, group.bEnd, "addEdit");
+        pushEdit(edits, b.text, add.start + 1, group.bStart, group.bEnd, "addEdit");
       }
     }
   }
   return edits;
+}
+
+/** Share of a line's non-space characters inside the given ranges. */
+function markedShare(body: string, ranges: Array<[number, number]>): number {
+  const total = body.replace(/\s/g, "").length;
+  if (total === 0) return 0;
+  let marked = 0;
+  for (const [start, end] of ranges) marked += body.slice(start, end).replace(/\s/g, "").length;
+  return marked / total;
 }
 
 /** Adds a changed range without its surrounding spaces; whitespace-only changes (re-indents) stay unmarked. */

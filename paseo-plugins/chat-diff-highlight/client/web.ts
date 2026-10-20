@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
-import { diffPalette, tint, type DiffPalette, type Scheme, type Side } from "./palette";
+import { diffPalette, schemeOf, tint, type DiffPalette, type Side } from "./palette";
 
 // Web and desktop only. Paseo renders chat code blocks as React Native Web views marked with
 // data-paseo-markdown-* attributes for its own copy-as-markdown feature (kept through the
@@ -14,6 +14,7 @@ import { diffPalette, tint, type DiffPalette, type Scheme, type Side } from "./p
 interface Rect {
   top: number;
   bottom: number;
+  width: number;
   height: number;
 }
 interface DomNode {
@@ -39,10 +40,14 @@ interface DomRange {
   setEnd(node: DomText, offset: number): void;
   getClientRects(): ArrayLike<Rect>;
 }
+/** A highlight range that never tracks DOM changes: cheap to make, and moving its nodes keeps it valid. */
+interface StaticDomRange {
+  readonly startContainer: DomText;
+}
 interface HighlightSet {
   priority: number;
-  add(range: DomRange): void;
-  delete(range: DomRange): void;
+  add(range: StaticDomRange): void;
+  delete(range: StaticDomRange): void;
 }
 interface StyleElement extends DomElement {
   textContent: string | null;
@@ -59,6 +64,7 @@ declare const document: {
 };
 declare const CSS: { highlights?: { set(name: string, highlight: HighlightSet): void; delete(name: string): void } } | undefined;
 declare const Highlight: { new (): HighlightSet } | undefined;
+declare const StaticRange: { new (init: { startContainer: DomText; startOffset: number; endContainer: DomText; endOffset: number }): StaticDomRange };
 declare const localStorage: { getItem(key: string): string | null };
 declare function getComputedStyle(element: DomElement): { color: string; lineHeight: string };
 declare function requestAnimationFrame(callback: () => void): number;
@@ -69,7 +75,7 @@ declare class MutationObserver {
   disconnect(): void;
 }
 declare class ResizeObserver {
-  constructor(callback: (entries: Array<{ target: DomElement }>) => void);
+  constructor(callback: (entries: Array<{ target: DomElement; borderBoxSize?: ArrayLike<{ inlineSize: number; blockSize: number }> }>) => void);
   observe(target: DomElement): void;
   unobserve(target: DomElement): void;
   disconnect(): void;
@@ -83,19 +89,25 @@ const SHOW_TEXT = 4;
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 const THEME_POLL_MS = 1500;
-const TOKEN_KINDS: TokenKind[] = ["keyword", "comment", "string", "number", "literal", "function", "type", "tag", "attribute", "property", "operator", "addSign", "delSign", "header", "hunk"];
 const EDIT_KINDS: EditKind[] = ["delEdit", "addEdit"];
 const SIDES: Side[] = ["add", "del"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
 const GUTTER_BAR_PX = 2;
+
+// Every `::highlight` rule costs style time on every element of the page, so token kinds that
+// palette.ts colors identically share one highlight, and kinds that never occur on a line kind
+// (signs on context lines, header/hunk on changed lines) get none.
+const ROLES: TokenKind[] = ["keyword", "comment", "string", "number", "function", "type", "tag", "attribute", "operator"];
+const SAME_COLOR_AS: Partial<Record<TokenKind, TokenKind>> = { literal: "number", property: "attribute", header: "comment", hunk: "function" };
+const SIGN: Record<Side, TokenKind> = { add: "addSign", del: "delSign" };
 
 // Highlight names and priorities, all below Paseo's own highlights (chat Find, priority 0). Bottom
 // to top: plain text on added/removed lines (`text-add`), syntax tokens (`keyword` on context lines,
 // `keyword-add` / `keyword-del` on changed lines, tinted toward the line color), word marks.
 const HIGHLIGHTS: Array<[name: string, priority: number]> = [
   ...SIDES.map((side): [string, number] => [`text-${side}`, -3]),
-  ...TOKEN_KINDS.map((kind): [string, number] => [kind, -2]),
-  ...SIDES.flatMap((side) => TOKEN_KINDS.map((kind): [string, number] => [`${kind}-${side}`, -2])),
+  ...ROLES.map((role): [string, number] => [role, -2]),
+  ...SIDES.flatMap((side) => [...ROLES, SIGN[side]].map((role): [string, number] => [`${role}-${side}`, -2])),
   ...EDIT_KINDS.map((kind): [string, number] => [kind, -1]),
 ];
 
@@ -103,9 +115,11 @@ interface Block {
   code: DomElement;
   text: string;
   model: DiffModel;
-  ranges: Array<[string, DomRange]>;
+  ranges: Array<[string, StaticDomRange]>;
   nodes: DomText[];
   starts: number[];
+  /** Border-box size the rows were last painted for; resize reports of this size are no-ops. */
+  size: string;
 }
 
 /** Starts coloring diff code blocks. Returns cleanup; a no-op off the web. */
@@ -129,7 +143,9 @@ export function startDiffHighlighting(): () => void {
   let paletteKey = "";
   let palette: DiffPalette = diffPalette("one", "light");
 
-  const syncPalette = (sample: DomElement | undefined): boolean => {
+  // Called only with a real code block: a placeholder palette while no diff block is on screen
+  // would rewrite the stylesheet twice per visit, and each rewrite restyles the whole page.
+  const syncPalette = (sample: DomElement): boolean => {
     let syntaxTheme = "one";
     try {
       const settings: unknown = JSON.parse(localStorage.getItem("@paseo:app-settings") ?? "{}");
@@ -139,54 +155,60 @@ export function startDiffHighlighting(): () => void {
       // Unreadable settings: Paseo's default syntax theme.
     }
     // The block's text color is the theme's foreground, so light text means a dark theme.
-    const foreground = sample ? getComputedStyle(sample).color : "";
-    const scheme: Scheme = foreground && luminance(foreground) > 0.5 ? "dark" : "light";
+    const foreground = getComputedStyle(sample).color;
+    const scheme = schemeOf(foreground);
     const key = `${syntaxTheme}|${scheme}|${foreground}`;
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
     const rule = (name: string, body: string) => `::highlight(${PREFIX}-${name}) { ${body} }`;
     style.textContent = [
-      ...TOKEN_KINDS.map((kind) => rule(kind, `color: ${palette.tokens[kind]};`)),
+      ...ROLES.map((role) => rule(role, `color: ${palette.tokens[role]};`)),
       ...SIDES.flatMap((side) => [
-        ...(foreground ? [rule(`text-${side}`, `color: ${tint(foreground, palette.lines[side])};`)] : []),
-        ...TOKEN_KINDS.map((kind) => rule(`${kind}-${side}`, `color: ${palette.changedTokens[side][kind]};`)),
+        rule(`text-${side}`, `color: ${tint(foreground, palette.lines[side])};`),
+        ...[...ROLES, SIGN[side]].map((role) => rule(`${role}-${side}`, `color: ${palette.changedTokens[side][role]};`)),
       ]),
       ...EDIT_KINDS.map((kind) => rule(kind, `background-color: ${palette.edits[kind]}; color: ${palette.editText};`)),
     ].join("\n");
     return true;
   };
 
+  const dropRanges = (block: Block) => {
+    for (const [name, range] of block.ranges) highlights.get(name)?.delete(range);
+  };
+
   const clear = (pre: DomElement) => {
     const block = blocks.get(pre);
     if (!block) return;
-    for (const [name, range] of block.ranges) highlights.get(name)?.delete(range);
+    dropRanges(block);
     for (const property of ROW_STYLE) pre.style.removeProperty(property);
     blocks.delete(pre);
     resizes.unobserve(pre);
   };
 
-  const rangeFor = (block: Block, start: number, end: number): DomRange | undefined => {
-    const range = document.createRange();
+  // One live range, re-positioned for each row measurement.
+  const measure = document.createRange();
+  const measureRects = (block: Block, start: number, end: number): ArrayLike<Rect> => {
     const from = locate(block, start);
     const to = locate(block, end);
-    if (!from || !to) return undefined;
-    range.setStart(from[0], from[1]);
-    range.setEnd(to[0], to[1]);
-    return range;
+    if (!from || !to) return [];
+    measure.setStart(from[0], from[1]);
+    measure.setEnd(to[0], to[1]);
+    return measure.getClientRects();
   };
 
   // Full-width row backgrounds, like Paseo's git diff view, measured from the rendered text so
   // wrapped lines and any font size line up.
   const paintRows = (pre: DomElement, block: Block) => {
     const box = pre.getBoundingClientRect();
+    block.size = `${box.width}x${box.height}`;
     const lineHeight = parseFloat(getComputedStyle(block.code).lineHeight);
     const rows: Array<{ top: number; bottom: number; color: string; bar: string | undefined }> = [];
     for (const line of block.model.lines) {
       const color = palette.rows[line.kind];
       if (!color) continue;
       const bar = palette.bars[line.kind];
-      const rects = Array.from(rangeFor(block, line.start, line.end)?.getClientRects() ?? []).filter((r) => r.height > 0);
+      const rects = Array.from(measureRects(block, line.start, line.end)).filter((r) => r.height > 0);
       if (rects.length === 0) continue;
       const leading = Number.isFinite(lineHeight) ? Math.max(0, (lineHeight - rects[0]!.height) / 2) : 0;
       const top = Math.min(...rects.map((r) => r.top)) - leading - box.top;
@@ -220,8 +242,12 @@ export function startDiffHighlighting(): () => void {
     const text = code?.textContent ?? "";
     if (!code || !pre.isConnected || !isDiffBlock(pre.getAttribute(LANGUAGE), text)) return clear(pre);
     const existing = blocks.get(pre);
-    if (existing && existing.code === code && existing.text === text) return;
-    clear(pre);
+    // Same text over the same nodes: nothing to redo. Replaced text nodes (a re-render with the
+    // same text) leave the old ranges pointing nowhere, so those blocks are redone.
+    if (existing && existing.code === code && existing.text === text && existing.nodes.every((node) => node.isConnected)) return;
+    // Re-processing keeps the block observed: a fresh observation would report its size once more
+    // and repaint rows that are painted below anyway.
+    if (existing) dropRanges(existing);
 
     const nodes: DomText[] = [];
     const starts: number[] = [];
@@ -233,11 +259,13 @@ export function startDiffHighlighting(): () => void {
       starts.push(offset);
       offset += textNode.data.length;
     }
-    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts };
+    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, size: "" };
     const mark = (name: string, start: number, end: number) => {
       const highlight = highlights.get(name);
-      const range = highlight && rangeFor(block, start, end);
-      if (!range) return;
+      const from = highlight && locate(block, start);
+      const to = from && locate(block, end);
+      if (!to) return;
+      const range = new StaticRange({ startContainer: from[0], startOffset: from[1], endContainer: to[0], endOffset: to[1] });
       highlight.add(range);
       block.ranges.push([name, range]);
     };
@@ -247,12 +275,13 @@ export function startDiffHighlighting(): () => void {
     for (const span of block.model.spans) {
       while (lines[at]!.end < span.start) at++;
       const kind = lines[at]!.kind;
-      mark(kind === "add" || kind === "del" ? `${span.kind}-${kind}` : span.kind, span.start, span.end);
+      const role = SAME_COLOR_AS[span.kind] ?? span.kind;
+      mark(kind === "add" || kind === "del" ? `${role}-${kind}` : role, span.start, span.end);
     }
     for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
     for (const edit of block.model.edits) mark(edit.kind, edit.start, edit.end);
     blocks.set(pre, block);
-    resizes.observe(pre);
+    if (!existing) resizes.observe(pre);
     if (syncPalette(code)) repaintAll();
     else paintRows(pre, block);
   };
@@ -264,7 +293,13 @@ export function startDiffHighlighting(): () => void {
   let resizeFrame: number | undefined;
   const pendingResize = new Set<DomElement>();
   const resizes = new ResizeObserver((entries) => {
-    for (const entry of entries) pendingResize.add(entry.target);
+    for (const entry of entries) {
+      const size = entry.borderBoxSize?.[0];
+      // Reports of the size the rows were painted for (every fresh observation sends one) change nothing.
+      if (size && blocks.get(entry.target)?.size === `${size.inlineSize}x${size.blockSize}`) continue;
+      pendingResize.add(entry.target);
+    }
+    if (pendingResize.size === 0) return;
     resizeFrame ??= requestAnimationFrame(() => {
       resizeFrame = undefined;
       for (const pre of pendingResize) {
@@ -306,10 +341,9 @@ export function startDiffHighlighting(): () => void {
   const poll = setInterval(() => {
     for (const pre of [...blocks.keys()]) if (!pre.isConnected) clear(pre);
     const sample = blocks.values().next().value?.code;
-    if (syncPalette(sample)) repaintAll();
+    if (sample && syncPalette(sample)) repaintAll();
   }, THEME_POLL_MS);
 
-  syncPalette(undefined);
   for (const pre of Array.from(document.querySelectorAll(PRE))) process(pre);
 
   return () => {
@@ -338,10 +372,4 @@ function locate(block: Block, offset: number): [DomText, number] | undefined {
   const node = nodes[lo]!;
   if (node.nodeType !== TEXT_NODE) return undefined;
   return [node, Math.min(offset - starts[lo]!, node.data.length)];
-}
-
-/** Relative luminance (0 dark … 1 light) of a computed `rgb()`/`rgba()` color. */
-function luminance(color: string): number {
-  const [r = 0, g = 0, b = 0] = (color.match(/[\d.]+/g) ?? []).map(Number);
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }

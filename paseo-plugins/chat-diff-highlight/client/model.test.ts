@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isDiffBlock, parseDiff } from "./model";
+import { schemeOf } from "./palette";
 
 describe("isDiffBlock", () => {
   it("accepts labeled diff fences whatever their content", () => {
@@ -74,5 +75,28 @@ describe("word edits", () => {
     const text = "-  fontWeight: medium,\n-  flexShrink: 1,\n+  fontWeight: normal,";
     expect(marked(text)).toEqual(["delEdit:medium", "addEdit:normal"]);
     expect(marked("-  searchIcon: {\n-    width: 18,\n+  grid: {")).toEqual([]);
+  });
+
+  it("leaves a pair unmarked when the marks would cover nearly all of both lines", () => {
+    // Real transcript pair: similar enough to pair, but the word diff marks ~96% of each line.
+    const text = "-    // Unowned characters fall back to the master client, so an idle character\n+    // Driven by whoever owns this character; unowned characters fall back to";
+    expect(marked(text)).toEqual([]);
+  });
+});
+
+describe("schemeOf", () => {
+  it("reads light text as a dark theme in every color format Chrome computes", () => {
+    expect(schemeOf("rgb(249, 248, 251)")).toBe("dark");
+    expect(schemeOf("oklch(0.97 0.01 300)")).toBe("dark");
+    expect(schemeOf("oklab(0.9 0 0)")).toBe("dark");
+    expect(schemeOf("color(display-p3 0.97 0.97 0.98)")).toBe("dark");
+    expect(schemeOf("lab(96 0 0)")).toBe("dark");
+  });
+
+  it("reads dark text as a light theme, and falls back to light when the color is unreadable", () => {
+    expect(schemeOf("rgb(26, 26, 30)")).toBe("light");
+    expect(schemeOf("oklch(0.2 0.01 300 / 0.9)")).toBe("light");
+    expect(schemeOf("color(srgb 0.1 0.1 0.12)")).toBe("light");
+    expect(schemeOf("")).toBe("light");
   });
 });

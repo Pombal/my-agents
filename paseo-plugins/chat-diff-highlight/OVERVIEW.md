@@ -23,13 +23,26 @@ comment color.
 Changed words: each removed line is paired with the most similar of the added lines after it (they
 must share at least half their text), and a word-by-word diff of the pair marks every changed
 stretch, on both sides, even when the edits are scattered across a long sentence. Lines rewritten
-from scratch are not paired and keep the plain row color.
+from scratch are not paired and keep the plain row color; so are pairs whose marks would cover more
+than 80% of both lines (3% of marked lines in Stefan's transcripts), since a fully reversed line
+says no more than the row color.
 
 Paseo keeps rendering every message itself. The plugin only paints colors over the text it already
 shows, so the copy button, selection, Find and copy as Markdown work as before (copying gives the raw
-diff), and blocks color while the reply streams. Long diffs stay smooth: a 360-line diff is re-parsed
-in about 2 ms, at most once per frame while streaming. Past 100,000 characters only rows, signs and
-changed words are colored, as Paseo itself stops syntax coloring there.
+diff), and blocks color while the reply streams, at most once per frame. Measured 2026-10-20 in
+headless Chromium on a shared VM (a desktop is likely 2–4× faster); audit in
+`~/agentspace/index/.scratch/paseo-grievances/chat-diff-highlight-perf.md`:
+
+- Streaming a 361-line diff: 0.34–0.46 s of plugin work in total (was 0.68–0.70 s), the last frames
+  4–5 ms (were 8–10 ms). Each frame re-colors once; no second repaint after it.
+- Coming back to diff blocks after none were on screen (switching chats, scrolling history): 13 ms
+  (was 0.86 s, a page-wide restyle twice per visit).
+- All 664 distinct diff blocks in Stefan's transcripts parse in 44 ms together; the slowest one in
+  under 1 ms.
+- 33 page-wide highlight styles (were 49); every one costs style time on each element of the chat.
+
+Past 100,000 characters only rows, signs and changed words are colored, as Paseo itself stops syntax
+coloring there.
 
 Limits:
 
