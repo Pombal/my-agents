@@ -50,6 +50,7 @@ type PressEvent = (typeof PRESS_EVENTS)[number];
 interface PressLike { type: string; target: El | null; stopPropagation(): void; preventDefault(): void }
 declare const localStorage: { getItem(key: string): string | null };
 declare function requestAnimationFrame(callback: () => void): number;
+declare const performance: { now(): number };
 declare function cancelAnimationFrame(handle: number): void;
 declare function setInterval(callback: () => void, ms: number): number;
 declare function clearInterval(handle: number): void;
@@ -66,6 +67,19 @@ const DOTS = "data-tab-dots";
 const REPLACE = "data-tab-dots-replace";
 const ALIGN = "data-tab-dots-align";
 const MAX_DOTS = { regular: 5, small: 8 } as const;
+
+const PULSE_MS = 1800;
+const WAVE_STEP_MS = 200;
+
+/**
+ * Negative delay that puts a running dot at the phase of a wave tied to the page clock: dot `index`
+ * trails dot `index - 1` by one step, wherever it sits in the row. Rows drawn at different times
+ * and dots redrawn later stay in the same wave.
+ */
+function waveDelay(index: number): number {
+  const phase = (performance.now() - index * WAVE_STEP_MS) % PULSE_MS;
+  return -((phase + PULSE_MS) % PULSE_MS);
+}
 
 const LABEL: Record<DotState, string> = {
   permission: "Waiting for permission",
@@ -89,7 +103,7 @@ const CSS = `
 [${DOTS}] > i[data-state="finished"], [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
 [${DOTS}] > i[data-state="error"], [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
 [${DOTS}] > i[data-state="permission"], [data-tab-dots-tip] i[data-state="permission"] { background: var(--td-warn); }
-[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); animation: tab-dots-pulse 1.8s ease-in-out infinite; }
+[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); animation: tab-dots-pulse ${PULSE_MS}ms ease-in-out infinite; }
 [${DOTS}] > i[data-state="read"], [data-tab-dots-tip] i[data-state="read"] { background: currentColor; opacity: .35; }
 [${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
 @keyframes tab-dots-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
@@ -181,13 +195,14 @@ export function startTabDots(initial: Preferences): TabDots {
     container.setAttribute("style", `color: ${color}`);
     container.setAttribute("data-size", preferences.size);
     container.setAttribute("aria-hidden", "true");
-    for (const dot of dots) {
+    dots.forEach((dot, index) => {
       const element = document.createElement("i");
       element.setAttribute("data-state", dot.state);
       element.setAttribute("data-title", dot.title);
       element.setAttribute("data-agent", dot.agentId);
+      if (dot.state === "running") element.setAttribute("style", `animation-delay: ${waveDelay(index)}ms`);
       container.appendChild(element);
-    }
+    });
     if (more > 0) {
       const count = document.createElement("span");
       count.textContent = `+${more}`;
