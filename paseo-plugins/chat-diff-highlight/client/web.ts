@@ -185,17 +185,16 @@ export function startDiffHighlighting(): () => void {
       if (previous && previous.color === color && top - previous.bottom < 2) previous.bottom = bottom;
       else rows.push({ top: previous && top - previous.bottom < 2 ? previous.bottom : top, bottom, color });
     }
-    if (rows.length === 0) {
-      for (const property of ROW_STYLE) pre.style.removeProperty(property);
-      return;
-    }
+    // The shade sits under the rows and over the theme's own block background, so the block
+    // deepens toward black (light themes: white) but keeps the theme's hue. It always covers the
+    // whole block, also while a streaming block grows before the next repaint.
     const px = (n: number) => `${Math.round(n * 100) / 100}px`;
     // Important, so theme plugins that restyle code blocks (Chat Polish sets `background` with
     // !important) don't hide the rows; inline !important wins over any stylesheet.
     const set = (property: string, value: string) => pre.style.setProperty(property, value, "important");
-    set("background-image", rows.map((r) => `linear-gradient(${r.color}, ${r.color})`).join(", "));
-    set("background-size", rows.map((r) => `100% ${px(r.bottom - r.top)}`).join(", "));
-    set("background-position", rows.map((r) => `0 ${px(r.top)}`).join(", "));
+    set("background-image", [...rows.map((r) => r.color), palette.shade].map((color) => `linear-gradient(${color}, ${color})`).join(", "));
+    set("background-size", [...rows.map((r) => `100% ${px(r.bottom - r.top)}`), "100% 100%"].join(", "));
+    set("background-position", [...rows.map((r) => `0 ${px(r.top)}`), "0 0"].join(", "));
     set("background-repeat", "no-repeat");
     set("background-origin", "border-box");
   };

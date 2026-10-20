@@ -80,6 +80,8 @@ export interface DiffPalette {
   edits: Record<EditKind, string>;
   /** Full-width row bands; kinds without one keep the block's own surface. */
   rows: Partial<Record<LineKind, string>>;
+  /** Laid over the theme's block background: half black in dark themes, half white in light. */
+  shade: string;
 }
 
 const withAlpha = (hex: string, alpha: number) =>
@@ -120,5 +122,6 @@ export function diffPalette(syntaxTheme: string, scheme: Scheme): DiffPalette {
       hunk: withAlpha(syntax.function, 0.1),
       header: withAlpha(syntax.comment, 0.12),
     },
+    shade: scheme === "dark" ? "rgba(0, 0, 0, 0.5)" : "rgba(255, 255, 255, 0.5)",
   };
 }

@@ -4,6 +4,11 @@ changed inside a changed line, a tinted band on each `@@` hunk header and a grey
 headers, so every file and hunk starts visibly. The code inside gets syntax colors from your Syntax
 theme (Settings → Appearance), in light and dark themes.
 
+Diff blocks are also deeper than other code blocks: a 50% black layer (white in light themes) sits
+over the theme's own block background, so the theme's hue stays (a purple block becomes deep
+purple) while the colored rows and marks stand out more. Other code blocks keep the theme's color.
+Screenshots: `screenshots/shade-t3-dark.webp`, `screenshots/shade-light.webp`.
+
 Blocks fenced as `diff` or `patch` are always colored. Unlabeled blocks are colored only when they
 look like a diff: git headers (`diff --git`, `---`/`+++`, `@@ -1,3`) or every line starting with
 `+`, `-` or a space, with at least one of each. Blocks labeled with another language are left alone.
