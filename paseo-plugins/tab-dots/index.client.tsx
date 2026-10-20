@@ -2,6 +2,7 @@ import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
 import { watchAgents } from "./client/agents";
+import { createOpenTabScreen, OPEN_TAB_SCREEN } from "./client/open-tab";
 import { contributePhone } from "./client/phone";
 import { createSettingsScreen } from "./client/settings";
 import { startTabDots } from "./client/web";
@@ -30,8 +31,11 @@ export default function contribute(client: PluginClientContext) {
     };
   }
   const settings = settingsRpc(preferences.id);
+  // A dot click opens its tab through this screen: Paseo's own navigation, no page-wide reset.
+  const opener = client.addScreen({ id: OPEN_TAB_SCREEN, title: "Opening tab", Component: createOpenTabScreen() });
   // Hidden until settings load, so a disabled plugin never flashes dots.
-  const dots = startTabDots({ ...DEFAULTS, enabled: false });
+  const dots = startTabDots({ ...DEFAULTS, enabled: false }, ({ serverId, agentId }) =>
+    client.openScreen({ screenId: OPEN_TAB_SCREEN, params: { serverId, agentId, nonce: String(Date.now()) } }));
   let edits = 0;
   // What the dots show now; null until settings first load.
   let current: Preferences | null = null;
@@ -114,5 +118,6 @@ export default function contribute(client: PluginClientContext) {
     stopAgents();
     window.removeEventListener("focus", refresh);
     dots.dispose();
+    opener();
   };
 }

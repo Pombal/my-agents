@@ -37,8 +37,9 @@ const leave = (target: Element, to: Element | null) =>
 const frames = async (count = 3) => { for (let i = 0; i < count; i += 1) await vi.advanceTimersByTimeAsync(20); };
 
 let started: TabDots[] = [];
+let openTab = vi.fn();
 const start = (agents: Map<string, AgentInfo>, prefs = PREFS) => {
-  const dots = startTabDots(prefs);
+  const dots = startTabDots(prefs, openTab);
   dots.setAgents(agents);
   started.push(dots);
   return dots;
@@ -48,6 +49,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"] });
   document.body.innerHTML = "";
   localStorage.clear();
+  openTab = vi.fn();
 });
 afterEach(() => {
   for (const dots of started) dots.dispose();
@@ -77,8 +79,9 @@ describe("two hosts in one window", () => {
     const pushState = vi.spyOn(history, "pushState");
     rowA.querySelector("[data-tab-dots] > i")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await frames(2);
-    expect(pushState).toHaveBeenCalledTimes(1);
-    expect(pushState.mock.calls[0]?.[2]).toBe("/h/srv_A/workspace/wks_a?open=agent%3Aa1");
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(openTab).toHaveBeenCalledWith({ serverId: "srv_A", agentId: "a1" });
+    expect(pushState).not.toHaveBeenCalled();
   });
 });
 

@@ -10,7 +10,7 @@ Colours follow Paseo's own status colours:
 - Blue: running (only in the "Unread and running" and "Every tab" modes). A running dot rests small and dim, and a soft flash grows it to full size; several running dots flash one after another, left to right, and all rows keep the same beat. Still dots when the system asks for reduced motion.
 - Gray: read (only in "Every tab").
 
-Hover a dot to see the tab's title and state; click it to open that tab. A clicked unread dot disappears at once; if Paseo hasn't marked the tab read within 5 seconds, it comes back. Dots never change under the pointer: while you hover a row's dots, updates for that row wait until the pointer leaves. Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
+Hover a dot to see the tab's title and state; click it to open that tab. The click goes through a blank plugin screen that hands over to Paseo's own tab navigation, so only the main pane changes; the sidebar and other plugins stay as they are. A clicked unread dot disappears at once; if Paseo hasn't marked the tab read within 5 seconds, it comes back. Dots never change under the pointer: while you hover a row's dots, updates for that row wait until the pointer leaves. Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
 
 ## On phones
 
@@ -31,7 +31,7 @@ Settings are stored on the host, so every window and phone connected to it uses 
 
 Measured on Paseo 0.12.0 in the web app (40 sidebar rows, about 100 agents, 10 of them running):
 
-- Clicking an unread dot: the dot is gone in 6–21 ms; Paseo then opens the tab (about 0.35–0.5 s, its own route change).
+- Clicking an unread dot: the dot is gone in 6–21 ms. The time until the tab shows has not been measured since the click switched to Paseo's own navigation (the old 0.35–0.5 s was for the previous method).
 - ⌘K "Toggle tab dots": 50–100 ms from the click until all dots change.
 - Settings switches: 3–11 ms.
 - Drawing every row that has dots: under 2 ms.
@@ -41,7 +41,7 @@ Measured on Paseo 0.12.0 in the web app (40 sidebar rows, about 100 agents, 10 o
 ## Limits
 
 - Row dots are web and desktop only: Paseo has no plugin slot in sidebar rows, so they are added to the page directly.
-- Opening a tab from the phone sheet goes through the plugin's Unread screen (Paseo lets only plugin screens open a tab), so you may see it for a moment. Tested at phone width in the web app; not yet on the iOS or Android apps. Workspace names in the sheet load in the background as soon as the Unread row shows.
+- Opening a tab, from a row dot or the phone sheet, goes through a plugin screen (Paseo lets only plugin screens open a tab), so you may see it for a moment. The phone sheet was tested at phone width in the web app; not yet on the iOS or Android apps. Workspace names in the sheet load in the background as soon as the Unread row shows.
 - "Mark as read" on a workspace leaves permission requests flagged until you answer them, so amber dots stay.
 - Tested on Paseo 0.12.0 in the web app, grouped by project and by status.
 - It reads Paseo's internal tab layout from the browser's storage and the row's internal structure. A Paseo update can change either: the order then falls back to Paseo's default, or the dots stop showing. The sidebar itself keeps working.

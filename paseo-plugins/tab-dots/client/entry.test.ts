@@ -25,6 +25,7 @@ function fakeClient(writes: WriteResult[]) {
     rpc,
     paseo: { agents: { list: () => new Promise(() => {}) } },
     addSettingsScreen: () => () => {},
+    addScreen: () => () => {},
     addCommandCenterItem: (item: { id: string; onSelect(context: unknown): Promise<void> | void }) => {
       items.set(item.id, item);
       return () => {};

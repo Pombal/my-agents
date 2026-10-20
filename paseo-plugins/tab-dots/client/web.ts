@@ -44,11 +44,8 @@ declare const window: {
   removeEventListener(type: "storage" | "focus", listener: () => void): void;
   addEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
   removeEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
-  dispatchEvent(event: unknown): boolean;
   getComputedStyle(element: El): { color: string };
 };
-declare const history: { pushState(state: null, unused: string, url: string): void };
-declare class PopStateEvent { constructor(type: "popstate") }
 const PRESS_EVENTS = ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "click"] as const;
 type PressEvent = (typeof PRESS_EVENTS)[number];
 interface PressLike { type: string; target: El | null; stopPropagation(): void; preventDefault(): void }
@@ -150,6 +147,9 @@ export interface TabDots {
   dispose(): void;
 }
 
+/** Opens one agent tab through the app's own navigation (see `index.client.tsx`). */
+export type OpenTab = (target: { serverId: string; agentId: string }) => void;
+
 /** How long a clicked dot stays hidden while Paseo marks its tab read; then the daemon's state wins. */
 const OPTIMISTIC_READ_MS = 5000;
 
@@ -165,7 +165,7 @@ interface RowPlan {
 }
 
 /** Draws the dots into every sidebar workspace row and keeps them in sync. No-op off the web. */
-export function startTabDots(initial: Preferences): TabDots {
+export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     return { setAgents() {}, setPreferences() {}, dispose() {} };
   }
@@ -412,16 +412,11 @@ export function startTabDots(initial: Preferences): TabDots {
       render();
     }
     const key = keyOf(row);
-    const split = key.lastIndexOf(":");
-    // The app's own agent route (`buildHostAgentDetailRoute`); it needs the full agent id.
-    const path = `/h/${encodeURIComponent(key.slice(0, split))}/workspace/${encodeURIComponent(key.slice(split + 1))}`
-      + `?open=${encodeURIComponent(`agent:${agentId}`)}`;
-    // Navigate right after the next paint: Paseo's route change blocks the page for ~0.3 s,
-    // and the dot should be gone before that, not after.
+    const target = { serverId: key.slice(0, key.lastIndexOf(":")), agentId };
+    // Navigate right after the next paint, so the dot is gone before the route change starts.
     requestAnimationFrame(() => setTimeout(() => {
       if (disposed) return;
-      history.pushState(null, "", path);
-      window.dispatchEvent(new PopStateEvent("popstate"));
+      openTab(target);
     }, 0));
   };
   for (const type of PRESS_EVENTS) window.addEventListener(type, onPress, true);
