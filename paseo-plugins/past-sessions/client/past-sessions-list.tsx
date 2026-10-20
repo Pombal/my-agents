@@ -3,7 +3,7 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { memo, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Image, Platform, StyleSheet, Text, View } from "react-native";
 import {
   listExternalSessions,
@@ -12,6 +12,7 @@ import {
   reopenPastSession,
   setStar,
   type PastSession,
+  type ExternalSessionsListing,
   type PastSessionsListing,
   type Scope,
 } from "../shared/rpc";
@@ -248,8 +249,6 @@ interface RowProps {
   timeTitle: string;
   chipLabel: string | null;
   chipPath: string | null;
-  busy: boolean;
-  disabled: boolean;
   divider: boolean;
   density: Density;
   compact: boolean;
@@ -260,6 +259,8 @@ interface RowProps {
   theme: PluginTheme;
   onOpen(entry: PastSession): void;
   onStar(input: { key: string; starred: boolean }): void;
+  /** Pointer over this row (`part` "row") or its star, so the list can hold re-sorts meanwhile. */
+  onHover(id: string, over: boolean): void;
 }
 
 /**
@@ -275,7 +276,7 @@ let ignorePressUntil = 0;
  * shows on starred rows and, on hover, as an outline to click; phones star by long press.
  */
 const SessionRow = memo(function SessionRow(props: RowProps) {
-  const { entry, chipLabel, chipPath, busy, density, compact, starred, styles, theme } = props;
+  const { entry, chipLabel, chipPath, density, compact, starred, styles, theme, onHover } = props;
   const fromPaseo = entry.source === "paseo";
   const dense = density === "compact";
   const actionLabel = fromPaseo ? "Restore" : "Import";
@@ -284,12 +285,21 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
   // react-native-web ends the row's hover when the pointer enters the nested star button; the
   // star's own hover keeps the row hot, so the star stays shown and Restore stays put.
   const [overStar, setOverStar] = useState(false);
+  // A row removed while hovered (opened, filtered out) never gets its hover-out.
+  useEffect(
+    () => () => {
+      onHover(`${entry.key}:row`, false);
+      onHover(`${entry.key}:star`, false);
+    },
+    [entry.key, onHover],
+  );
   return (
     <Interactive
       accessibilityRole="button"
       accessibilityLabel={`${actionLabel} ${entry.title}`}
       testID={`past-session-${entry.key}`}
-      disabled={props.disabled}
+      onHoverIn={() => onHover(`${entry.key}:row`, true)}
+      onHoverOut={() => onHover(`${entry.key}:row`, false)}
       onPress={() => {
         if (Date.now() >= ignorePressUntil) props.onOpen(entry);
       }}
@@ -327,8 +337,14 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
             accessibilityState={{ checked: starred }}
             testID={`past-session-star-${entry.key}`}
             onPress={toggleStar}
-            onHoverIn={() => setOverStar(true)}
-            onHoverOut={() => setOverStar(false)}
+            onHoverIn={() => {
+              setOverStar(true);
+              onHover(`${entry.key}:star`, true);
+            }}
+            onHoverOut={() => {
+              setOverStar(false);
+              onHover(`${entry.key}:star`, false);
+            }}
             style={({ hovered: over, focused: ring }) => [
               styles.star,
               starred || hot || ring ? null : styles.starIdle,
@@ -383,9 +399,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
                 <Text style={styles.dot}>·</Text>
               </>
             )}
-            {busy ? (
-              <ActivityIndicator size="small" color={theme.colors.foregroundMuted} />
-            ) : hot ? (
+            {hot ? (
               <>
                 <Icon name={fromPaseo ? "ArchiveRestore" : "Import"} size={14} color={theme.colors.accent} />
                 <Text style={styles.action}>{actionLabel}</Text>
@@ -563,6 +577,9 @@ function useDensity(): [Density, (density: Density) => void] {
 }
 
 const NO_STARS: ReadonlySet<string> = new Set();
+const NO_KEYS: ReadonlySet<string> = new Set();
+/** How long a fetched list counts as current: no refetch when coming back within it. */
+const LIST_FRESH_MS = 30_000;
 
 export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, serverId, compact, navigation }: Props) {
   const styles = useMemo(() => createStyles(theme, compact), [theme, compact]);
@@ -576,6 +593,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const stars = useQuery({
     queryKey: ["past-sessions-stars"],
     queryFn: async () => new Set((await getStars({})).keys),
+    staleTime: LIST_FRESH_MS,
   });
   const starred = stars.data ?? NO_STARS;
   // Optimistic: the row moves at once; a failed save puts it back.
@@ -610,7 +628,11 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const result = useQuery({
     queryKey: ["past-sessions", workspaceId, scope],
     queryFn: () => list({ workspaceId, scope }),
+    // Coming back within 30 s shows the cached list and asks nothing; after that it refreshes
+    // in the background without a spinner (the spinner is for the refresh button only).
+    staleTime: LIST_FRESH_MS,
   });
+  const [refreshing, setRefreshing] = useState(false);
   const externalScope = scope === "workspace" ? null : scope;
   const external = useQuery({
     queryKey: ["external-sessions", workspaceId, externalScope],
@@ -622,6 +644,23 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       return listExternal({ workspaceId, scope: externalScope ?? "folder", refresh });
     },
   });
+  // Hovering a scope button loads that scope, so the click usually finds it ready.
+  const prefetchScope = (next: Scope) =>
+    void queryClient.prefetchQuery({
+      queryKey: ["past-sessions", workspaceId, next],
+      queryFn: () => list({ workspaceId, scope: next }),
+      staleTime: LIST_FRESH_MS,
+    });
+
+  // Optimistic reopen: the row leaves at once and returns only if reopening fails. The chat opens
+  // when the daemon confirms: opening an archived agent earlier adds its tab but doesn't focus it.
+  const [leaving, setLeaving] = useState<ReadonlySet<string>>(NO_KEYS);
+  const settle = (key: string) =>
+    setLeaving((keys) => {
+      const next = new Set(keys);
+      next.delete(key);
+      return next;
+    });
   const mutation = useMutation({
     mutationFn: (entry: PastSession) =>
       entry.source === "paseo"
@@ -633,28 +672,80 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             handle: (entry.source === "omp" ? entry.file : entry.sessionId) ?? "",
             key: entry.key,
           }),
+    onMutate: (entry) => {
+      setLeaving((keys) => new Set(keys).add(entry.key));
+      // Imports take seconds; a quiet note says the click landed.
+      if (entry.source !== "paseo") toast.show(`Importing “${entry.title}”…`, { durationMs: 2500 });
+    },
     onSuccess: ({ agentId }, entry) => {
+      // Drop the row from every cached listing now; the lists then refresh quietly.
+      const without = (entries: PastSession[]) => entries.filter((candidate) => candidate.key !== entry.key);
+      queryClient.setQueriesData<PastSessionsListing>({ queryKey: ["past-sessions"] }, (old) =>
+        old ? { ...old, entries: without(old.entries), sameFolder: without(old.sameFolder) } : old,
+      );
+      queryClient.setQueriesData<ExternalSessionsListing>({ queryKey: ["external-sessions"] }, (old) =>
+        old ? { ...old, entries: without(old.entries) } : old,
+      );
       void queryClient.invalidateQueries({ queryKey: ["past-sessions"] });
       void queryClient.invalidateQueries({ queryKey: ["external-sessions"] });
       void queryClient.invalidateQueries({ queryKey: ["past-sessions-stars"] });
       if (navigation) navigation.openAgent({ agentId });
       else toast.show(`${entry.source === "paseo" ? "Restored" : "Imported"}. It's in the sidebar now.`, { variant: "success" });
     },
-    onError: (error) => toast.error(`Couldn't reopen: ${error instanceof Error ? error.message : String(error)}`),
+    onError: (error, entry) => {
+      settle(entry.key);
+      toast.error(`Couldn't reopen “${entry.title}”: ${error instanceof Error ? error.message : String(error)}`);
+    },
   });
+
+  // A background refresh doesn't re-sort the list under the pointer: while a row is hovered the
+  // shown list stays, and the new one appears once the pointer leaves the rows. Starring and
+  // opening still apply at once (they're the user's own action).
+  const hovered = useRef(new Set<string>());
+  const shown = useRef<{ key: string; data: PastSessionsListing | undefined }>({ key: "", data: undefined });
+  const pending = useRef(false);
+  const [, rerender] = useReducer((count: number) => count + 1, 0);
+  const onRowHover = useCallback((id: string, over: boolean) => {
+    if (over) hovered.current.add(id);
+    else hovered.current.delete(id);
+    if (hovered.current.size === 0 && pending.current) {
+      pending.current = false;
+      rerender();
+    }
+  }, []);
 
   const listed = result.data?.scope === scope ? result.data : undefined;
   const externalEntries = showExternal && externalScope ? external.data?.entries : undefined;
-  const data = useMemo(
+  const latest = useMemo(
     () => (listed && externalEntries ? { ...listed, entries: mergeByNewest(listed.entries, externalEntries) } : listed),
     [listed, externalEntries],
   );
+  const viewKey = `${workspaceId}:${scope}:${showExternal}`;
+  if (shown.current.key !== viewKey || !shown.current.data || hovered.current.size === 0) {
+    shown.current = { key: viewKey, data: latest };
+  } else if (shown.current.data !== latest) {
+    pending.current = true;
+  }
+  const held = shown.current.data;
+  const data = useMemo(() => {
+    if (!held || leaving.size === 0) return held;
+    const staying = (entry: PastSession) => !leaving.has(entry.key);
+    return { ...held, entries: held.entries.filter(staying), sameFolder: held.sameFolder.filter(staying) };
+  }, [held, leaving]);
+  // A reopened row stays hidden until the shown list no longer has it (which may wait for the
+  // pointer to leave the rows), so it can't flash back in between.
+  useEffect(() => {
+    if (!held || leaving.size === 0) return;
+    const present = new Set([...held.entries, ...held.sameFolder].map((entry) => entry.key));
+    if ([...leaving].some((key) => !present.has(key))) {
+      setLeaving((keys) => new Set([...keys].filter((key) => present.has(key))));
+    }
+  }, [held, leaving]);
   const items = useMemo(
     () => (data ? buildListItems(data, { query, sameFolderOpen, starred }) : []),
     [data, query, sameFolderOpen, starred],
   );
   const now = Date.now();
-  const busyKey = mutation.isPending ? mutation.variables?.key : undefined;
 
   const externalControl = externalScope ? (
     <ExternalControl
@@ -692,6 +783,8 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
             accessibilityHint={data ? scopeHint(data, option.value) : option.hint}
             testID={`past-sessions-scope-${option.value}`}
             onPress={() => onScopeChange(option.value)}
+            onHoverIn={() => prefetchScope(option.value)}
+            onPressIn={() => prefetchScope(option.value)}
             style={({ focused }) => [
               styles.segment,
               active ? styles.segmentActive : null,
@@ -770,8 +863,11 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     <Interactive
       accessibilityRole="button"
       accessibilityLabel="Refresh"
-      disabled={result.isFetching}
-      onPress={() => void result.refetch()}
+      disabled={refreshing}
+      onPress={() => {
+        setRefreshing(true);
+        void result.refetch().finally(() => setRefreshing(false));
+      }}
       style={({ hovered, pressed, focused }) => [
         styles.iconButton,
         hovered ? styles.iconButtonHovered : null,
@@ -780,7 +876,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       ]}
     >
       {({ hovered }) =>
-        result.isFetching && data ? (
+        refreshing ? (
           <ActivityIndicator size="small" color={muted} />
         ) : (
           <Icon name="RefreshCw" size={15} color={hovered ? theme.colors.foreground : muted} />
@@ -868,8 +964,6 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           chipPath={chip?.path ?? null}
           time={relativeTime(item.entry.at, now, density === "compact")}
           timeTitle={`Last active ${absoluteTime(item.entry.at)}`}
-          busy={busyKey === item.entry.key}
-          disabled={mutation.isPending}
           divider={items[index - 1]?.kind === "row"}
           density={density}
           compact={compact}
@@ -880,6 +974,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           theme={theme}
           onOpen={mutation.mutate}
           onStar={starMutation.mutate}
+          onHover={onRowHover}
         />
       );
     };

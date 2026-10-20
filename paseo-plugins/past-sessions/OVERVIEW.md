@@ -60,8 +60,8 @@ terminal section alike. Where a session shows is unchanged.
 - Stored in `~/.paseo/plugin-data/past-sessions/stars.json`, keyed like the list
   (`paseo:<agentId>`, `omp:<sessionId>`, `ext:<provider>:<sessionId>`). Importing a starred
   terminal or Claude Code/Codex session moves its star to the new agent; restoring keeps it.
-- An open Past sessions view doesn't notice a chat closed with **Star and close** until it is
-  refreshed or reopened.
+- An open Past sessions view picks up a chat closed with **Star and close** on its next quiet
+  refresh (see "Freshness") or the refresh button.
 
 ## Where
 
@@ -77,6 +77,16 @@ terminal section alike. Where a session shows is unchanged.
 Scope buttons, search (its placeholder counts the listed sessions, "Search 141 sessions"), the
 density toggle, refresh. On phones the search box gets its own line. What a scope covers ("Archived
 agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, not a line of text.
+Hovering (or pressing) a scope button loads that scope in the background, so the click usually
+finds it ready (37 ms measured).
+
+## Freshness
+
+A fetched list counts as current for 30 s: switching away and back within that shows it at once
+and asks nothing. After that, coming back (window focus, remount) refreshes it in the background
+with no spinner; new or changed sessions just appear. The spinner shows only for the refresh
+button. While the pointer is on a row, a background refresh doesn't re-sort the list under it; the
+new list shows once the pointer leaves the rows. Starring and opening apply at once regardless.
 
 ## Scopes
 
@@ -91,7 +101,10 @@ agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, n
 
 The search box filters by every word against title and folder, in the list and the section.
 
-Click a row to reopen it:
+Click a row to reopen it. The row leaves the list at once (one frame) and comes back only if
+reopening fails (with an error toast). Imports show a short "Importing “title”…" note. The chat
+opens when the daemon confirms (a restored Claude agent: ~0.4 s after the click); opening an
+archived agent's chat earlier adds its tab without focusing it.
 - Paseo → daemon `refreshAgent` (what `paseo agent reload <id>` sends): unarchives and loads the
   agent, then the app opens it.
 - OMP, Claude Code, Codex → daemon `importAgent` (what `paseo import --provider … --cwd … <file or
