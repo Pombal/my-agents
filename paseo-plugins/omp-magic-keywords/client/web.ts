@@ -2,7 +2,7 @@ import { Platform } from "react-native";
 import type { OmpFlags } from "../shared/omp-flags";
 import type { Preferences, Style } from "../shared/preferences";
 import { keywordColor, type Tone } from "./color";
-import { findMagicKeywords, type KeywordMatch, MAGIC_KEYWORDS, SHIMMER_PERIOD_MS, STOPS, stopFor } from "./keywords";
+import { findClaudeUltrathink, findMagicKeywords, type KeywordMatch, MAGIC_KEYWORDS, SHIMMER_PERIOD_MS, STOPS, stopFor } from "./keywords";
 
 // Web and desktop only. The engine colours keywords with the CSS Custom Highlight API: every keyword
 // character is its own Range, and each frame moves it to the highlight of its current gradient stop,
@@ -116,7 +116,9 @@ const POLL_MS = 500;
 const FIBER_DEPTH = 80;
 /** Bit `i` set: keyword `i` of {@link MAGIC_KEYWORDS} may be coloured. */
 const ALL_WORDS = (1 << MAGIC_KEYWORDS.length) - 1;
-const ULTRATHINK = 1 << MAGIC_KEYWORDS.findIndex(({ word }) => word === "ultrathink");
+/** Bit above the words: match with Claude Code's looser `ultrathink` rule instead of OMP's. */
+const CLAUDE_RULE = 1 << MAGIC_KEYWORDS.length;
+const CLAUDE_WORDS = (1 << MAGIC_KEYWORDS.findIndex(({ word }) => word === "ultrathink")) | CLAUDE_RULE;
 /** The textarea's text-layout properties the overlay copies, so its lines wrap at the same places. */
 const COPIED = [
   "font-family", "font-size", "font-weight", "font-style", "font-stretch", "font-variant", "font-kerning",
@@ -259,15 +261,17 @@ export function startKeywordShimmer(): Engine {
 
   /**
    * Which words act in the chat `element` belongs to, by the built-in its provider extends: OMP's own
-   * flags for OMP, ultrathink for Claude Code, none elsewhere. The agent is read afresh on every call,
-   * since React fills props in late and may reuse an element for another chat. A chat the lookup cannot
-   * place gets the words OMP has enabled anywhere: colouring too much beats hiding the colours
-   * everywhere when Paseo's internals change.
+   * flags for OMP, ultrathink (by Claude's rule) for Claude Code, none elsewhere. The agent is read
+   * afresh on every call, since React fills props in late and may reuse an element for another chat.
+   * A provider seen in a message's props is kept for the chat's composer, whose props carry only the
+   * agent id. A chat the lookup cannot place gets the words OMP has enabled anywhere: colouring too
+   * much beats hiding the colours everywhere when Paseo's internals change.
    */
   const wordsFor = (element: DomElement): number => {
     if (preferences?.scope === "all") return anyOmpWords;
     const agent = agentOf(element);
-    const provider = (agent.id === undefined ? undefined : directory.get(agent.id)) ?? agent.provider;
+    if (agent.id !== undefined && agent.provider !== undefined) directory.set(agent.id, agent.provider);
+    const provider = agent.provider ?? (agent.id === undefined ? undefined : directory.get(agent.id));
     if (provider === undefined) {
       if (!warned && agent.id === undefined) {
         warned = true;
@@ -278,7 +282,14 @@ export function startKeywordShimmer(): Engine {
     // By name until Paseo's config arrives, and for providers it does not list.
     const root = roots[provider] ?? (provider.startsWith("omp-") ? "omp" : provider);
     if (root === "omp") return ompWords.get(provider) ?? ALL_WORDS;
-    return root === "claude" ? ULTRATHINK : 0;
+    return root === "claude" ? CLAUDE_WORDS : 0;
+  };
+
+  /** The keyword occurrences to colour in `text` under the `words` mask {@link wordsFor} gave. */
+  const matchesFor = (text: string, words: number): KeywordMatch[] => {
+    if (words & CLAUDE_RULE) return findClaudeUltrathink(text);
+    if (words === 0) return [];
+    return findMagicKeywords(text).filter(({ keyword }) => words & (1 << keyword));
   };
 
   const glyphsFor = (matches: KeywordMatch[], nodes: DomText[], starts: number[]): Glyph[] => {
@@ -350,16 +361,11 @@ export function startKeywordShimmer(): Engine {
     }
     const text = element.textContent ?? "";
     const existing = sources.get(element);
-    const found = existing?.text === text ? undefined : findMagicKeywords(text);
-    if (found?.length === 0) {
-      clear(element);
-      return;
-    }
     const words = wordsFor(element);
     // React may swap a text node for one holding the same text; the Ranges would then address a detached node.
-    if (existing && !found && existing.words === words && existing.nodes.every((node) => node.isConnected)) return;
+    if (existing && existing.text === text && existing.words === words && existing.nodes.every((node) => node.isConnected)) return;
     clear(element);
-    const matches = (found ?? findMagicKeywords(text)).filter(({ keyword }) => words & (1 << keyword));
+    const matches = matchesFor(text, words);
     if (matches.length === 0) return;
 
     const nodes: DomText[] = [];
@@ -421,9 +427,7 @@ export function startKeywordShimmer(): Engine {
     const text = textarea.value;
     const words = wordsFor(textarea);
     let source = sources.get(textarea);
-    const matches = source?.text === text && source.words === words
-      ? undefined
-      : findMagicKeywords(text).filter(({ keyword }) => words & (1 << keyword));
+    const matches = source?.text === text && source.words === words ? undefined : matchesFor(text, words);
     // The overlay holds a copy of the whole draft, so a composer without keywords gets none.
     if (matches?.length === 0) {
       clear(textarea);
@@ -539,6 +543,8 @@ export function startKeywordShimmer(): Engine {
 
   return {
     setPreferences(values) {
+      // Re-read on every window focus; the same values need no rescan.
+      if (preferences?.sent === values.sent && preferences.composer === values.composer && preferences.scope === values.scope) return;
       preferences = values;
       invalidate();
     },

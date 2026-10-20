@@ -54,6 +54,20 @@ export function findMagicKeywords(text: string): KeywordMatch[] {
   return matches;
 }
 
+const ULTRATHINK_INDEX = MAGIC_KEYWORDS.findIndex(({ word }) => word === "ultrathink");
+// Claude Code 2.1.301 tests `/\bultrathink\b/i` on the raw prompt (its `ultrathink_effort` attachment)
+// and paints every `/\bultrathink\b/gi` hit in its editor: any case, `\b` boundaries, no code masking.
+const CLAUDE_ULTRATHINK = /\bultrathink\b/gi;
+
+/** `ultrathink` wherever Claude Code acts on it, which is looser than OMP's standalone-prose rule. */
+export function findClaudeUltrathink(text: string): KeywordMatch[] {
+  const matches: KeywordMatch[] = [];
+  for (const match of text.matchAll(CLAUDE_ULTRATHINK)) {
+    matches.push({ keyword: ULTRATHINK_INDEX, start: match.index, end: match.index + match[0].length });
+  }
+  return matches;
+}
+
 /**
  * Gradient stop for character `index` of an `length`-character word at `phase` ∈ [0, 1).
  * OMP's shimmer: the palette rotates as phase grows, so the colors run right to left.

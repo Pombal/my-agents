@@ -6,17 +6,18 @@ yellow), running across the word on OMP's 1.8-second cycle, with a smoother swee
 than OMP uses. Screenshots: `screenshots/composer-dark.webp`, `screenshots/sent-dark-a.webp`,
 `screenshots/settings-dark.webp`.
 
-A word is colored only where OMP would act on it: exact lowercase, standing alone as prose.
-`Ultrathink`, `orchestrated`, `orchestrate.ts`, `foo::orchestrate`, `orchestrate()` and words inside
-code spans, fenced code blocks or HTML/XML tags stay plain. By default a chat's words follow its
+A word is colored only where the chat's agent would act on it. By default a chat's words follow its
 agent's provider, traced through `extends` in Paseo's provider config to the built-in provider at the
 end of the chain:
 
 - OMP: all four, minus the words you have switched off in that OMP profile
-  (`omp config set magicKeywords.<id> false`).
-- Claude Code: `ultrathink` only, the one word it honors.
+  (`omp config set magicKeywords.<id> false`), by OMP's rule: exact lowercase, standing alone as
+  prose. `Ultrathink`, `orchestrated`, `orchestrate.ts`, `foo::orchestrate`, `orchestrate()` and words
+  inside code spans, fenced code blocks or HTML/XML tags stay plain.
+- Claude Code: `ultrathink` only, by Claude Code's own rule (`/\bultrathink\b/i` on the raw prompt,
+  as in 2.1.301): any case, also inside code spans and tags, not `ultrathinking`.
 - Any other provider: none.
-- An agent the plugin cannot identify: every word that is on in at least one OMP profile.
+- An agent the plugin cannot identify: every word that is on in at least one OMP profile, by OMP's rule.
 
 "Every chat" in the settings gives every chat that last set. Until Paseo's provider config has been
 read, a provider named `omp` or `omp-…` counts as OMP and `claude` as Claude Code. The matching rules
@@ -52,3 +53,12 @@ Limits:
 - New keywords in a later OMP release stay plain until the plugin's keyword table is updated.
 - Not tested: the Electron desktop app, typing with an IME, attachment chips next to the text box, the
   fullscreen composer, page zoom, and web fonts that finish loading after the page is shown.
+
+Cost, measured in the web app on this machine (Paseo 0.12.0, headless Chromium, 2026-10-20): a
+keystroke in the text box adds 0.1–0.2 ms of plugin work with no keyword present (the matcher only;
+5 µs for a typical prompt, 0.2 ms for 20 KB) and 0.6–2.7 ms with one (overlay copy and ranges);
+a sent message with 20 colored letters costs 0.8 ms to set up. The moving colors cost about 30–40 ms
+of main-thread time per second per message on screen (paint, not script), 0.2 ms when still. Window
+focus re-reads the settings and OMP's flags (two cached RPCs, 1–4 ms each) and rescans only if a
+setting changed; a flags refresh after 60 s runs `omp config` once per OMP provider (~130 ms wall,
+134 MB peak, in parallel) on the daemon.
