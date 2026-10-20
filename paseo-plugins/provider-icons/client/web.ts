@@ -23,15 +23,9 @@ interface WebNode {
 }
 interface Fiber { memoizedProps: IconScope | null; type: unknown; return: Fiber | null }
 declare const document: {
-  head: WebNode; body: WebNode; visibilityState: string;
+  head: WebNode; body: WebNode;
   createElement(tag: string): WebNode;
   querySelectorAll(selector: string): Iterable<WebNode>;
-  addEventListener(type: string, listener: () => void): void;
-  removeEventListener(type: string, listener: () => void): void;
-};
-declare const window: {
-  addEventListener(type: string, listener: () => void): void;
-  removeEventListener(type: string, listener: () => void): void;
 };
 declare const FileReader: new () => {
   result: unknown;
@@ -88,26 +82,18 @@ export async function pickImage(): Promise<{ image: string; name: string } | nul
   return promise;
 }
 
-/** Runs `callback` whenever this window regains focus, so edits made in another window show up. */
-export function onWindowFocus(callback: () => void): () => void {
-  if (!isWeb) return () => {};
-  const visible = () => { if (document.visibilityState === "visible") callback(); };
-  window.addEventListener("focus", callback);
-  document.addEventListener("visibilitychange", visible);
-  return () => {
-    window.removeEventListener("focus", callback);
-    document.removeEventListener("visibilitychange", visible);
-  };
-}
-
 const MARK = "data-provider-icons";
 const MARK_HOST = "data-provider-icons-host";
 const TINT = "--provider-icons-tint";
 
-export function startIcons() {
-  const directory = { agents: new Map<string, string>(), providers: new Set<string>(), labels: new Map<string, string>() } satisfies Directory;
+export function startIcons(missing?: (agentId: string) => void) {
+  const agents = new Map<string, string>();
+  const providers = new Set<string>();
+  const labels = new Map<string, string>();
+  const directory: Directory = { agents, providers, labels, missing };
   let values: Preferences = { mappings: [] };
   let hostId: string | undefined;
+  let css = "";
   let frame = 0;
   let disposed = false;
   if (!isWeb) {
@@ -129,6 +115,8 @@ export function startIcons() {
     const tagged = svg.closest("[data-testid]");
     const tier1 = tagged ? ownerFromTestId(tagged.getAttribute("data-testid") ?? "", directory, tagged.getAttribute("aria-label")) : undefined;
     if (tier1?.host) return tier1;
+    // A test id that names an unmapped provider decides the result; skip the fiber walk.
+    if (tier1?.provider && !resolveMapping(values.mappings, tier1.provider)) return tier1;
     // React keeps each host node's owner chain under `__reactFiber$<random>`; read it, never write it.
     const key = Object.keys(svg).find((name) => name.startsWith("__reactFiber$"));
     let fiber: Fiber | null | undefined = key ? (svg as unknown as Record<string, Fiber | undefined>)[key] : undefined;
@@ -183,9 +171,9 @@ export function startIcons() {
   return {
     update(next: Preferences, host?: string) {
       values = next;
-      hostId = host ?? next.hostId ?? hostId;
-      const ownHost = encodeURIComponent(hostId ?? "");
-      style.textContent = next.mappings.map((mapping) => {
+      const nextHost = host ?? next.hostId ?? hostId;
+      const ownHost = encodeURIComponent(nextHost ?? "");
+      const nextCss = next.mappings.map((mapping) => {
         const selector = `svg[${MARK_HOST}="${ownHost}"][${MARK}="${encodeURIComponent(mapping.provider)}"]`;
         const image = `url("${mapping.image}") center / contain no-repeat`;
         const paint = mapping.style === "monochrome"
@@ -193,14 +181,25 @@ export function startIcons() {
           : `background:${image} !important;`;
         return `${selector} { ${paint} }\n${selector} > * { visibility:hidden !important; }`;
       }).join("\n");
+      // The same document arrives on every focus and settings-screen mount; rewriting identical CSS
+      // restyles the whole page for nothing.
+      if (nextCss === css && nextHost === hostId) return;
+      hostId = nextHost;
+      css = nextCss;
+      style.textContent = css;
       // Restyled mappings need their tint recomputed; a full pass also drops removed mappings.
       for (const svg of document.querySelectorAll(`svg[${MARK_HOST}="${ownHost}"]`)) svg.style.removeProperty(TINT);
       schedule();
     },
-    agent(id: string, provider: string) { directory.agents.set(id, provider); schedule(); },
+    agent(id: string, provider: string) {
+      if (agents.get(id) === provider) return;
+      agents.set(id, provider);
+      schedule();
+    },
     provider(id: string, label: string) {
-      directory.providers.add(id);
-      directory.labels.set(label, directory.labels.has(label) && directory.labels.get(label) !== id ? "" : id);
+      if (providers.has(id) && labels.get(label) === id) return;
+      providers.add(id);
+      labels.set(label, labels.has(label) && labels.get(label) !== id ? "" : id);
       schedule();
     },
     dispose() {

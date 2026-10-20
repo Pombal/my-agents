@@ -21,9 +21,21 @@ export function validateImage(source: string): string | null {
       if (bytes.length < 20 || bytes.slice(0, 4) !== "RIFF" || bytes.slice(8, 12) !== "WEBP" || !["VP8 ", "VP8L", "VP8X"].includes(bytes.slice(12, 16))) return "Invalid WebP image.";
       break;
     case "image/svg+xml": {
-      const svg = bytes.trim().replace(/^<\?xml[^?]*\?>\s*/i, "");
-      if (!/^<svg\b[^>]*[\s\S]*(?:<\/svg\s*>|\/>)$/i.test(svg)) return "Invalid SVG image.";
-      if (/<\s*(?:script|foreignObject|iframe|object|embed|image|use|animate\w*|set|a)\b|<!|\bon\w+\s*=|(?:href|src)\s*=|url\s*\(|@import|javascript\s*:/i.test(svg)) return "SVG must be a self-contained static image (no scripts, external resources or embedded content).";
+      // Comments (editor headers) carry no content; strip them with indexOf so an unclosed one stays linear.
+      const text = bytes.trim().replace(/^<\?xml\s[^?]*\?>\s*/i, "");
+      const kept: string[] = [];
+      let from = 0;
+      for (let at = text.indexOf("<!--"); at !== -1; at = text.indexOf("<!--", from)) {
+        const end = text.indexOf("-->", at + 4);
+        if (end === -1) return "Invalid SVG image.";
+        kept.push(text.slice(from, at));
+        from = end + 3;
+      }
+      kept.push(text.slice(from));
+      const svg = kept.join("").trim();
+      if (!/^<svg\b[\s\S]*(?:<\/svg\s*>|\/>)$/i.test(svg)) return "Invalid SVG image.";
+      // `url(#id)` and `href="#id"` (clip paths, gradients) point inside the file and stay allowed.
+      if (/<\s*(?:script|foreignObject|iframe|object|embed|image|use|animate\w*|set|a)\b|<[!?]|\bon\w+\s*=|src\s*=|href\s*=(?!\s*["']?#)|url\s*\((?!\s*["']?#)|@import|javascript\s*:/i.test(svg)) return "SVG must be a self-contained static image (no scripts, external resources or embedded content).";
       break;
     }
   }

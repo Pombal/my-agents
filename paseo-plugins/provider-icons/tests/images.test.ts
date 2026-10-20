@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { MAX_IMAGE_BYTES, putMapping, resolveMapping, validateImage } from "../shared/images";
 
 const svg = (text: string) => `data:image/svg+xml;base64,${btoa(text)}`;
@@ -24,6 +24,23 @@ describe("image input", () => {
   test("rejects executable or externally dependent SVG", () => {
     for (const content of ['<script>alert(1)</script>', '<path onload="alert(1)"/>', '<foreignObject/>', '<image href="https://example.com/a.png"/>', '<use href="#x"/>', '<style>path{fill:url(https://example.com/x)}</style>', '<!DOCTYPE svg>', '<animate attributeName="href"/>']) expect(validateImage(svg(`<svg>${content}</svg>`))).not.toBeNull();
     expect(validateImage(svg("not svg"))).toContain("Invalid SVG");
+  });
+  test("accepts real editor exports: internal url(#id)/href=\"#id\" references and comments", () => {
+    const figma = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><g clip-path="url(#a)"><path fill="url( \'#g\' )" d="M0 0h8v8H0z"/></g><defs><clipPath id="a"><path d="M0 0h8v8H0z"/></clipPath><linearGradient id="g" href="#h"/></defs></svg>';
+    const illustrator = '<?xml version="1.0" encoding="UTF-8"?>\n<!-- Generator: Adobe Illustrator 28.0 -->\n<svg viewBox="0 0 8 8"><path d="M0 0h8v8H0z"/></svg>\n<!-- trailing -->';
+    for (const text of [figma, illustrator]) expect(validateImage(svg(text))).toBeNull();
+  });
+  test("external references stay rejected, including a stylesheet processing instruction and unclosed comments", () => {
+    for (const text of ['<?xml-stylesheet href="https://example.com/x.css"?><svg/>', '<svg><path fill="url(https://example.com/x#a)"/></svg>', '<svg><linearGradient href="https://example.com/g.svg#g"/></svg>', '<svg><!-- unclosed </svg>', '<svg><!-- a --><!DOCTYPE x></svg>']) {
+      expect(validateImage(svg(text))).not.toBeNull();
+    }
+  });
+  test("a large malformed SVG is rejected in linear time", () => {
+    // The old `<svg\b[^>]*[\s\S]*` pattern backtracked quadratically: 1.5 s for this input.
+    const started = performance.now();
+    expect(validateImage(svg(`<svg ${"a".repeat(64 * 1024)}`))).toContain("Invalid SVG");
+    expect(validateImage(svg(`<svg>${"<!---->".repeat(16 * 1024)}</svg>`))).toBeNull();
+    expect(performance.now() - started).toBeLessThan(200);
   });
 });
 

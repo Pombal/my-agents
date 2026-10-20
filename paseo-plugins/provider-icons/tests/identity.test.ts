@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { hostFromPath, hostFromScopes, ownerFromTestId, providerFromScopes } from "../shared/identity";
 
 const NILO_AGENT = "22291c4d-d81d-4f81-b611-59e3f7ff5543";
@@ -44,6 +44,22 @@ describe("tier 1: data-testid owners", () => {
       expect(ownerFromTestId(id, directory)).toBeUndefined();
     }
   });
+  test("an agent the page has not seen yet is asked for, once per sighting", () => {
+    const asked: string[] = [];
+    const unknown = "00000000-0000-0000-0000-0000000000aa";
+    const watching = { ...directory, missing: (id: string) => asked.push(id) };
+    expect(ownerFromTestId(`workspace-tab-agent_${unknown}`, watching)).toBeUndefined();
+    expect(providerFromScopes([{ tab: { target: { kind: "agent", agentId: unknown } } }], watching)).toBeUndefined();
+    expect(ownerFromTestId(`workspace-tab-agent_${NILO_AGENT}`, watching)?.provider).toBe("omp-nilo");
+    // History rows already fall back to their props; archived agents must not trigger fetches.
+    ownerFromTestId(`agent-row-srv_1-${unknown}`, watching);
+    expect(asked).toEqual([unknown, unknown]);
+  });
+  test("history row children (title, workspace, project, branch) are not taken for the row", () => {
+    for (const part of ["title", "workspace", "project", "branch"]) {
+      expect(ownerFromTestId(`agent-row-${part}-srv_uD_D9G5KCzqY-${NILO_AGENT}`, directory)).toBeUndefined();
+    }
+  });
 });
 
 describe("tier 2: component props", () => {
@@ -80,5 +96,6 @@ describe("host ownership", () => {
     expect(hostFromPath("/settings/hosts/this-host/providers")).toBe("this-host");
     expect(hostFromPath("/h/this-host/workspace/w")).toBe("this-host");
     expect(hostFromPath("/sessions")).toBeUndefined();
+    expect(hostFromPath("/h/bad%E0%A4%A/workspace")).toBe("bad%E0%A4%A");
   });
 });

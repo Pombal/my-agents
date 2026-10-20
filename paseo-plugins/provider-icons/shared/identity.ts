@@ -13,20 +13,29 @@ export interface Directory {
   providers: ReadonlySet<string>;
   /** Exact provider label → provider id ("" when two providers share a label). */
   labels: ReadonlyMap<string, string>;
+  /** Called for an agent id that is not in `agents` yet (created after the page loaded). */
+  missing?(agentId: string): void;
 }
 
 export interface Owner { provider?: string; host?: string }
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const agentTab = new RegExp(`^workspace-tab-agent_(${UUID})$`);
-const agentRow = new RegExp(`^agent-row-(.+)-(${UUID})$`);
+// The row's children carry `agent-row-title-<host>-<id>` etc.; those are not the row.
+const agentRow = new RegExp(`^agent-row-((?!title-|workspace-|project-|branch-).+)-(${UUID})$`);
+
+function agentProvider(directory: Directory, agentId: string): string | undefined {
+  const provider = directory.agents.get(agentId);
+  if (!provider) directory.missing?.(agentId);
+  return provider;
+}
 
 /** Tier 1. Returns undefined when the id is not a provider-glyph owner or names nothing known. */
 export function ownerFromTestId(testId: string, directory: Directory, label?: string | null): Owner | undefined {
   let provider: string | undefined;
   let host: string | undefined;
   let match: RegExpExecArray | null;
-  if ((match = agentTab.exec(testId))) provider = directory.agents.get(match[1]);
+  if ((match = agentTab.exec(testId))) provider = agentProvider(directory, match[1]);
   else if ((match = agentRow.exec(testId))) [provider, host] = [directory.agents.get(match[2]), match[1]];
   else if ((match = /^command-center-model-([^:]+):([^:]+):/.exec(testId))) [provider, host] = [match[2], match[1]];
   else if (testId.startsWith("model-provider-")) {
@@ -72,8 +81,8 @@ export function providerFromScopes(scopes: readonly IconScope[], directory: Dire
       ?? text(props.agent?.provider) ?? text(props.entry?.providerId) ?? text(props.row?.provider));
     if (direct) return direct;
     const target = props.tab?.target ?? props.item?.target;
-    if (target?.kind === "agent" && target.agentId) return directory.agents.get(target.agentId);
-    if (target?.kind === "provider_subagent" && target.parentAgentId) return directory.agents.get(target.parentAgentId);
+    if (target?.kind === "agent" && target.agentId) return agentProvider(directory, target.agentId);
+    if (target?.kind === "provider_subagent" && target.parentAgentId) return agentProvider(directory, target.parentAgentId);
     if (target?.kind === "draft" && text(target.setup?.provider)) return target.setup?.provider;
     if (text(props.selectedProvider)) return props.selectedProvider as string;
   }
@@ -91,5 +100,6 @@ export function hostFromScopes(scopes: readonly IconScope[]): string | undefined
 /** Host-scoped routes: `/h/<serverId>/…` and `/settings/hosts/<serverId>/…`. */
 export function hostFromPath(pathname: string): string | undefined {
   const route = /^\/(?:h|settings\/hosts)\/([^/]+)(?:\/|$)/.exec(pathname);
-  return route ? decodeURIComponent(route[1]) : undefined;
+  if (!route) return undefined;
+  try { return decodeURIComponent(route[1]); } catch { return route[1]; }
 }
