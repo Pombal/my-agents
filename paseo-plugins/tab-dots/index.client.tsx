@@ -33,6 +33,12 @@ export default function contribute(client: PluginClientContext) {
   // Hidden until settings load, so a disabled plugin never flashes dots.
   const dots = startTabDots({ ...DEFAULTS, enabled: false });
   let edits = 0;
+  // What the dots show now; null until settings first load.
+  let current: Preferences | null = null;
+  const show = (values: Preferences) => {
+    current = values;
+    dots.setPreferences(values);
+  };
   const load = async (): Promise<{ revision: string; values: Preferences } | undefined> => {
     const result = await client.rpc(settings.read, {});
     if (result.status !== "ready") return undefined;
@@ -41,18 +47,31 @@ export default function contribute(client: PluginClientContext) {
   };
   const apply = (values: Preferences) => {
     edits += 1;
-    dots.setPreferences(values);
+    show(values);
   };
   const refresh = () => {
     const editsAtStart = edits;
     load().then((loaded) => {
       // A save made while this read was in flight is newer than what the read returned.
-      if (loaded && edits === editsAtStart) dots.setPreferences(loaded.values);
+      if (loaded && edits === editsAtStart) show(loaded.values);
     }, (error: unknown) => console.error("[tab-dots] settings read failed", error));
   };
   refresh();
   window.addEventListener("focus", refresh);
-  const stopAgents = watchAgents(client, dots.setAgents);
+  const stopAgents = watchAgents(client.paseo.agents, dots.setAgents);
+
+  /** Saves `enabled` on top of the host's latest values; one retry when another window saved first. */
+  const saveEnabled = async (enabled: boolean): Promise<Preferences | undefined> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const loaded = await load();
+      if (!loaded) return undefined;
+      const values = { ...loaded.values, enabled };
+      const saved = await client.rpc(settings.write, { revision: loaded.revision, values });
+      if (saved.status === "saved") return values;
+      if (saved.status !== "conflict") return undefined;
+    }
+    return undefined;
+  };
 
   const screen = client.addSettingsScreen({
     id: "dots",
@@ -66,12 +85,18 @@ export default function contribute(client: PluginClientContext) {
     icon: "Ellipsis",
     keywords: ["unread", "status", "dots", "sidebar", "tabs"],
     context: "global",
-    async onSelect({ rpc }) {
-      const loaded = await load();
-      if (!loaded) return;
-      const values = { ...loaded.values, enabled: !loaded.values.enabled };
-      const saved = await rpc(settings.write, { revision: loaded.revision, values });
-      if (saved.status === "saved") apply(values);
+    async onSelect() {
+      const before = current ?? (await load())?.values;
+      if (!before) throw new Error("Tab dots: couldn't read the settings");
+      // Show the result at once; the host save follows.
+      apply({ ...before, enabled: !before.enabled });
+      const saved = await saveEnabled(!before.enabled).catch(() => undefined);
+      if (saved) {
+        apply(saved);
+        return;
+      }
+      apply(before);
+      throw new Error(`Tab dots: couldn't save "${before.enabled ? "off" : "on"}"; nothing changed`);
     },
   });
   const configure = client.addCommandCenterItem({

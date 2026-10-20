@@ -202,3 +202,18 @@ export function unreadList(agents: ReadonlyMap<string, AgentInfo>, show: ShowMod
   }
   return entries.sort((a, b) => LIST_ORDER[a.state] - LIST_ORDER[b.state] || (b.at ?? "").localeCompare(a.at ?? ""));
 }
+
+/**
+ * True when a CSS colour is light (so the theme is dark). Reads `#rgb`, `#rrggbb`, `#rrggbbaa`
+ * and `rgb()/rgba()`; anything else counts as dark text.
+ */
+export function isLightText(color: string): boolean {
+  const value = color.trim();
+  let channels: number[] = [];
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(value)?.[1];
+  if (hex && (hex.length === 3 || hex.length === 4)) channels = [...hex.slice(0, 3)].map((digit) => parseInt(digit + digit, 16));
+  else if (hex && (hex.length === 6 || hex.length === 8)) channels = [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16));
+  else if (/^rgba?\(/i.test(value)) channels = (value.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+  const [r = 0, g = 0, b = 0] = channels;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 128;
+}

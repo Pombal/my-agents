@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
+import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useSettings } from "@getpaseo/plugin/client";
 import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { type DotAlign, type DotSize, preferences, type Preferences, type ShowMode } from "../shared/preferences";
@@ -30,8 +31,18 @@ const PHONE_INFO =
 export function createSettingsScreen(apply: (values: Preferences) => void) {
   return function TabDotsSettings() {
     const settings = useSettings(preferences);
-    const values = settings.status === "ready" ? settings.values : null;
-    useEffect(() => { if (values) apply(values); }, [values]);
+    const toast = useToast();
+    // The user's last choice, shown (and applied to the dots) before the host has saved it.
+    const [draft, setDraft] = useState<Preferences | null>(null);
+    const stored = settings.status === "ready" ? settings.values : null;
+    // `useSettings` hands out a fresh object each render; compare by content.
+    const storedKey = stored ? JSON.stringify(stored) : null;
+    useEffect(() => {
+      if (!stored) return;
+      if (draft && JSON.stringify(draft) !== storedKey) return;
+      setDraft(null);
+      apply(stored);
+    }, [storedKey]);
 
     if (settings.status === "loading") {
       return <SettingsSection title="Tab dots"><SettingsCard><SettingsRow label="Loading..." /></SettingsCard></SettingsSection>;
@@ -47,8 +58,18 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           disabled={settings.saving} onPress={settings.reset} />
       </SettingsCard></SettingsSection>;
     }
-    const current = settings.values;
-    const save = (patch: Partial<Preferences>) => void settings.save({ ...current, ...patch }, settings.revision);
+    const current = draft ?? settings.values;
+    const save = (patch: Partial<Preferences>) => {
+      const next = { ...current, ...patch };
+      setDraft(next);
+      apply(next);
+      void settings.save(next, settings.revision).then((ok) => {
+        if (ok) return;
+        setDraft(null);
+        apply(settings.values);
+        toast.show("Tab dots: couldn't save that setting; nothing changed", { variant: "error" });
+      });
+    };
     return <SettingsSection title="Tab dots" info={Platform.OS === "web" ? INFO : PHONE_INFO}>
       <SettingsCard>
         <SettingsSwitch label="Show tab dots" value={current.enabled} disabled={settings.saving}

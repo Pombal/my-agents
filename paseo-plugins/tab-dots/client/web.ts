@@ -1,10 +1,12 @@
 import { Platform } from "react-native";
 import type { Preferences } from "../shared/preferences";
-import { type AgentInfo, type DotState, orderTabs, readLayoutOrder, rootsByWorkspace, rowDots } from "./model";
+import { type AgentInfo, type Dot, type DotState, dotState, isLightText, orderTabs, readLayoutOrder, rootsByWorkspace, rowDots } from "./model";
 
 // Sanctioned web-only globals: the rest of the plugin has no DOM library.
 interface Rect { left: number; top: number; right: number; bottom: number; width: number }
 interface El {
+  readonly nodeType: number;
+  readonly isConnected: boolean;
   readonly firstElementChild: El | null;
   readonly lastElementChild: El | null;
   readonly nextSibling: El | null;
@@ -19,6 +21,8 @@ interface El {
   querySelector(selector: string): El | null;
   querySelectorAll(selector: string): { forEach(callback: (element: El) => void): void };
   closest(selector: string): El | null;
+  matches(selector: string): boolean;
+  contains(other: El | null): boolean;
   insertBefore(node: El, reference: El | null): void;
   appendChild(node: El): void;
   remove(): void;
@@ -54,8 +58,11 @@ declare const performance: { now(): number };
 declare function cancelAnimationFrame(handle: number): void;
 declare function setInterval(callback: () => void, ms: number): number;
 declare function clearInterval(handle: number): void;
+declare function setTimeout(callback: () => void, ms: number): number;
+declare function clearTimeout(handle: number): void;
+interface MutationRecordLike { target: El; addedNodes: ArrayLike<El>; removedNodes: ArrayLike<El> }
 declare class MutationObserver {
-  constructor(callback: () => void);
+  constructor(callback: (records: MutationRecordLike[]) => void);
   observe(target: El, options: { childList: boolean; subtree: boolean }): void;
   disconnect(): void;
 }
@@ -134,8 +141,7 @@ function findTitleRow(row: El): El | null {
 /** The title's computed text colour, and the theme tone it implies: light text means a dark theme. */
 function inkOf(title: El): { color: string; tone: "dark" | "light" } {
   const color = window.getComputedStyle(title).color;
-  const [r = 0, g = 0, b = 0] = (color.match(/\d+(\.\d+)?/g) ?? []).map(Number);
-  return { color, tone: 0.2126 * r + 0.7152 * g + 0.0722 * b > 128 ? "dark" : "light" };
+  return { color, tone: isLightText(color) ? "dark" : "light" };
 }
 
 export interface TabDots {
@@ -144,17 +150,44 @@ export interface TabDots {
   dispose(): void;
 }
 
+/** How long a clicked dot stays hidden while Paseo marks its tab read; then the daemon's state wins. */
+const OPTIMISTIC_READ_MS = 5000;
+
+interface RowPlan {
+  row: El;
+  titleRow: El | null;
+  dots: Dot[];
+  more: number;
+  color: string;
+  tone: "dark" | "light";
+  signature: string;
+  existing: El | null;
+}
+
 /** Draws the dots into every sidebar workspace row and keeps them in sync. No-op off the web. */
 export function startTabDots(initial: Preferences): TabDots {
   if (Platform.OS !== "web" || typeof document === "undefined") {
     return { setAgents() {}, setPreferences() {}, dispose() {} };
   }
   let preferences = initial;
+  let agentsNow: ReadonlyMap<string, AgentInfo> = new Map();
   let roots = new Map<string, AgentInfo[]>();
+  let rootsKey = "";
   let layoutRaw: string | null = null;
   let layout = new Map<string, string[]>();
   let frame = 0;
   let disposed = false;
+  // Rows of this host start with `<serverId>:`. One installation runs per connected host, so
+  // each instance claims its server from the first row holding one of its workspaces and leaves
+  // other hosts' rows alone.
+  let serverId: string | null = null;
+  // Clicked dots of unread tabs, hidden at once (agent id → expiry), until the daemon confirms.
+  const readSoon = new Map<string, number>();
+  let readSoonTimer = 0;
+  // The dots container under the pointer: not rebuilt until the pointer leaves it.
+  let hovered: El | null = null;
+  // The dot whose tooltip is showing.
+  let shownDot: El | null = null;
 
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "tab-dots");
@@ -163,6 +196,14 @@ export function startTabDots(initial: Preferences): TabDots {
   const tip = document.createElement("div");
   tip.setAttribute("data-tab-dots-tip", "");
   document.body.appendChild(tip);
+  const hideTip = () => {
+    if (!shownDot) return;
+    shownDot = null;
+    tip.setAttribute("style", "display:none");
+  };
+
+  const keyOf = (row: El) => (row.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length);
+  const isMine = (row: El | null) => Boolean(row && serverId && keyOf(row).startsWith(`${serverId}:`));
 
   const clearRow = (row: El) => {
     row.querySelector(`[${DOTS}]`)?.remove();
@@ -170,24 +211,31 @@ export function startTabDots(initial: Preferences): TabDots {
     row.removeAttribute(ALIGN);
   };
 
-  const renderRow = (row: El) => {
-    const key = (row.getAttribute("data-testid") ?? "").slice(ROW_PREFIX.length);
-    const workspaceId = key.slice(key.lastIndexOf(":") + 1);
+  /** Reads only: the row's dots and title colour. Kept apart from writes so N rows cost one style recalc. */
+  const planRow = (row: El): RowPlan => {
+    const key = keyOf(row);
     const titleRow = findTitleRow(row);
-    const tabs = orderTabs(roots.get(workspaceId) ?? [], layout.get(key));
+    const tabs = orderTabs(roots.get(key.slice(key.lastIndexOf(":") + 1)) ?? [], layout.get(key));
     const { dots, more } = rowDots(tabs, preferences.show, MAX_DOTS[preferences.size]);
-    if (!titleRow || dots.length === 0) {
+    const existing = row.querySelector(`[${DOTS}]`);
+    if (!titleRow || dots.length === 0) return { row, titleRow: null, dots, more, color: "", tone: "dark", signature: "", existing };
+    const { color, tone } = inkOf(titleRow.firstElementChild as El);
+    return { row, titleRow, dots, more, color, tone, signature: JSON.stringify([color, preferences.size, more, dots]), existing };
+  };
+
+  /** Writes only. */
+  const applyRow = ({ row, titleRow, dots, more, color, tone, signature, existing }: RowPlan) => {
+    if (!titleRow) {
+      if (existing && existing === hovered) return;
       clearRow(row);
       return;
     }
-    const title = titleRow.firstElementChild as El;
-    const { color, tone } = inkOf(title);
-    const signature = JSON.stringify([color, preferences.size, more, dots]);
     if (preferences.replaceTime) row.setAttribute(REPLACE, "");
     else row.removeAttribute(REPLACE);
     row.setAttribute(ALIGN, preferences.align);
-    const existing = row.querySelector(`[${DOTS}]`);
     if (existing && existing.parentElement === titleRow && existing.getAttribute(DOTS) === signature) return;
+    // Never move dots under the pointer; the pointer leaving schedules this row again.
+    if (existing && existing === hovered) return;
     existing?.remove();
     const container = document.createElement("div");
     container.setAttribute(DOTS, signature);
@@ -209,16 +257,55 @@ export function startTabDots(initial: Preferences): TabDots {
       count.textContent = `+${more}`;
       container.appendChild(count);
     }
-    titleRow.insertBefore(container, title.nextSibling);
+    titleRow.insertBefore(container, titleRow.firstElementChild?.nextSibling ?? null);
   };
 
   const render = () => {
     frame = 0;
     if (disposed) return;
-    document.querySelectorAll(ROWS).forEach(preferences.enabled ? renderRow : clearRow);
+    const rows: El[] = [];
+    document.querySelectorAll(ROWS).forEach((row) => rows.push(row));
+    if (!serverId) {
+      const claimed = rows.map(keyOf).find((key) => roots.has(key.slice(key.lastIndexOf(":") + 1)));
+      if (!claimed) return;
+      serverId = claimed.slice(0, claimed.lastIndexOf(":"));
+    }
+    const mine = rows.filter(isMine);
+    if (preferences.enabled) mine.map(planRow).forEach(applyRow);
+    else mine.forEach(clearRow);
+    if (shownDot && !shownDot.isConnected) hideTip();
   };
   const schedule = () => {
     if (!frame && !disposed) frame = requestAnimationFrame(render);
+  };
+
+  /** Applies clicked-but-not-yet-confirmed reads, and redraws only when a dot input changed. */
+  const refreshRoots = () => {
+    const now = performance.now();
+    let effective = agentsNow;
+    if (readSoon.size > 0) {
+      const patched = new Map(agentsNow);
+      for (const [id, until] of readSoon) {
+        const agent = agentsNow.get(id);
+        if (!agent || !agent.requiresAttention || until <= now) {
+          readSoon.delete(id);
+          continue;
+        }
+        patched.set(id, { ...agent, requiresAttention: false, attentionReason: null });
+      }
+      effective = patched;
+    }
+    clearTimeout(readSoonTimer);
+    if (readSoon.size > 0) {
+      readSoonTimer = setTimeout(refreshRoots, Math.max(0, Math.min(...readSoon.values()) - now) + 10);
+    }
+    roots = rootsByWorkspace(effective);
+    // Exactly the inputs of `rowDots`: upserts that only touch usage or timestamps change nothing.
+    const key = JSON.stringify([...roots].map(([workspace, list]) =>
+      [workspace, list.map((agent) => [agent.id, agent.title, dotState(agent), agent.requiresAttention])]));
+    if (key === rootsKey) return;
+    rootsKey = key;
+    schedule();
   };
 
   // Same-window layout writes fire no `storage` event, so poll the raw string as well.
@@ -234,12 +321,39 @@ export function startTabDots(initial: Preferences): TabDots {
   window.addEventListener("storage", reloadLayout);
 
   // Paseo remounts rows (plugin load, grouping switch, expanding a project); re-add dots then.
-  const observer = new MutationObserver(schedule);
+  // Only changes that add rows or touch a row's inside count; the plugin's own writes and the
+  // rest of the page (streaming chats, terminals) don't.
+  const ownNode = (node: El) => node === tip || (node.nodeType === 1 && node.hasAttribute(DOTS));
+  const observer = new MutationObserver((records) => {
+    if (shownDot && !shownDot.isConnected) hideTip();
+    if (hovered && !hovered.isConnected) hovered = null;
+    for (const { target, addedNodes, removedNodes } of records) {
+      if (target === tip || target.closest(`[${DOTS}]`)) continue;
+      const added = Array.from(addedNodes);
+      const changed = added.concat(Array.from(removedNodes));
+      if (changed.length > 0 && changed.every(ownNode)) continue;
+      if (target.closest(ROWS) || added.some((node) => node.nodeType === 1 && (node.matches(ROWS) || node.querySelector(ROWS)))) {
+        schedule();
+        return;
+      }
+    }
+  });
   observer.observe(document.body, { childList: true, subtree: true });
 
+  /** A dot of this host's rows under `target`, else null. */
+  const myDot = (target: El | null) => {
+    const dot = target?.closest(`[${DOTS}] > i`) ?? null;
+    return dot && isMine(dot.closest(ROWS)) ? dot : null;
+  };
+
   const onOver = (event: PointerLike) => {
-    const dot = event.target?.closest(`[${DOTS}] > i`);
-    if (!dot) return;
+    const dot = myDot(event.target);
+    if (!dot) {
+      hideTip();
+      return;
+    }
+    shownDot = dot;
+    hovered = dot.parentElement;
     const state = (dot.getAttribute("data-state") ?? "read") as DotState;
     const container = dot.parentElement;
     tip.setAttribute("data-tone", container?.getAttribute("data-tone") ?? "dark");
@@ -266,9 +380,11 @@ export function startTabDots(initial: Preferences): TabDots {
     tip.style.top = `${box.bottom + 8}px`;
   };
   const onOut = (event: PointerLike) => {
-    if (event.target?.closest(`[${DOTS}] > i`) && !event.relatedTarget?.closest(`[${DOTS}] > i`)) {
-      tip.setAttribute("style", "display:none");
-    }
+    if (!hovered || !event.target || !hovered.contains(event.target) || hovered.contains(event.relatedTarget)) return;
+    // Leaving the dots: hide the tip and apply anything held back while hovered.
+    hovered = null;
+    hideTip();
+    schedule();
   };
   document.addEventListener("mouseover", onOver);
   document.addEventListener("mouseout", onOut);
@@ -276,27 +392,44 @@ export function startTabDots(initial: Preferences): TabDots {
   // A dot opens its tab. Window capture runs before the row's own press handling, so the
   // row never sees presses on a dot (it would otherwise open the workspace's last tab).
   const onPress = (event: PressLike) => {
-    const dot = event.target?.closest(`[${DOTS}] > i`);
+    const dot = myDot(event.target);
     const agentId = dot?.getAttribute("data-agent");
-    const key = dot?.closest(ROWS)?.getAttribute("data-testid")?.slice(ROW_PREFIX.length);
-    if (!agentId || !key) return;
+    const row = dot?.closest(ROWS);
+    if (!dot || !agentId || !row) return;
     event.stopPropagation();
     event.preventDefault();
     if (event.type !== "click") return;
-    tip.setAttribute("style", "display:none");
+    hideTip();
+    hovered = null;
+    // Opening an unread finished or failed tab marks it read: show that at once.
+    const state = dot.getAttribute("data-state");
+    if (state === "finished" || state === "error") {
+      readSoon.set(agentId, performance.now() + OPTIMISTIC_READ_MS);
+      refreshRoots();
+    }
+    if (frame) {
+      cancelAnimationFrame(frame);
+      render();
+    }
+    const key = keyOf(row);
     const split = key.lastIndexOf(":");
     // The app's own agent route (`buildHostAgentDetailRoute`); it needs the full agent id.
     const path = `/h/${encodeURIComponent(key.slice(0, split))}/workspace/${encodeURIComponent(key.slice(split + 1))}`
       + `?open=${encodeURIComponent(`agent:${agentId}`)}`;
-    history.pushState(null, "", path);
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    // Navigate right after the next paint: Paseo's route change blocks the page for ~0.3 s,
+    // and the dot should be gone before that, not after.
+    requestAnimationFrame(() => setTimeout(() => {
+      if (disposed) return;
+      history.pushState(null, "", path);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, 0));
   };
   for (const type of PRESS_EVENTS) window.addEventListener(type, onPress, true);
 
   return {
     setAgents(agents) {
-      roots = rootsByWorkspace(agents);
-      schedule();
+      agentsNow = agents;
+      refreshRoots();
     },
     setPreferences(next) {
       preferences = next;
@@ -305,13 +438,14 @@ export function startTabDots(initial: Preferences): TabDots {
     dispose() {
       disposed = true;
       if (frame) cancelAnimationFrame(frame);
+      clearTimeout(readSoonTimer);
       clearInterval(poll);
       window.removeEventListener("storage", reloadLayout);
       for (const type of PRESS_EVENTS) window.removeEventListener(type, onPress, true);
       observer.disconnect();
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
-      document.querySelectorAll(ROWS).forEach(clearRow);
+      document.querySelectorAll(ROWS).forEach((row) => { if (isMine(row)) clearRow(row); });
       tip.remove();
       style.remove();
     },

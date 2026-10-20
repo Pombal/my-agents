@@ -12,7 +12,7 @@ import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { z } from "zod";
 import { DEFAULTS, preferences, type Preferences } from "../shared/preferences";
 import { watchAgents } from "./agents";
-import { type AgentInfo, type DotState, type ListEntry, unreadList } from "./model";
+import { type AgentInfo, type DotState, isLightText, type ListEntry, unreadList } from "./model";
 
 /** One shared value the row, the sheet and the screen re-render from. */
 interface Store<Value> {
@@ -60,8 +60,7 @@ function dotColor(colors: Colors, state: DotState): string {
   if (state === "finished") return colors.statusSuccess;
   if (state === "read") return colors.foregroundMuted;
   // No running token in the plugin theme: Paseo's statusDotRunning, picked by text brightness.
-  const [r = 0, g = 0, b = 0] = (colors.foreground.match(/[0-9a-f]{2}/gi) ?? []).map((hex) => parseInt(hex, 16));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 128 ? "#5caaf6" : "#268ae0";
+  return isLightText(colors.foreground) ? "#5caaf6" : "#268ae0";
 }
 
 function ago(iso: string | null): string {
@@ -73,10 +72,10 @@ function ago(iso: string | null): string {
   return `${Math.round(minutes / (60 * 24))}d`;
 }
 
-/** Settings as used on phones; until they load, the defaults. */
+/** Settings as used on phones; hidden until they load, so a turned-off plugin never flashes its row. */
 function usePreferences(): Preferences {
   const settings = useSettings(preferences);
-  return settings.status === "ready" ? settings.values : DEFAULTS;
+  return settings.status === "ready" ? settings.values : { ...DEFAULTS, enabled: false };
 }
 
 type Agents = ReadonlyMap<string, AgentInfo>;
@@ -141,7 +140,7 @@ const consumedOpens = new Set<string>();
 export function contributePhone(client: PluginClientContext): () => void {
   const agents = createStore<Agents>(new Map());
   const places = createStore<Places>(new Map());
-  const stopAgents = watchAgents(client, (next) => agents.set(new Map(next)));
+  const stopAgents = watchAgents(client.paseo.agents, (next) => agents.set(new Map(next)));
   // Plugin state hooks (`useWorkspace`) only run inside workspace panels, so names come from a
   // listing, refreshed whenever the sheet or the screen opens.
   const loadPlaces = () => {
@@ -198,6 +197,8 @@ export function contributePhone(client: PluginClientContext): () => void {
   function SidebarItem({ theme, openPopover, currentScreen }: PluginSidebarItemProps) {
     const values = usePreferences();
     const entries = useEntries(agents, values);
+    // Prefetch the "project · workspace" names the sheet will show on tap.
+    useEffect(() => { if (entries.length > 0 && places.get().size === 0) loadPlaces(); }, [entries.length > 0]);
     if (entries.length === 0) return null;
     const max = MAX_DOTS[values.size];
     const size = values.size === "small" ? 4 : 5;
