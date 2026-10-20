@@ -2,7 +2,7 @@ import { useSettings, type PluginClientContext, type PluginSidebarItemProps } fr
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { compilePreset, preferences } from "../shared/presets";
-import { usePendingPresets, useProjects, useWorkspaceRefs } from "./data";
+import { useProjects, useWorkspaceRefs } from "./data";
 import { type SidebarFilter, readSelection, sidebarCss, writeSelection } from "./web";
 
 export function createSwitcher(client: PluginClientContext, filter: SidebarFilter) {
@@ -11,9 +11,7 @@ export function createSwitcher(client: PluginClientContext, filter: SidebarFilte
     const projects = useProjects(client, host.id);
     const workspaces = useWorkspaceRefs(client, host.id);
     const [selected, setSelected] = useState(readSelection);
-    // While the settings screen saves, its values apply here at once; the host confirms them a moment later.
-    const pending = usePendingPresets(host.id);
-    const presets = pending ?? (settings.status === "ready" ? settings.values.presets : undefined);
+    const presets = settings.status === "ready" ? settings.values.presets : undefined;
     const groups = useMemo(() => presets?.map((preset) => ({ ...preset, matches: compilePreset(preset) })), [presets]);
     const other = useMemo(() => projects.data?.filter((project) => !groups?.some((group) => group.matches(project))), [projects.data, groups]);
     const choices = useMemo(() => [

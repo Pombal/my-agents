@@ -1,5 +1,5 @@
 import { useSettings, type PluginClientContext, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { Pressable, Text, TextInput, View, type ViewStyle } from "react-native";
@@ -7,7 +7,7 @@ import {
   compilePreset, preferences, presetIdSchema, presetsSchema, projectName, projectOnlyRule, ruleTypes, ruleValueError,
   type Project, type RuleType,
 } from "../shared/presets";
-import { setPendingPresets, usePendingPresets, useProjects } from "./data";
+import { useProjects } from "./data";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 
@@ -69,23 +69,19 @@ export function createPresetSettings(client: PluginClientContext) {
   return function PresetSettings({ theme, host }: PluginSurfaceProps) {
     const colors = theme.colors;
     const settings = useSettings(preferences);
-    const toast = useToast();
     const projects = useProjects(client, host.id);
-    // While the pointer is over the Other list, background project changes wait, so rows don't move under it.
-    // The user's own edits still apply at once: they change the draft, not this list.
-    const [held, setHeld] = useState<Project[] | undefined>();
-    const projectList = held ?? projects.data;
+    const projectList = projects.data;
 
     const [draft, setDraft] = useState<{ presets: DraftPreset[]; revision: string } | null>(null);
     const [json, setJson] = useState<string | null>(null);
     const [error, setError] = useState("");
     const [focusKey, setFocusKey] = useState<number | null>(null);
-    const [slowSave, setSlowSave] = useState(false);
-    // The draft's revision once our own save lands; the host's new revision then replaces it.
+    // Set after a save while edits were typed during it: those edits stay and continue from the host's new revision.
     const savedFrom = useRef<string | null>(null);
     useEffect(() => {
       if (settings.status !== "ready") return;
       if (draft === null) {
+        savedFrom.current = null;
         setDraft({ presets: toDraft(settings.values.presets), revision: settings.revision });
       } else if (savedFrom.current !== null && settings.revision !== savedFrom.current) {
         const revision = settings.revision;
@@ -94,9 +90,7 @@ export function createPresetSettings(client: PluginClientContext) {
       }
     }, [settings, draft]);
 
-    // A save in flight counts as saved: the form and the sidebar show the result at once.
-    const pending = usePendingPresets(host.id);
-    const saved = pending ?? (settings.status === "ready" ? settings.values.presets : undefined);
+    const saved = settings.status === "ready" ? settings.values.presets : undefined;
     const presets = draft?.presets ?? [];
     const built = useMemo(() => buildPresets(presets), [presets]);
     const savedMatchers = useMemo(() => new Map((saved ?? []).map((preset) => [preset.id, compilePreset(preset)])), [saved]);
@@ -136,20 +130,12 @@ export function createPresetSettings(client: PluginClientContext) {
         values = result.data;
       } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return; }
       setError("");
-      // Show the saved state now. Keep the draft (and its input focus) unless saving normalizes it, e.g. trimmed names.
-      if (json !== null || JSON.stringify(built) !== JSON.stringify(values)) {
-        setDraft({ presets: toDraft(values), revision: draft.revision });
+      const sent = draft;
+      if (await settings.save({ presets: values }, draft.revision)) {
+        savedFrom.current = sent.revision;
         setJson(null);
+        setDraft((current) => current === sent ? null : current);
       }
-      setPendingPresets({ hostId: host.id, presets: values });
-      const slow = setTimeout(() => setSlowSave(true), 800);
-      const ok = await settings.save({ presets: values }, draft.revision);
-      clearTimeout(slow);
-      setSlowSave(false);
-      if (ok) savedFrom.current = draft.revision;
-      // On failure the saved state comes back, so the form is unsaved again and Save is enabled; edits are kept.
-      setPendingPresets(null);
-      if (!ok) toast.show("Couldn't save filter presets. Your changes are still here.", { variant: "error" });
     }
     async function discard() {
       // Reset at once from the values on screen; the reload (a host round trip) then picks up changes made elsewhere,
@@ -167,7 +153,7 @@ export function createPresetSettings(client: PluginClientContext) {
 
     const statusText = error || settings.saveError
       || (settings.status === "error" || settings.status === "invalid" ? settings.error : "")
-      || (slowSave ? "Saving…" : json === null && problems ? `Fix ${problems === 1 ? "1 problem" : `${problems} problems`} to save` : "");
+      || (settings.saving ? "Saving…" : json === null && problems ? `Fix ${problems === 1 ? "1 problem" : `${problems} problems`} to save` : "");
     const canSave = !!draft && dirty && !settings.saving && (json !== null || valid);
 
     return <View style={{ gap: 14, paddingVertical: 16 }}>
@@ -188,7 +174,6 @@ export function createPresetSettings(client: PluginClientContext) {
           <Text style={{ color: colors.foregroundMuted, fontSize: 13 }}>+ Add preset</Text>
         </Pressable>
         <OtherCard colors={colors} projects={other} allProjects={projectList ?? []} loaded={!!projectList} presets={presets}
-          onHold={(hold) => setHeld(hold ? projects.data : undefined)}
           onAdd={(preset, rule) => updatePreset(preset.key, (current) => ({ ...current, rules: [...current.rules, { key: nextKey(), ...rule }] }))}
           onNewPreset={(project, rule) => addPreset(projectName(project), rule)} />
       </>}
@@ -328,13 +313,12 @@ function PresetCard({ colors, preset, preview, projectsState, autoFocus, onChang
 
 type AddedRule = Omit<DraftRule, "key">;
 
-function OtherCard({ colors, projects, allProjects, loaded, presets, onHold, onAdd, onNewPreset }: {
+function OtherCard({ colors, projects, allProjects, loaded, presets, onAdd, onNewPreset }: {
   colors: Colors;
   projects: Project[];
   allProjects: Project[];
   loaded: boolean;
   presets: DraftPreset[];
-  onHold(hold: boolean): void;
   onAdd(preset: DraftPreset, rule: AddedRule): void;
   onNewPreset(project: Project, rule: AddedRule): void;
 }) {
@@ -342,8 +326,7 @@ function OtherCard({ colors, projects, allProjects, loaded, presets, onHold, onA
   const [menu, setMenu] = useState<string | null>(null);
   const shown = expanded ? projects : projects.slice(0, otherCollapsedCount);
   const hiddenCount = projects.length - shown.length;
-  return <View testID="filter-presets-other" onPointerEnter={() => onHold(true)} onPointerLeave={() => onHold(false)}
-    style={{ ...card(colors), zIndex: menu ? 10 : 0 }}>
+  return <View testID="filter-presets-other" style={{ ...card(colors), zIndex: menu ? 10 : 0 }}>
     <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 }}>
       <Text style={{ fontSize: 14, fontWeight: "600", color: colors.foreground }}>Other</Text>
       <Text style={{ flex: 1, fontSize: 12, color: colors.foregroundMuted }}>
