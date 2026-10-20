@@ -76,7 +76,7 @@ const STATUS: Record<Scheme, { success: string; danger: string }> = {
 export interface DiffPalette {
   /** Text colors. */
   tokens: Record<TokenKind, string>;
-  /** Changed words inside a paired row, layered over the row tint. */
+  /** Changed words inside a paired row: strong backgrounds over the row tint, text in the plain foreground. */
   edits: Record<EditKind, string>;
   /** Full-width row bands; kinds without one keep the block's own surface. */
   rows: Partial<Record<LineKind, string>>;
@@ -107,9 +107,10 @@ export function diffPalette(syntaxTheme: string, scheme: Scheme): DiffPalette {
       header: syntax.comment,
       hunk: syntax.function,
     },
-    // As GitHub's darker word marks; softer on light surfaces, where muted text (comments) would
-    // otherwise lose contrast against them.
-    edits: { addEdit: withAlpha(status.success, scheme === "light" ? 0.22 : 0.3), delEdit: withAlpha(status.danger, scheme === "light" ? 0.22 : 0.3) },
+    // Vivid, like delta's and git's word highlights: clearly brighter than the row tint, so the
+    // changed words are found at a glance. Text inside them drops its syntax color for the
+    // theme's foreground (set in web.ts), which stays readable on the strong background.
+    edits: { addEdit: withAlpha(status.success, scheme === "light" ? 0.45 : 0.55), delEdit: withAlpha(status.danger, scheme === "light" ? 0.42 : 0.55) },
     rows: {
       // Paseo's git diff view uses 0.15 / 0.1; chat blocks sit on a tinted surface, so a step stronger.
       add: withAlpha(status.success, 0.24),

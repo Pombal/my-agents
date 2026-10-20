@@ -89,7 +89,6 @@ interface Lang {
   lineKeys?: ":" | "=";
   /** `"key":` strings are properties (JSON). */
   jsonKeys?: boolean;
-  markdown?: boolean;
 }
 
 const words = (s: string) => Object.fromEntries(s.split(" ").map((w) => [w, true])) as Record<string, true>;
@@ -134,7 +133,6 @@ const LANGS = {
   markup: { lineComments: [], blockComments: [["<!--", "-->"]], quotes: "\"'", keywords: NONE, literals: NONE, tags: true },
   sql: { lineComments: ["--"], blockComments: [["/*", "*/"]], quotes: "'\"", keywords: SQL_KEYWORDS, literals: words("true false TRUE FALSE NULL null") },
   lua: { lineComments: ["--"], blockComments: [], quotes: "\"'", keywords: LUA_KEYWORDS, literals: words("true false nil self") },
-  markdown: { lineComments: [], blockComments: [["<!--", "-->"]], quotes: "", keywords: NONE, literals: NONE, markdown: true },
 } satisfies Record<string, Lang>;
 export type LangId = keyof typeof LANGS;
 
@@ -152,7 +150,7 @@ register("css", "css scss less sass");
 register("markup", "html htm xml svg vue svelte astro xhtml plist");
 register("sql", "sql");
 register("lua", "lua hs elm");
-register("markdown", "md mdx markdown");
+// Markdown and text files are prose: no syntax colors, so changed words stand out.
 
 /** Language for a file path from a diff header, or undefined when the extension is unknown. */
 export function langFromPath(path: string): LangId | undefined {
@@ -197,10 +195,6 @@ export function tokenizeLine(lang: Lang, line: string, base: number, state: Toke
     i = close + state.blockEnd.length;
     state.blockEnd = undefined;
   }
-  if (lang.markdown) {
-    const heading = /^#{1,6}\s/.exec(line);
-    if (heading) return push(0, line.length, "function");
-  }
   if (lang.lineKeys && i === 0) {
     const key = lang.lineKeys === ":" ? /^(\s*(?:-\s+)?)([\w.-]+|"[^"]*"|'[^']*')(?=\s*:(\s|$))/.exec(line) : /^(\s*)([\w.-]+|"[^"]*")(?=\s*=)/.exec(line);
     if (key) {
@@ -226,13 +220,6 @@ export function tokenizeLine(lang: Lang, line: string, base: number, state: Toke
       }
       push(i, close + block[1].length, "comment");
       i = close + block[1].length;
-      continue;
-    }
-    if (lang.markdown && ch === "`") {
-      const close = line.indexOf("`", i + 1);
-      const end = close < 0 ? line.length : close + 1;
-      push(i, end, "string");
-      i = end;
       continue;
     }
     if (lang.quotes.includes(ch)) {
@@ -274,21 +261,19 @@ export function tokenizeLine(lang: Lang, line: string, base: number, state: Toke
       if (inTag && /^\s*=/.test(line.slice(end))) kind = "attribute";
       else if (lang.keywords[word] === true && !prev.endsWith(".")) kind = "keyword";
       else if (lang.literals[word] === true) kind = "literal";
-      else if (/^\s*\(/.test(line.slice(end)) && !lang.markdown) kind = "function";
+      else if (/^\s*\(/.test(line.slice(end))) kind = "function";
       else if (prev.endsWith(".") && !prev.endsWith("..") && lang.pascalTypes) kind = "property";
       else if (lang.pascalTypes && /^[A-Z][a-z0-9]\w*$/.test(word)) kind = "type";
       if (kind) push(i, end, kind);
       i = end;
       continue;
     }
-    if (!lang.markdown) {
-      OPERATOR.lastIndex = i;
-      const op = OPERATOR.exec(line);
-      if (op) {
-        push(i, i + op[0].length, "operator");
-        i += op[0].length;
-        continue;
-      }
+    OPERATOR.lastIndex = i;
+    const op = OPERATOR.exec(line);
+    if (op) {
+      push(i, i + op[0].length, "operator");
+      i += op[0].length;
+      continue;
     }
     i++;
   }
@@ -334,7 +319,7 @@ export function parseDiff(text: string): DiffModel {
   let oldState: TokenState = {};
   let newState: TokenState = {};
   const tokenize = (body: string, at: number, state: TokenState) => {
-    if (lang) tokenizeLine(lang, body, at, state, spans);
+    if (lang && (state.blockEnd || !isProse(lang, body))) tokenizeLine(lang, body, at, state, spans);
   };
 
   const lines: DiffLine[] = [];
@@ -381,14 +366,76 @@ export function parseDiff(text: string): DiffModel {
   return { lines, spans, edits: wordEdits(text, lines) };
 }
 
-const WORD = /[\p{L}\p{N}_$]/u;
+/**
+ * Whether a line reads as prose (a sentence in a prompt, docs or a message) rather than code, so
+ * code colors would only paint English words like `from` and `in` as keywords. Comments keep their
+ * comment color.
+ */
+function isProse(lang: Lang, body: string): boolean {
+  const text = body.trim();
+  if (/[;{}=<>|&]|\($/.test(text) || /^(\/[/*]|\*|--)/.test(text) || lang.lineComments.some((c) => text.startsWith(c))) return false;
+  let plain = 0;
+  let plainChars = 0;
+  let keywords = 0;
+  for (const word of text.match(/[\p{L}\p{N}_$'’]+/gu) ?? []) {
+    if (!/^\p{L}[\p{Ll}'’]*$/u.test(word)) continue;
+    plain++;
+    plainChars += word.length;
+    if (lang.keywords[word] === true || lang.literals[word] === true) keywords++;
+  }
+  // Mostly ordinary words, few of them keywords: `return x if y is not None else z` is code.
+  return plain >= 6 && plainChars >= text.replace(/\s/g, "").length * 0.7 && keywords * 3 < plain;
+}
+
+/** Words, whitespace runs and single symbols: the units a changed range is made of. */
+const TOKEN = /[\p{L}\p{N}_$]+|\s+|[^\p{L}\p{N}_$\s]/gu;
 /** How far ahead in a run of additions a removal looks for its counterpart. */
 const PAIR_WINDOW = 8;
+/** Share of their text two lines must have in common to pair; less is a rewrite, left unmarked. */
+const PAIR_SIMILARITY = 0.5;
+/** Larger differing middles (token count × token count) get one changed range instead of a word diff. */
+const MAX_DIFF_CELLS = 250_000;
+
+interface Tokens {
+  text: string;
+  list: string[];
+  /** Start offset of each token, plus the text length at the end. */
+  starts: number[];
+  /** Characters per non-space token, for similarity. */
+  counts: Map<string, number>;
+  size: number;
+}
+
+function lineTokens(text: string): Tokens {
+  const list = text.match(TOKEN) ?? [];
+  const starts: number[] = [];
+  const counts = new Map<string, number>();
+  let at = 0;
+  let size = 0;
+  for (const token of list) {
+    starts.push(at);
+    at += token.length;
+    if (token.trim()) {
+      counts.set(token, (counts.get(token) ?? 0) + token.length);
+      size += token.length;
+    }
+  }
+  starts.push(at);
+  return { text, list, starts, counts, size };
+}
+
+/** Dice coefficient over the characters of the lines' words and symbols, ignoring order and spacing. */
+function similarity(a: Tokens, b: Tokens): number {
+  if (a.size + b.size === 0) return 1;
+  let common = 0;
+  for (const [token, chars] of a.counts) common += Math.min(chars, b.counts.get(token) ?? 0);
+  return (2 * common) / (a.size + b.size);
+}
 
 /**
- * Changed words of removed/added lines that pair up, as GitHub marks them. In each run of removals
- * followed by additions, every removal pairs, in order, with the next addition that shares most of
- * its text; the edit is what remains after the common prefix and suffix, widened to whole words.
+ * Changed words of removed/added lines that pair up, as GitHub and delta mark them. In each run of
+ * removals followed by additions, every removal pairs, in order, with the most similar of the next
+ * few additions; a word-level diff of the pair then marks every changed range on both sides.
  * Rewritten lines stay unpaired, since marking most of a line only repeats the row color.
  */
 function wordEdits(text: string, lines: DiffLine[]): Array<Span<EditKind>> {
@@ -402,40 +449,154 @@ function wordEdits(text: string, lines: DiffLine[]): Array<Span<EditKind>> {
     while (lines[i]?.kind === "del") dels.push(lines[i++]!);
     const adds: DiffLine[] = [];
     while (lines[i]?.kind === "add") adds.push(lines[i++]!);
+    // Bodies after the +/- sign.
+    const addTokens = adds.map((add) => lineTokens(text.slice(add.start + 1, add.end)));
     let next = 0;
     for (const del of dels) {
-      // Bodies after the +/- sign.
-      const a = text.slice(del.start + 1, del.end);
+      const a = lineTokens(text.slice(del.start + 1, del.end));
+      let best = -1;
+      let bestScore = PAIR_SIMILARITY;
       for (let k = next; k < Math.min(adds.length, next + PAIR_WINDOW); k++) {
-        const add = adds[k]!;
-        const b = text.slice(add.start + 1, add.end);
-        const edit = commonEnds(a, b);
-        if (!edit) continue;
-        next = k + 1;
-        for (const [line, side, kind] of [[del, a, "delEdit"], [add, b, "addEdit"]] as const) {
-          const end = side.length - edit.suffix;
-          // Whitespace-only edits (re-indents) stay unmarked; they are invisible as a tint.
-          if (side.slice(edit.prefix, end).trim()) edits.push({ start: line.start + 1 + edit.prefix, end: line.start + 1 + end, kind });
+        const score = similarity(a, addTokens[k]!);
+        if (score >= bestScore && (best < 0 || score > bestScore)) {
+          best = k;
+          bestScore = score;
         }
-        break;
+      }
+      if (best < 0) continue;
+      next = best + 1;
+      const add = adds[best]!;
+      for (const group of changedGroups(a, addTokens[best]!)) {
+        pushEdit(edits, a.text, del.start + 1, group.aStart, group.aEnd, "delEdit");
+        pushEdit(edits, addTokens[best]!.text, add.start + 1, group.bStart, group.bEnd, "addEdit");
       }
     }
   }
   return edits;
 }
 
-/** Common prefix and suffix of two lines, on word boundaries, or undefined if they share too little. */
-function commonEnds(a: string, b: string): { prefix: number; suffix: number } | undefined {
-  let prefix = 0;
-  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
-  let suffix = 0;
-  while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
-  // Widen to whole words so a renamed `fooBar` → `fooBaz` marks the word, not "r"/"z".
-  while (prefix > 0 && WORD.test(a[prefix - 1]!) && (WORD.test(a[prefix] ?? "") || WORD.test(b[prefix] ?? ""))) prefix--;
-  while (suffix > 0 && WORD.test(a[a.length - suffix]!) && (WORD.test(a[a.length - suffix - 1] ?? "") || WORD.test(b[b.length - suffix - 1] ?? ""))) suffix--;
-  // Indentation is not common ground: two unrelated lines at the same depth must not pair.
-  const indent = /^\s*/.exec(a.slice(0, prefix))![0].length;
-  const common = prefix - indent + suffix;
-  const longest = Math.max(a.trim().length, b.trim().length);
-  return common > 0 && common >= longest * 0.4 ? { prefix, suffix } : undefined;
+/** Adds a changed range without its surrounding spaces; whitespace-only changes (re-indents) stay unmarked. */
+function pushEdit(edits: Array<Span<EditKind>>, body: string, base: number, start: number, end: number, kind: EditKind): void {
+  while (start < end && /\s/.test(body[start]!)) start++;
+  while (end > start && /\s/.test(body[end - 1]!)) end--;
+  if (end > start) edits.push({ start: base + start, end: base + end, kind });
+}
+
+/** A run of equal text, or a change: characters [aStart, aEnd) of one side became [bStart, bEnd) of the other. */
+interface Group {
+  equal: boolean;
+  aStart: number;
+  aEnd: number;
+  bStart: number;
+  bEnd: number;
+}
+
+let lcsTable = new Uint16Array(0);
+
+/** Changed ranges of a paired line: a longest-common-subsequence diff over tokens, then cleaned up. */
+function changedGroups(a: Tokens, b: Tokens): Group[] {
+  const x = a.list;
+  const y = b.list;
+  let head = 0;
+  while (head < x.length && head < y.length && x[head] === y[head]) head++;
+  let tail = 0;
+  while (tail < x.length - head && tail < y.length - head && x[x.length - 1 - tail] === y[y.length - 1 - tail]) tail++;
+  const n = x.length - head - tail;
+  const m = y.length - head - tail;
+
+  // Per token of the middles: whether it is common to both sides.
+  const keepA = new Uint8Array(n);
+  const keepB = new Uint8Array(m);
+  if (n > 0 && m > 0 && n * m <= MAX_DIFF_CELLS) {
+    const width = m + 1;
+    if (lcsTable.length < (n + 1) * width) lcsTable = new Uint16Array((n + 1) * width);
+    const t = lcsTable;
+    // t[i][j]: common tokens of x-middle[i..] and y-middle[j..].
+    for (let j = 0; j <= m; j++) t[n * width + j] = 0;
+    for (let i = n - 1; i >= 0; i--) {
+      t[i * width + m] = 0;
+      for (let j = m - 1; j >= 0; j--) {
+        t[i * width + j] = x[head + i] === y[head + j] ? t[(i + 1) * width + j + 1]! + 1 : Math.max(t[(i + 1) * width + j]!, t[i * width + j + 1]!);
+      }
+    }
+    for (let i = 0, j = 0; i < n && j < m; ) {
+      if (x[head + i] === y[head + j]) {
+        keepA[i++] = 1;
+        keepB[j++] = 1;
+      } else if (t[(i + 1) * width + j]! >= t[i * width + j + 1]!) i++;
+      else j++;
+    }
+  }
+
+  // Walk both sides together into alternating equal and changed groups.
+  const groups: Group[] = [];
+  const push = (equal: boolean, i0: number, i1: number, j0: number, j1: number) => {
+    const group = { equal, aStart: a.starts[i0]!, aEnd: a.starts[i1]!, bStart: b.starts[j0]!, bEnd: b.starts[j1]! };
+    const last = groups[groups.length - 1];
+    if (last && last.equal === equal) {
+      last.aEnd = group.aEnd;
+      last.bEnd = group.bEnd;
+    } else if (group.aEnd > group.aStart || group.bEnd > group.bStart) groups.push(group);
+  };
+  push(true, 0, head, 0, head);
+  for (let i = 0, j = 0; i < n || j < m; ) {
+    if (i < n && j < m && keepA[i] && keepB[j]) {
+      push(true, head + i, head + i + 1, head + j, head + j + 1);
+      i++;
+      j++;
+      continue;
+    }
+    const i0 = i;
+    const j0 = j;
+    while (i < n && !keepA[i]) i++;
+    while (j < m && !keepB[j]) j++;
+    push(false, head + i0, head + i, head + j0, head + j);
+  }
+  push(true, x.length - tail, x.length, y.length - tail, y.length);
+  slideToWords(groups, a.text, b.text);
+  return mergeShortEqualities(groups).filter((group) => !group.equal);
+}
+
+const WORD = /[\p{L}\p{N}_$]/u;
+
+/**
+ * Slides a pure insertion or deletion past the spaces and punctuation it repeats, so it starts at a
+ * word: `polish. When` → `polish. Skip it. When` marks `Skip it.`, not `. Skip it`.
+ */
+function slideToWords(groups: Group[], a: string, b: string): void {
+  for (let k = 1; k < groups.length - 1; k++) {
+    const [prev, edit, next] = [groups[k - 1]!, groups[k]!, groups[k + 1]!];
+    const insertion = edit.aStart === edit.aEnd;
+    if (edit.equal || !prev.equal || !next.equal || (!insertion && edit.bStart !== edit.bEnd)) continue;
+    const text = insertion ? b : a;
+    const start = insertion ? edit.bStart : edit.aStart;
+    const end = insertion ? edit.bEnd : edit.aEnd;
+    let shift = 0;
+    while (next.aEnd - next.aStart > shift + 1 && text[start + shift] === text[end + shift] && !WORD.test(text[start + shift]!)) shift++;
+    prev.aEnd += shift;
+    prev.bEnd += shift;
+    edit.aStart += shift;
+    edit.aEnd += shift;
+    edit.bStart += shift;
+    edit.bEnd += shift;
+    next.aStart += shift;
+    next.bStart += shift;
+  }
+}
+
+/**
+ * Folds an equal run into the changes around it when it is no longer than the change on either
+ * side, as diff-match-patch's semantic cleanup does: `fooBar(x` → `fooBaz(x, y` reads as one edit,
+ * and the spaces and short words a word diff matches by chance stop splitting a rewritten phrase.
+ */
+function mergeShortEqualities(groups: Group[]): Group[] {
+  const span = (g: Group) => Math.max(g.aEnd - g.aStart, g.bEnd - g.bStart);
+  for (let k = 1; k < groups.length - 1; ) {
+    const [before, equal, after] = [groups[k - 1]!, groups[k]!, groups[k + 1]!];
+    if (equal.equal && !before.equal && !after.equal && span(equal) <= span(before) && span(equal) <= span(after)) {
+      groups.splice(k - 1, 3, { equal: false, aStart: before.aStart, aEnd: after.aEnd, bStart: before.bStart, bEnd: after.bEnd });
+      k = Math.max(1, k - 2);
+    } else k++;
+  }
+  return groups;
 }

@@ -40,6 +40,13 @@ describe("parseDiff", () => {
       .map((span) => model.lines.findIndex((line) => span.start >= line.start && span.end <= line.end));
     expect(keywordLines).toEqual([1]);
   });
+
+  it("leaves prose lines uncolored but keeps code and comments colored", () => {
+    const text = "-2. Reload - Install it from the folder, then reload as soon as it is done.\n+const step = await next(design);\n+// when the build is done, in this order";
+    const model = parseDiff(text);
+    const colored = model.spans.filter((span) => span.kind !== "addSign" && span.kind !== "delSign").map((span) => `${span.kind}:${text.slice(span.start, span.end)}`);
+    expect(colored).toEqual(["keyword:const", "operator:=", "keyword:await", "function:next", "comment:// when the build is done, in this order"]);
+  });
 });
 
 describe("word edits", () => {
@@ -47,7 +54,7 @@ describe("word edits", () => {
     parseDiff(text).edits.map((edit) => `${edit.kind}:${text.slice(edit.start, edit.end)}`);
 
   it("marks what changed between a paired removal and addition, in whole words", () => {
-    expect(marked('- const a = "true" || !isProduction;\n+ const a = "true";')).toEqual(["delEdit: || !isProduction"]);
+    expect(marked('- const a = "true" || !isProduction;\n+ const a = "true";')).toEqual(["delEdit:|| !isProduction"]);
     expect(marked("-  return fooBar(x);\n+  return fooBaz(x, y);")).toEqual(["delEdit:fooBar(x", "addEdit:fooBaz(x, y"]);
   });
 
@@ -55,6 +62,12 @@ describe("word edits", () => {
     expect(marked("-a = 1\n-b = 2\n+a = 10\n+b = 2\n+c = 3")).toEqual(["delEdit:1", "addEdit:10"]);
     expect(marked("-    if args.verbose == True:\n+    # verbose flag is a bool")).toEqual([]);
     expect(marked("-  x = 1\n+    x = 1")).toEqual([]);
+  });
+
+  it("marks every scattered edit of a long prose line, not one span from first to last change", () => {
+    const before = "-Install it from the folder and reload Paseo when the build is done, in this order: plugin, then theme. When colors change, reload.";
+    const after = "+Install it from the folder with one command, and reload Paseo once the build is done, in this order: plugin, then theme. Skip what exists. When colors change, reload.";
+    expect(marked(`${before}\n${after}`)).toEqual(["addEdit:with one command,", "delEdit:when", "addEdit:once", "addEdit:Skip what exists."]);
   });
 
   it("pairs a removal with the addition it resembles, not just the one at the same position", () => {

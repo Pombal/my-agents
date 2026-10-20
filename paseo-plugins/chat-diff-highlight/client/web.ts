@@ -106,8 +106,8 @@ export function startDiffHighlighting(): () => void {
   const highlights = {} as Record<HighlightKind, HighlightSet | undefined>;
   if (CSS?.highlights && Highlight) {
     // Below Paseo's own highlights (chat Find), which use the default priority 0. Word marks sit
-    // under the syntax colors so the token colors stay on top of them.
-    for (const [kinds, priority] of [[EDIT_KINDS, -2], [TOKEN_KINDS, -1]] as const) {
+    // above the syntax colors: inside a changed range the text takes the plain foreground.
+    for (const [kinds, priority] of [[TOKEN_KINDS, -2], [EDIT_KINDS, -1]] as const) {
       for (const kind of kinds) {
         const highlight = new Highlight();
         highlight.priority = priority;
@@ -133,14 +133,16 @@ export function startDiffHighlighting(): () => void {
       // Unreadable settings: Paseo's default syntax theme.
     }
     // The block's text color is the theme's foreground, so light text means a dark theme.
-    const scheme: Scheme = sample && luminance(getComputedStyle(sample).color) > 0.5 ? "dark" : "light";
-    const key = `${syntaxTheme}|${scheme}`;
+    const foreground = sample ? getComputedStyle(sample).color : "";
+    const scheme: Scheme = foreground && luminance(foreground) > 0.5 ? "dark" : "light";
+    const key = `${syntaxTheme}|${scheme}|${foreground}`;
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
+    const markText = foreground ? ` color: ${foreground};` : "";
     style.textContent = [
       ...TOKEN_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { color: ${palette.tokens[kind]}; }`),
-      ...EDIT_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { background-color: ${palette.edits[kind]}; }`),
+      ...EDIT_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { background-color: ${palette.edits[kind]};${markText} }`),
     ].join("\n");
     return true;
   };

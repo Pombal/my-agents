@@ -1,0 +1,7 @@
+@@ README, install section @@
+-Install the plugin from its folder, then reload Paseo. The colors follow your theme and update when you switch it, in the web app and the desktop app.
++Install the plugin from its folder with one command, then reload Paseo once. The colors follow your syntax theme and update as soon as you switch it, in the web and desktop apps.
+
+@@ README, streaming @@
+-When a reply streams in, each block is colored once per frame, so long diffs stay smooth.
++While a reply streams in, each block is re-colored at most once per frame, so even long diffs stay smooth.
