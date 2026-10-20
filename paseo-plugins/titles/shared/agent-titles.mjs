@@ -21,6 +21,16 @@ export function titleOwnership(title, labels, placeholder = null) {
   return "hand";
 }
 
+// Another tab of the same workspace as Haiku sees it: a title Titles chose goes
+// in bare, a placeholder or a hand-chosen name with a note. `promptLines` are the
+// sibling's first-prompt lines (defaultTitle of its opening user messages).
+export function siblingEntry(title, labels, promptLines = []) {
+  if (!title) return null;
+  const ownership = titleOwnership(title, labels, promptLines.includes(title) ? title : null);
+  if (ownership === "named") return title;
+  return { title, note: ownership === "unnamed" ? "placeholder: first prompt line, not a title" : "named by hand" };
+}
+
 const WORD = /^[\p{L}\p{N}][\p{L}\p{N}'’+.#-]*$/u;
 
 // A title in our own format: one word, or two, made of plain word characters.

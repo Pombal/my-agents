@@ -1,10 +1,11 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import type { PaseoAgentHandle } from "@getpaseo/client";
+import type { PaseoAgent, PaseoAgentHandle, PaseoApi } from "@getpaseo/client";
+import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import { basename } from "node:path";
 import { retitle, type RetitleResult } from "./shared/rpc";
 import { settings, type Automatic } from "./shared/settings";
-import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, titleOwnership } from "./shared/agent-titles.mjs";
-import { decideTitle } from "./server/model";
+import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, siblingEntry, titleOwnership } from "./shared/agent-titles.mjs";
+import { decideTitle, type Sibling } from "./server/model";
 import { renameAgent } from "./server/rename";
 
 // Manual retitles avoid the current title and this many earlier ones.
@@ -16,6 +17,9 @@ export default function contribute(server: PluginServerContext) {
   // only then is Paseo's placeholder (the first prompt line) known.
   const awaitingFirstTurn = new Set<string>();
   const rejected = new Map<string, string[]>();
+  // First-prompt lines per agent. A first prompt never changes, so each
+  // sibling's timeline is read at most once per run (again only after a failed read).
+  const promptLines = new Map<string, Promise<string[]>>();
   const busy = new Set<string>();
   let disposed = false;
 
@@ -30,12 +34,47 @@ export default function contribute(server: PluginServerContext) {
   };
   const forget = (agentId: string) => { awaitingFirstTurn.delete(agentId); rejected.delete(agentId); };
 
+  const firstPromptLines = (paseo: PaseoApi, agentId: string) => {
+    let lines = promptLines.get(agentId);
+    if (!lines) {
+      lines = openingPromptLines(paseo.agents.ref(agentId));
+      promptLines.set(agentId, lines);
+      lines.catch(() => promptLines.delete(agentId));
+    }
+    return lines;
+  };
+
+  // The other tabs of this agent's workspace: not archived, no sub-agents. A
+  // failed lookup is logged and titling goes on without siblings.
+  const siblingsOf = async (paseo: PaseoApi, agent: PaseoAgent): Promise<Sibling[]> => {
+    if (!agent.workspaceId) return [];
+    try {
+      const others: PaseoAgent[] = [];
+      for (let cursor: string | undefined; ;) {
+        const page = await paseo.agents.list({ includeBackground: true, ...(cursor ? { page: { limit: 200, cursor } } : {}) });
+        others.push(...page.entries.map(entry => entry.agent).filter(other =>
+          other.id !== agent.id && other.workspaceId === agent.workspaceId && !other.archivedAt && !other.internal && !isDelegatedAgent(other)));
+        cursor = page.pageInfo.hasMore ? page.pageInfo.nextCursor ?? undefined : undefined;
+        if (!cursor) break;
+      }
+      const entries = await Promise.all(others.map(async other => {
+        // Only a title that is neither Titles' own nor a recorded placeholder needs the timeline.
+        const lines = other.title && titleOwnership(other.title, other.labels) === "hand" ? await firstPromptLines(paseo, other.id) : [];
+        return siblingEntry(other.title ?? null, other.labels, lines);
+      }));
+      return entries.filter((entry): entry is Sibling => entry !== null);
+    } catch (error) {
+      console.warn(`titles: siblings of ${agent.id} unavailable:`, error instanceof Error ? error.message : error);
+      return [];
+    }
+  };
+
   const offCreated = server.on("agent.created", ({ agent }) => {
     // The hook carries only an explicitly configured title; Paseo's first-prompt
     // placeholder is applied later. An explicit creation name is a hand-chosen name.
     if (!agent.title) awaitingFirstTurn.add(agent.id);
   });
-  const offArchived = server.on("agent.archived", ({ agent }) => forget(agent.id));
+  const offArchived = server.on("agent.archived", ({ agent }) => { forget(agent.id); promptLines.delete(agent.id); });
   const offClosed = server.on("agent.closed", ({ agent }) => forget(agent.id));
 
   const offTurnEnded = server.on("agent.turn_ended", ({ agent, outcome }, { paseo }) => {
@@ -62,9 +101,10 @@ export default function contribute(server: PluginServerContext) {
         const conversation = conversationContext(firstItems ?? await recentTimeline(handle));
         if (!conversation) return null;
         const workspace = basename(snapshot.agent.cwd);
+        const siblings = await siblingsOf(paseo, snapshot.agent);
         const decision = ownership === "unnamed"
-          ? await decideTitle("first", { workspace, conversation })
-          : await decideTitle("every", { workspace, conversation, title: title! });
+          ? await decideTitle("first", { workspace, siblings, conversation })
+          : await decideTitle("every", { workspace, siblings, conversation, title: title! });
         if (disposed) return "plugin stopped";
         if (decision.kind === "keep" || decision.title === title) {
           if (ownership === "named") return `kept ${JSON.stringify(title)}`;
@@ -96,7 +136,7 @@ export default function contribute(server: PluginServerContext) {
       const conversation = conversationContext(await recentTimeline(handle));
       if (!conversation) return failed("Nothing to title yet");
       const avoid = [...new Set([current, ...(rejected.get(agentId) ?? [])].filter((title): title is string => !!title))];
-      const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), conversation, rejected: avoid });
+      const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), siblings: await siblingsOf(paseo, snapshot.agent), conversation, rejected: avoid });
       if (disposed) return failed("Titles was disabled meanwhile");
       if (decision.kind === "keep") return failed("Claude found no subject to name");
       if (avoid.some(title => title.toLocaleLowerCase() === decision.title.toLocaleLowerCase())) return failed(`Claude offered “${decision.title}” again`);
@@ -110,7 +150,7 @@ export default function contribute(server: PluginServerContext) {
     return result;
   });
 
-  return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); awaitingFirstTurn.clear(); rejected.clear(); };
+  return () => { disposed = true; offCreated(); offArchived(); offClosed(); offTurnEnded(); awaitingFirstTurn.clear(); rejected.clear(); promptLines.clear(); };
 }
 
 // Enough recent history to see the latest subjects: pages back until six user
@@ -124,4 +164,12 @@ async function recentTimeline(handle: PaseoAgentHandle) {
     if (pages >= 5 || !page.hasOlder || !page.startCursor || items.filter(item => item.type === "user_message").length >= 6) return items;
     page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, limit: 100, projection: "canonical" });
   }
+}
+
+// Paseo's placeholder is the first line of the first prompt. Like the tab's own
+// check, accept any user message near the start: other user items can precede it.
+async function openingPromptLines(handle: PaseoAgentHandle) {
+  const page = await handle.timeline.refetch({ direction: "after", limit: 20, projection: "canonical" });
+  if (page.error) throw new Error(page.error);
+  return page.entries.flatMap(({ item }) => item.type === "user_message" && item.text ? [defaultTitle(item.text)] : []).filter((line): line is string => !!line);
 }

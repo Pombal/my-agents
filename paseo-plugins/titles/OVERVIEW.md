@@ -7,13 +7,39 @@ Case. No workspace titles, no tab or workspace icons.
 
 Claude Haiku gets the same title rules in every situation plus one short task
 per situation. All of it is in `server/prompts.ts`: edit `RULES` for what a good
-title is, or one of `first` / `every` / `manual` for one situation.
+title is, or one of `first` / `every` / `manual` for one situation. In all three
+it also sees the workspace's other tabs (below).
 
 | Situation | When | Task |
 | --- | --- | --- |
 | `first` | After a reply, while the tab still has Paseo's placeholder name | Name the subject, or keep the placeholder if there is none yet ("hi") |
-| `every` | After a reply, on a title Titles chose | Keep it while it names the subject; rename when the subject moved |
+| `every` | After a reply, on a title Titles chose | Keep it while it names the subject, even if a sibling's title is the same or similar; rename when the subject moved |
 | `manual` | Stefan presses Retitle | Always a new title, different from the current one and up to five earlier rejected ones |
+
+## Sibling tabs
+
+Before each Haiku call Titles lists the other agents of the same workspace
+(not archived, no sub-agents, not the tab being titled) and passes them as
+`siblings`. Haiku is told: "Like a hand-named sibling would, your title must
+make clear what sets this conversation apart from the tabs in "siblings": its
+own subject or angle, not a synonym or near-twin of theirs." So a second
+inventory tab about count drift becomes *Idempotency*, not *Inventory*.
+
+Each sibling goes in as one of:
+
+| Sibling's title | Passed as |
+| --- | --- |
+| Equals its `titles.named` label (a title Titles chose) | the bare title, `"Inventory"` |
+| Paseo's placeholder: equals its `titles.unnamed` label or the first line of one of its opening prompts (user messages among its first 20 timeline items) | `{"title":"hi, quick question coming up","note":"placeholder: first prompt line, not a title"}` |
+| Anything else, including a Titles title later renamed by hand | `{"title":"Supplier Import","note":"named by hand"}` |
+
+Only the last kind of title needs the sibling's timeline. The first-prompt lines
+are cached in memory by agent id, since a first prompt never changes, so each
+sibling's timeline is read at most once per plugin run (again only after a
+failed read). In `every` mode a sibling clash alone never renames a tab: the
+task tells Haiku to keep a title that still names the subject, so two tabs
+don't keep renaming each other. If the lookup fails, Titles logs
+`titles: siblings of <id> unavailable: …` and titles without siblings.
 
 ## Automatic titles (Settings → Plugins → titles → Titles)
 
@@ -106,8 +132,8 @@ Claude installations still work. The call uses
 `--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
 retries. It takes about 2.5–5 s end to end, depending on CLI startup.
 
-The rules (`server/prompts.ts`) ask for one distinctive noun that tells this
-tab apart from the other tabs in the same workspace, two words at most. They
+The rules (`server/prompts.ts`) ask for one distinctive noun that sets this
+tab apart from the `siblings`, two words at most. They
 rule out words that fit any tab (Help, Fix, Bug, Task, Features, Setup) and the
 workspace name, and keep identifiers' own casing (iOS, eBPF). Answers are
 strict JSON. Anything over two words, decorated, or otherwise malformed is
@@ -121,6 +147,21 @@ Card* rejected → *Read-Only Root* or *Brownout*. Two wording details mattered:
 "A noun, not a phrase or sentence" and the "Never three" cap cut three-word
 answers to zero, and "a hyphen only inside a compound like Read-Only" keeps
 *Read-Only Root* valid without inviting *SD-Card*.
+
+Sibling trials (2026-10-20, final wording, 42 calls, all valid, 3 runs each):
+next to *Inventory*, *Stock Sync* and an inventory-drift placeholder, an
+inventory-table conversation → *Sticky Header* / *Sorting* (alone:
+*Inventory*); next to a hand-named *Inventory UI* → *Virtualization*, *Sticky
+Header*, *Sorting*; "hi, quick question" → keep 3/3. Every-reply with a sibling
+of the same or a similar title → keep 6/6; moved to CSV export next to *CSV
+Import* → *Stock Export* (once bare *Export*), next to *Stock Export* → *CSV
+Stream* / *CSV*. Manual retitles avoided the siblings too. Two wording details
+mattered: as a rule bullet the sibling sentence pushed Haiku to three-word
+answers ("SD Card Corruption", 2 of 3 rejected), so it opens the prompt
+instead; and "Resemblance to a sibling alone is no reason to rename" still
+renamed 3/3 when a sibling had the exact title, while "keep … even when a
+sibling has the same or a similar title. "siblings" matter only for a new
+title" kept 24/24 across all runs.
 
 The model sees a provider-neutral excerpt of the Paseo timeline: the last 12
 user and assistant messages. Each agentic turn's assistant messages are merged
@@ -155,6 +196,26 @@ its next message (SSH passphrases) → *SSH Agent*. The setting was restored to
 
 Found on the way: agents started with `paseo run` have no user message in
 their timeline, so their placeholder isn't recognised and they stay untouched.
+
+### Sibling tabs (same day)
+
+Four Haiku 5.5 agents in one throwaway workspace, from the web app:
+
+1. Inventory table jumps on sort, sticky header overlaps → *Inventory* (no
+   siblings yet).
+2. Inventory counts drift after the nightly supplier import → *Idempotency*
+   (sibling *Inventory*). Then renamed by hand to "Supplier Import".
+3. "hi, quick question coming up" → `no subject yet`.
+4. Arrow-key navigation in the inventory table → *Keyboard*, with siblings
+   `[{"title":"hi, quick question coming up","note":"placeholder: first prompt line, not a title"},{"title":"Supplier Import","note":"named by hand"},"Inventory"]`.
+5. Retitle (Ctrl+Shift+Alt+T) on tab 1 → *Sticky* (siblings *Keyboard*, the
+   placeholder, Supplier Import); on tab 4, after overwriting tab 3's
+   `titles.unnamed` label so its placeholder had to be recognised from its
+   timeline, → *Focus*.
+
+A temporary log line showed one timeline read for "Supplier Import" across
+three lookups (cache), and a second only when tab 3 needed one. The setting
+stayed *After the first reply*; test agents, workspace and project were deleted.
 
 ## Earlier verification (2026-10-19, hosted web app, daemon 0.11.4)
 
@@ -203,16 +264,17 @@ paseo plugin disable titles
 
 ## Code layout and tests
 
-- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
+- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
 - `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`).
 - `server/prompts.ts`: the shared rules and the three situation tasks.
 - `server/model.ts`: Claude CLI call.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
-- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity.
+- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity, the sibling lookup with its first-prompt cache.
 - `index.client.tsx`, `client/settings.tsx`: the three triggers, the tab spinner, the toasts, the settings screen.
 
-`npm test` runs 8 tests on the pure policy: the placeholder rule, which titles
+`npm test` runs 9 tests on the pure policy: the placeholder rule, which titles
 count as short, which titles automatic titling may touch (hand names never),
-keep-versus-rename parsing with identifier-safe Title Case, rejection of bad
-answers, excerpt filtering, merging of agentic turns, and bounds on long
-replies.
+how siblings are described (Titles' own, placeholder, hand-named, including a
+Titles title renamed by hand), keep-versus-rename parsing with identifier-safe
+Title Case, rejection of bad answers, excerpt filtering, merging of agentic
+turns, and bounds on long replies.

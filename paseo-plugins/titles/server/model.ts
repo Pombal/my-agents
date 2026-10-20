@@ -6,9 +6,10 @@ import { PROMPTS, type TitleSituation } from "./prompts";
 
 const TIMEOUT_MS = 20_000;
 
-// What Claude sees besides the conversation: "title" for the every-reply check,
-// "rejected" for a manual retitle.
-export type TitleRequest = { workspace: string; conversation: string; title?: string; rejected?: string[] };
+// What Claude sees besides the conversation: the workspace's other tabs, "title"
+// for the every-reply check, "rejected" for a manual retitle.
+export type Sibling = string | { title: string; note: string };
+export type TitleRequest = { workspace: string; siblings: Sibling[]; conversation: string; title?: string; rejected?: string[] };
 
 // Claude Haiku through Stefan's Claude Code subscription login: no tools, MCP,
 // customizations or saved session, and never an inherited API key or 3P routing.

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, isShortTitle, parseDecision, titleOwnership } from "../shared/agent-titles.mjs";
+import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, isShortTitle, parseDecision, siblingEntry, titleOwnership } from "../shared/agent-titles.mjs";
 
 test("default title matches Paseo's first-prompt rule: first nonblank line, collapsed, 60 chars", () => {
   assert.equal(defaultTitle("\r\n  \r\n  Explain\t  caching  \r\nIgnore this second line"), "Explain caching");
@@ -23,6 +23,19 @@ test("automatic titling touches only the placeholder or a title it chose itself;
   assert.equal(titleOwnership("My Cache Notes", labels), "hand");
   assert.equal(titleOwnership("Fix the cache please", {}), "hand");
   assert.equal(titleOwnership(null, labels, "x"), "hand");
+});
+
+test("siblings: Titles' own titles go in bare; placeholders and hand names carry a note", () => {
+  const placeholder = { title: "Why does the inventory page jump?", note: "placeholder: first prompt line, not a title" };
+  assert.equal(siblingEntry("Inventory", { [LABEL_NAMED]: "Inventory" }), "Inventory");
+  assert.deepEqual(siblingEntry("Why does the inventory page jump?", {}, ["Why does the inventory page jump?"]), placeholder);
+  // A placeholder Titles already recorded needs no prompt lines.
+  assert.deepEqual(siblingEntry("Why does the inventory page jump?", { [LABEL_UNNAMED]: "Why does the inventory page jump?" }), placeholder);
+  // Titles named it, then Stefan renamed it: his name now.
+  assert.deepEqual(siblingEntry("Stock UI", { [LABEL_NAMED]: "Inventory" }, ["Fix the stock page"]), { title: "Stock UI", note: "named by hand" });
+  // Only the whole first-prompt line is the placeholder, not a name that starts like it.
+  assert.deepEqual(siblingEntry("Inventory notes", {}, ["Inventory notes for Q3"]), { title: "Inventory notes", note: "named by hand" });
+  assert.equal(siblingEntry(null, { [LABEL_NAMED]: "Inventory" }), null);
 });
 
 test("keep wins over a stray title; renames are Title Cased without flattening identifiers", () => {
