@@ -69,11 +69,12 @@ export function findClaudeUltrathink(text: string): KeywordMatch[] {
 }
 
 /**
- * Gradient stop for character `index` of an `length`-character word at `phase` ∈ [0, 1).
- * OMP's shimmer: the palette rotates as phase grows, so the colors run right to left.
+ * Gradient stop for character `index` of an `length`-character word, with the palette rotated by
+ * `shift` whole stops (0 ≤ shift < STOPS). OMP's shimmer: the palette rotates as time passes, so the
+ * colors run right to left. Integer arithmetic, so a stop is never skipped or repeated by rounding.
  */
-export function stopFor(index: number, length: number, phase: number): number {
-  return Math.floor(((index / length + phase) % 1) * STOPS) % STOPS;
+export function stopFor(index: number, length: number, shift: number): number {
+  return (Math.floor((index * STOPS) / length) + shift) % STOPS;
 }
 
 const TAG_NAME = /[A-Za-z][A-Za-z0-9-]*/y;
@@ -123,9 +124,26 @@ function findTagEnd(text: string, j: number, n: number): number {
   return -1;
 }
 
+/** Where each tag name's last `</name` sits in the text, so unclosed tags are rejected without a scan. */
+interface CloseIndex {
+  lower?: string;
+  last: Map<string, number>;
+}
+
 /** Index past the `</name>` balancing an opening `<name>`, counting nesting; -1 when never closed. */
-function findMatchingClose(text: string, start: number, n: number, name: string, masked: Uint8Array): number {
+function findMatchingClose(text: string, start: number, n: number, name: string, masked: Uint8Array, closes: CloseIndex): number {
   const lname = name.toLowerCase();
+  // Pasted code outside fences (`Map<string, number>`, `Promise<void>`) opens hundreds of tags that never
+  // close; scanning to the end for each one is quadratic. A balancing close needs a `</name` at or after
+  // `start`, so without one the scan below could only fail.
+  let last = closes.last.get(lname);
+  if (last === undefined) {
+    closes.lower ??= text.toLowerCase();
+    // A few letters (İ) lowercase to more code units, shifting every index after them; then always scan.
+    last = closes.lower.length === text.length ? closes.lower.lastIndexOf(`</${lname}`) : n;
+    closes.last.set(lname, last);
+  }
+  if (last < start) return -1;
   let depth = 1;
   let k = start;
   while (k < n) {
@@ -164,7 +182,7 @@ function findMatchingClose(text: string, start: number, n: number, name: string,
 }
 
 /** Masks the comment, tag, or tag plus content starting at `<` (index `i`); returns the index past it. */
-function maskTagAt(text: string, i: number, n: number, masked: Uint8Array): number {
+function maskTagAt(text: string, i: number, n: number, masked: Uint8Array, closes: CloseIndex): number {
   if (text.startsWith("<!--", i)) {
     const end = text.indexOf("-->", i + 4);
     const stop = end < 0 ? n : end + 3;
@@ -186,7 +204,7 @@ function maskTagAt(text: string, i: number, n: number, masked: Uint8Array): numb
   const selfClosing = text[gt - 1] === "/";
   for (let p = i; p < tagEnd; p++) masked[p] = 1;
   if (closing || selfClosing) return tagEnd;
-  const close = findMatchingClose(text, tagEnd, n, nm[0], masked);
+  const close = findMatchingClose(text, tagEnd, n, nm[0], masked, closes);
   if (close < 0) return tagEnd;
   for (let p = tagEnd; p < close; p++) masked[p] = 1;
   return close;
@@ -233,6 +251,7 @@ function maskNonProse(text: string): string {
   }
 
   // Inline code spans and HTML/XML, over what is not masked yet.
+  const closes: CloseIndex = { last: new Map() };
   let i = 0;
   while (i < n) {
     if (masked[i]) {
@@ -252,7 +271,7 @@ function maskNonProse(text: string): string {
       continue;
     }
     if (c === "<") {
-      const end = maskTagAt(text, i, n, masked);
+      const end = maskTagAt(text, i, n, masked, closes);
       i = end > i ? end : i + 1;
       continue;
     }

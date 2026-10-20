@@ -63,6 +63,11 @@ interface Glyph {
   stop: number;
 }
 
+/** One keyword occurrence: its glyphs in order. */
+interface Run {
+  glyphs: Glyph[];
+}
+
 interface Overlay {
   /** Fixed over the textarea, clipped to its box and scrolled with it. */
   element: HTMLElement;
@@ -91,6 +96,9 @@ interface Source {
   words: number;
   /** Text nodes the glyphs' Ranges address; one leaving the page leaves the Ranges stale. */
   nodes: Text[];
+  /** Keyword occurrences, each with its glyphs in order. */
+  runs: Run[];
+  /** All glyphs of all runs, for unpainting and counting. */
   glyphs: Glyph[];
   overlay?: Overlay;
 }
@@ -151,22 +159,44 @@ export function startKeywordShimmer(): Engine {
 
   const styleOf = (kind: Kind): Style => preferences?.[kind] ?? "off";
 
-  const paint = (source: Source) => {
-    const moving = styleOf(source.kind) === "shimmer" && !reducedMotion.matches;
-    const phase = moving ? (Date.now() % SHIMMER_PERIOD_MS) / SHIMMER_PERIOD_MS : 0;
-    for (const glyph of source.glyphs) {
-      const stop = stopFor(glyph.index, glyph.length, phase);
+  /** One stop lasts SHIMMER_PERIOD_MS / STOPS (30 ms); every glyph steps on the same frame, so the page
+   *  repaints once per stop instead of once per frame. Each glyph still changes once per stop. */
+  const STOP_MS = SHIMMER_PERIOD_MS / STOPS;
+  const currentShift = (): number => Math.floor((Date.now() % SHIMMER_PERIOD_MS) / STOP_MS);
+
+  const paintRun = (run: Run, keyword: number, shift: number) => {
+    const stops = highlights[keyword]!;
+    for (const glyph of run.glyphs) {
+      const stop = stopFor(glyph.index, glyph.length, shift);
       if (stop === glyph.stop) continue;
-      const stops = highlights[glyph.keyword]!;
       if (glyph.stop >= 0) stops[glyph.stop]!.delete(glyph.range);
       stops[stop]!.add(glyph.range);
       glyph.stop = stop;
     }
   };
 
+  const paint = (source: Source) => {
+    const moving = styleOf(source.kind) === "shimmer" && !reducedMotion.matches;
+    const shift = moving ? currentShift() : 0;
+    // A long prompt may keep its keyword scrolled out while the message is still on screen; moving glyphs
+    // nobody can see still cost a repaint. A run is painted when its first or last glyph is in the viewport
+    // (a wrapped one may have only its tail showing). Composer overlays are small and clip themselves.
+    const cull = moving && !source.overlay;
+    const viewHeight = cull ? window.innerHeight : 0;
+    for (const run of source.runs) {
+      if (cull) {
+        const first = run.glyphs[0]!.range.getBoundingClientRect();
+        const last = run.glyphs.length > 1 ? run.glyphs[run.glyphs.length - 1]!.range.getBoundingClientRect() : first;
+        if ((first.bottom < 0 || first.top > viewHeight) && (last.bottom < 0 || last.top > viewHeight)) continue;
+      }
+      paintRun(run, run.glyphs[0]!.keyword, shift);
+    }
+  };
+
   const unpaint = (source: Source) => {
     for (const glyph of source.glyphs) if (glyph.stop >= 0) highlights[glyph.keyword]![glyph.stop]!.delete(glyph.range);
     source.glyphs = [];
+    source.runs = [];
   };
 
   /**
@@ -200,9 +230,10 @@ export function startKeywordShimmer(): Engine {
     return findMagicKeywords(text).filter(({ keyword }) => words & (1 << keyword));
   };
 
-  const glyphsFor = (matches: KeywordMatch[], nodes: Text[], starts: number[]): Glyph[] => {
-    const glyphs: Glyph[] = [];
+  const runsFor = (matches: KeywordMatch[], nodes: Text[], starts: number[]): Run[] => {
+    const runs: Run[] = [];
     for (const { keyword, start, end } of matches) {
+      const glyphs: Glyph[] = [];
       for (let at = start; at < end; at++) {
         const from = locate(nodes, starts, at);
         const to = locate(nodes, starts, at + 1);
@@ -212,17 +243,29 @@ export function startKeywordShimmer(): Engine {
         range.setEnd(to[0], to[1]);
         glyphs.push({ range, keyword, index: at - start, length: end - start, stop: -1 });
       }
+      if (glyphs.length > 0) runs.push({ glyphs });
     }
-    return glyphs;
+    return runs;
   };
 
+  const flat = (runs: Run[]): Glyph[] => runs.flatMap((run) => run.glyphs);
+
+  // Keystrokes only mark their composer: the overlay is rebuilt in the frame that first shows the new
+  // text, not inside the input event, where its layout would be forced synchronously.
+  const dirty = new Set<HTMLTextAreaElement>();
+
   // Only on-screen sources run the loop: shimmering ones to animate, composers with keywords to
-  // track their textarea. It stops when none are left.
+  // track their textarea. It stops when none are left. Between two colour stops nothing changes, so
+  // while no overlay needs per-frame tracking the next frame is requested only at the next stop.
   let frame: number | undefined;
+  let stopTimer: number | undefined;
   const tick = () => {
     frame = undefined;
     if (disposed) return;
+    for (const textarea of dirty) processComposer(textarea);
+    dirty.clear();
     let again = false;
+    let tracking = false;
     for (const element of visible) {
       const source = sources.get(element);
       if (!source) continue;
@@ -234,9 +277,17 @@ export function startKeywordShimmer(): Engine {
       paint(source);
       const moving = styleOf(source.kind) === "shimmer" && !reducedMotion.matches;
       if (source.glyphs.length > 0 && (source.overlay || moving)) again = true;
+      if (source.glyphs.length > 0 && source.overlay) tracking = true;
     }
-    // processComposer may already have asked for the next frame.
-    if (again) frame ??= requestAnimationFrame(tick);
+    if (!again || frame !== undefined) return;
+    if (tracking) {
+      frame = requestAnimationFrame(tick);
+    } else if (stopTimer === undefined) {
+      stopTimer = setTimeout(() => {
+        stopTimer = undefined;
+        schedule();
+      }, STOP_MS - (Date.now() % STOP_MS));
+    }
   };
   const schedule = () => {
     if (!disposed) frame ??= requestAnimationFrame(tick);
@@ -287,7 +338,8 @@ export function startKeywordShimmer(): Engine {
       starts.push(offset);
       offset += textNode.data.length;
     }
-    const source: Source = { kind: "sent", text, words, nodes, glyphs: glyphsFor(matches, nodes, starts) };
+    const runs = runsFor(matches, nodes, starts);
+    const source: Source = { kind: "sent", text, words, nodes, runs, glyphs: flat(runs) };
     sources.set(element, source);
     syncScheme(element);
     paint(source);
@@ -328,6 +380,31 @@ export function startKeywordShimmer(): Engine {
     overlay.shown = shown;
   };
 
+  /** Builds a composer's see-through overlay and registers the textarea as a source. */
+  const attachOverlay = (textarea: HTMLTextAreaElement): Source => {
+    const element = document.createElement("div");
+    element.setAttribute("data-plugin", PREFIX);
+    element.setAttribute("aria-hidden", "true");
+    element.setAttribute("style", OVERLAY_CSS);
+    const inner = document.createElement("div");
+    const node = document.createTextNode("");
+    inner.appendChild(node);
+    element.appendChild(inner);
+    // Fixed and hidden, it stays out of the copy's layout.
+    const mirror = document.createElement("textarea");
+    mirror.setAttribute("tabindex", "-1");
+    mirror.setAttribute("style", MIRROR_CSS);
+    element.appendChild(mirror);
+    document.body.appendChild(element);
+    const source: Source = {
+      kind: "composer", text: "", words: -1, nodes: [node], runs: [], glyphs: [],
+      overlay: { element, inner, node, mirror, textCss: "", padding: 0, css: "", mirrorCss: "", shown: false },
+    };
+    sources.set(textarea, source);
+    intersections.observe(textarea);
+    return source;
+  };
+
   const processComposer = (textarea: HTMLTextAreaElement) => {
     if (styleOf("composer") === "off" || !textarea.isConnected || !isShown(textarea)) {
       clear(textarea);
@@ -335,35 +412,14 @@ export function startKeywordShimmer(): Engine {
     }
     const text = textarea.value;
     const words = wordsFor(textarea);
-    let source = sources.get(textarea);
-    const matches = source?.text === text && source.words === words ? undefined : matchesFor(text, words);
+    const existing = sources.get(textarea);
+    const matches = existing?.text === text && existing.words === words ? undefined : matchesFor(text, words);
     // The overlay holds a copy of the whole draft, so a composer without keywords gets none.
     if (matches?.length === 0) {
       clear(textarea);
       return;
     }
-    if (!source) {
-      const element = document.createElement("div");
-      element.setAttribute("data-plugin", PREFIX);
-      element.setAttribute("aria-hidden", "true");
-      element.setAttribute("style", OVERLAY_CSS);
-      const inner = document.createElement("div");
-      const node = document.createTextNode("");
-      inner.appendChild(node);
-      element.appendChild(inner);
-      // Fixed and hidden, it stays out of the copy's layout.
-      const mirror = document.createElement("textarea") as HTMLTextAreaElement;
-      mirror.setAttribute("tabindex", "-1");
-      mirror.setAttribute("style", MIRROR_CSS);
-      element.appendChild(mirror);
-      document.body.appendChild(element);
-      source = {
-        kind: "composer", text: "", words: -1, nodes: [node], glyphs: [],
-        overlay: { element, inner, node, mirror, textCss: "", padding: 0, css: "", mirrorCss: "", shown: false },
-      };
-      sources.set(textarea, source);
-      intersections.observe(textarea);
-    }
+    const source = existing ?? attachOverlay(textarea);
     const overlay = source.overlay!;
     if (matches) {
       unpaint(source);
@@ -373,7 +429,8 @@ export function startKeywordShimmer(): Engine {
       overlay.node.data = text.endsWith("\n") ? `${text} ` : text;
       overlay.mirror.value = text;
       overlay.fits = undefined;
-      source.glyphs = glyphsFor(matches, source.nodes, [0]);
+      source.runs = runsFor(matches, source.nodes, [0]);
+      source.glyphs = flat(source.runs);
       syncScheme(textarea);
       paint(source);
     }
@@ -388,7 +445,10 @@ export function startKeywordShimmer(): Engine {
 
   const onComposerEvent = ({ target }: Event) => {
     if (disposed || !preferences || !(target instanceof HTMLElement)) return;
-    if (target.matches(COMPOSER)) processComposer(target as HTMLTextAreaElement);
+    if (target.matches(COMPOSER)) {
+      dirty.add(target as HTMLTextAreaElement);
+      schedule();
+    }
   };
   document.addEventListener("input", onComposerEvent, true);
   document.addEventListener("scroll", onComposerEvent, true);
@@ -470,6 +530,7 @@ export function startKeywordShimmer(): Engine {
       document.removeEventListener("scroll", onComposerEvent, true);
       reducedMotion.removeEventListener("change", schedule);
       for (const handle of [frame, mutationFrame, rescanFrame]) if (handle !== undefined) cancelAnimationFrame(handle);
+      clearTimeout(stopTimer);
       for (const element of [...sources.keys()]) clear(element);
       for (const { word } of MAGIC_KEYWORDS) for (let stop = 0; stop < STOPS; stop++) registry.delete(`${PREFIX}-${word}-${stop}`);
       style.remove();

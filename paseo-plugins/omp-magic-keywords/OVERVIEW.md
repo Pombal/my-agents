@@ -52,10 +52,16 @@ Limits:
 - Not tested: the Electron desktop app, typing with an IME, attachment chips next to the text box, the
   fullscreen composer, page zoom, and web fonts that finish loading after the page is shown.
 
-Cost, measured in the web app on this machine (Paseo 0.12.0, headless Chromium, 2026-10-20): a
-keystroke in the text box adds 0.1–0.2 ms of plugin work with no keyword present (the matcher only;
-5 µs for a typical prompt, 0.2 ms for 20 KB) and 0.6–2.7 ms with one (overlay copy and ranges);
-a sent message with 20 colored letters costs 0.8 ms to set up. The moving colors cost about 30–40 ms
-of main-thread time per second per message on screen (paint, not script), 0.2 ms when still. Window
-focus re-reads the settings (one cached RPC, 1–3 ms) and rescans only if a setting changed. The
-plugin's server part only registers the settings; it never spawns a process.
+Cost, measured in the web app on this machine (Paseo 0.12.0, headless Chromium, 2026-10-20). A
+keystroke in the text box costs 0.2 ms in the input handler (p50; 0.3 ms p90) whether or not a keyword
+is present: the handler only marks the box, and the overlay is rebuilt in the frame that first shows
+the new text (before: 0.9 ms at 200 characters, 6.7 ms at 20 KB, inside the event). The matcher takes
+5 µs for a typical prompt and 4 ms for a 330 KB one; pasted code full of unclosed `<generics>` is
+linear too (18 KB: 0.3 ms, was 13 ms; 300 KB: 6.5 ms, was 2.8 s). All letters step to their next
+color on the same frame, every 30 ms, so a moving message repaints 33 times a second instead of 60
+(measured: paint −38%, raster −39% per message; the audit is in
+`~/agentspace/index/.scratch/paseo-grievances/omp-magic-keywords-perf.md`), and between steps no
+frame is requested at all unless a keyword draft is being tracked in the text box. A keyword scrolled
+out of view inside a long message no longer repaints. Window focus re-reads the settings (one cached
+RPC, 1–3 ms) and rescans only if a setting changed. The plugin's server part only registers the
+settings; it never spawns a process.
