@@ -9,8 +9,9 @@ export type RenameOutcome = "renamed" | "changed" | "gone";
 // The public PaseoApi (0.11.4) cannot rename agents. Use the same local RPC as
 // `paseo agent update --name`, against this daemon's own loopback endpoint.
 // Compare-and-set: the title must still be `expected` right before the update,
-// so a name typed by hand while the model was thinking always wins.
-export async function renameAgent(agentId: string, expected: string | null, title: string): Promise<RenameOutcome> {
+// so a name typed by hand while the model was thinking always wins. `labels`
+// go into the same update; a null title writes only the labels.
+export async function renameAgent(agentId: string, expected: string | null, title: string | null, labels?: Record<string, string>): Promise<RenameOutcome> {
   const home = resolve((process.env.PASEO_HOME ?? join(homedir(), ".paseo")).replace(/^~(?=\/|$)/, homedir()));
   const instance = JSON.parse(await readFile(join(home, "paseo.pid"), "utf8"));
   if (!/^(127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(instance.listen)) throw new Error("Titles needs a local loopback daemon endpoint");
@@ -24,7 +25,7 @@ export async function renameAgent(agentId: string, expected: string | null, titl
     const result = await daemon.fetchAgent(agentId);
     if (!result || result.agent.archivedAt) return "gone";
     if ((result.agent.title ?? null) !== expected) return "changed";
-    await daemon.updateAgent(agentId, { name: title });
+    await daemon.updateAgent(agentId, { ...(title ? { name: title } : {}), ...(labels ? { labels } : {}) });
     return "renamed";
   } finally { await daemon.close(); }
 }

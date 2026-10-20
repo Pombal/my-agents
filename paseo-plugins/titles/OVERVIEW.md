@@ -3,37 +3,57 @@
 Short agent-tab titles: one word (two only when one word means nothing), Title
 Case. No workspace titles, no tab or workspace icons.
 
-## What happens on its own
+## Three situations, three instructions
 
-A **new** agent (created while Titles is running, without an explicit name) gets
-one title attempt after its **first completed turn**, but only if its name is
-still Paseo's default, the first prompt line. Paseo 0.11.4 derives that default by
-taking the first nonblank line, collapsing whitespace and cutting it to 60
-characters; Titles mirrors that rule exactly. Anything else counts as a name
-chosen by hand and is left alone: a creation name, a rename before the turn
-ends, or a rename while Claude is thinking (the rename is a compare-and-set
-against the default).
+Claude Haiku gets the same title rules in every situation plus one short task
+per situation. All of it is in `server/prompts.ts`: edit `RULES` for what a good
+title is, or one of `first` / `every` / `manual` for one situation.
 
-That's all it does on its own. There are no re-checks, timers or retries.
-Agents that already existed (or were mid-first-turn) when the plugin was
-loaded, reloaded or enabled are never adopted. A failed or cancelled turn
-doesn't count as the first completed turn. If the first conversation has no
-subject yet ("hi", "quick question"), the default stays.
+| Situation | When | Task |
+| --- | --- | --- |
+| `first` | After a reply, while the tab still has Paseo's placeholder name | Name the subject, or keep the placeholder if there is none yet ("hi") |
+| `every` | After a reply, on a title Titles chose | Keep it while it names the subject; rename when the subject moved |
+| `manual` | Stefan presses Retitle | Always a new title, different from the current one and up to five earlier rejected ones |
+
+## Automatic titles (Settings → Plugins → titles → Titles)
+
+One setting, **Automatic titles**:
+
+- **Off**: titles change only when you retitle a tab.
+- **After the first reply** (default): a new tab is named once its conversation
+  has a subject. If the first reply has none ("hi, quick question"), the next
+  reply tries again.
+- **After every reply**: as above, and a tab Titles named is checked after each
+  reply and renamed when the subject moved on. One Claude Haiku call per reply
+  (about 3–5 s, on the Claude subscription).
+
+**Names you set by hand are never changed automatically.** Titles only manages
+two kinds of names: Paseo's placeholder (the first prompt line: first nonblank
+line, whitespace collapsed, cut to 60 characters) of a tab created while Titles
+runs, and a title Titles set itself. It remembers the latter in agent labels
+(`titles.named`, and `titles.unnamed` for a placeholder still waiting for a
+subject), so this survives plugin reloads and daemon restarts. Renaming a tab
+by hand, at creation or later, takes it out of automatic titling; Retitle hands
+it back. Every rename is a compare-and-set, so a rename while Claude thinks
+wins.
+
+Not adopted: tabs that existed before Titles was loaded with this version
+(until you Retitle them once), and agents started from the CLI (`paseo run`),
+whose first prompt isn't in the timeline Titles reads.
 
 ## Retitle on demand
 
-Three triggers run the same check:
+Three triggers:
 
 - **Ctrl+Shift+Alt+T** (web and desktop): applies to the selected agent tab of the pane you last clicked or focused (or the only pane). Terminal tabs, open dialogs, AltGr and IME input are left alone.
-- **Ctrl+K / ⌘K → Retitle this tab.**
-- **`/retitle`** in the composer (phones too). It's a plugin command, so nothing is sent to the agent.
+- **Ctrl+K / ⌘K → Retitle this tab.** On phones the Command Center is ☰ → **Search**.
+- **`/retitle`** in the composer. It's a plugin command, so nothing is sent to the agent.
 
-Claude Haiku decides whether the current title still names what the **latest
-user message** is about. Earlier messages only provide context. If the title
-still fits, it stays, even when Claude would have worded it differently; if the
-subject has moved on, the tab is renamed. A title longer than two words, such as
-Paseo's default or a hand-written phrase, is always replaced, because explicit
-triggers may override hand-chosen names.
+Retitling always picks a new title: pressing it means you dislike the current
+one, whatever it is. The new title names what the **latest user message** is
+about, and differs from the current title and the tab's last five rejected
+titles (remembered until the plugin reloads), so pressing again gives yet
+another one.
 
 ### Feedback
 
@@ -50,9 +70,9 @@ outcome (it replaces the Retitling… toast):
 
 | Outcome | Toast |
 | --- | --- |
-| Renamed | ✓ `Renamed to Cold Brew` |
-| Kept | ⓘ `“Swallow” still fits` |
-| No subject yet | ⓘ `No clear subject yet; title unchanged` |
+| Renamed | ✓ `Renamed to Sky Scattering (was Rayleigh)` (the "was" part only for short old names) |
+| Nothing to name | ⚠ `Couldn't retitle: Claude found no subject to name` |
+| Claude repeated a rejected title | ⚠ `Couldn't retitle: Claude offered “Rayleigh” again` |
 | Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
 | Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
 
@@ -86,15 +106,21 @@ Claude installations still work. The call uses
 `--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
 retries. It takes about 2.5–5 s end to end, depending on CLI startup.
 
-The prompt (`server/model.ts`) asks for one distinctive noun that tells this
-tab apart from the other tabs in the same workspace. It rules out generic words
-(Help, Question, Fix, Bug, Task…) and the workspace or project name itself,
-since every tab there shares it. It also keeps identifiers' own casing (iOS,
-eBPF). Live examples: *Lockfile*, *SD Card*, *Cold Brew*, *Altitude*. In
-offline prompt trials it produced *Sourdough*, *Flicker*, *Reconnect* and
-*Rsync*, and kept *Volcanoes* for a follow-up about Vesuvius. Answers are
+The rules (`server/prompts.ts`) ask for one distinctive noun that tells this
+tab apart from the other tabs in the same workspace, two words at most. They
+rule out words that fit any tab (Help, Fix, Bug, Task, Features, Setup) and the
+workspace name, and keep identifiers' own casing (iOS, eBPF). Answers are
 strict JSON. Anything over two words, decorated, or otherwise malformed is
 rejected rather than truncated.
+
+Prompt trials (2026-10-20, 25 calls, all valid): first → *SD Card*,
+*Inventory*, and "keep" for "hi, quick question"; every-reply → kept *SD Card*
+for an overlayfs follow-up 3/3, renamed to *Cold Brew* after a coffee question
+3/3; manual with *SD Card* rejected → *OverlayFS*; with *Overlayfs* and *SD
+Card* rejected → *Read-Only Root* or *Brownout*. Two wording details mattered:
+"A noun, not a phrase or sentence" and the "Never three" cap cut three-word
+answers to zero, and "a hyphen only inside a compound like Read-Only" keeps
+*Read-Only Root* valid without inviting *SD-Card*.
 
 The model sees a provider-neutral excerpt of the Paseo timeline: the last 12
 user and assistant messages. Each agentic turn's assistant messages are merged
@@ -105,7 +131,35 @@ Renaming uses the daemon SDK's local `updateAgent` RPC over the loopback
 endpoint, which is the same call as `paseo agent update --name`. The public
 plugin API has no rename operation.
 
-## Live verification (2026-10-19, hosted web app, daemon 0.11.4)
+## Live verification (2026-10-20, hosted web app, daemon 0.12.0)
+
+One Haiku 5.5 agent in a throwaway workspace, driven from the web app:
+
+1. First reply about SD-card corruption → *SDCard* (4.2 s).
+2. Unrelated cold-brew question, setting *After the first reply* → unchanged.
+3. Setting switched to *After every reply*; next reply → *SDCard* → *Cold Brew*
+   (3.8 s). A same-subject follow-up → `kept "Cold Brew"`.
+4. Renamed by hand to "My Coffee Notes", then a sky-colour question → name
+   unchanged.
+5. `/retitle` → *Rayleigh*; `/retitle` again → *Sky Scattering*, toast
+   `Renamed to Sky Scattering (was Rayleigh)`.
+
+A second agent opened with "hi, quick question coming up" → `no subject yet`;
+its next message (SSH passphrases) → *SSH Agent*. The setting was restored to
+*After the first reply*; test agents, workspace and project were deleted.
+
+| Screenshot | Shows |
+| --- | --- |
+| `19-settings-automatic-menu.png` | Settings → Plugins → titles → Titles, the three choices. |
+| `20-settings-first-reply.png` | The setting with its one-line explanation. |
+
+Found on the way: agents started with `paseo run` have no user message in
+their timeline, so their placeholder isn't recognised and they stay untouched.
+
+## Earlier verification (2026-10-19, hosted web app, daemon 0.11.4)
+
+These predate the three situations: manual retitles could then answer
+"still fits", which they no longer do.
 
 | Screenshot | Shows |
 | --- | --- |
@@ -127,9 +181,9 @@ question about Everest. Indicator latency, trigger to indicator, measured in
 the page with a MutationObserver (includes the automation's key dispatch):
 ⌘K 6–10 ms, `/retitle` 10 ms, keyboard shortcut 44 ms (measured with the
 previous Ctrl+Alt+T, while Paseo's theme cycle also ran), phone
-`/retitle` toast 94 ms (includes the tap). At phone width only `/retitle`
-exists: there's no tab for the shortcut to target and Paseo doesn't open the
-Command Center. A missing CLI was checked by running `decideTitle` with an
+`/retitle` toast 94 ms (includes the tap). At phone width the shortcut has no
+tab to target; `/retitle` and ☰ → Search (the Command Center) work. A missing
+CLI was checked by running `decideTitle` with an
 empty `PATH`, which gave `Claude CLI not found on the daemon's PATH`. The
 desktop app and the native phone app weren't driven. Native uses the same
 slash-command, pill and toast APIs, with no DOM code. All test agents were
@@ -143,19 +197,22 @@ fitting title (*Monty Python* → *Swallow*, also reasonable).
 ```sh
 paseo plugin install ~/workspace/my-agents/paseo-plugins/titles
 paseo plugin reload titles      # after edits; then refresh the app
-paseo plugin logs titles        # one line per first-turn attempt and per retitle
+paseo plugin logs titles        # one line per automatic decision and per retitle
 paseo plugin disable titles
 ```
 
 ## Code layout and tests
 
-- `shared/agent-titles.mjs`: pure agent-title policy (default-title rule, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
-- `server/model.ts`: prompt and Claude CLI call.
-- `server/rename.ts`: compare-and-set rename over the local daemon RPC.
-- `index.server.ts`: first-turn lifecycle, the `retitle` RPC, per-tab exclusivity.
-- `index.client.tsx`: the three triggers, the tab spinner, the Retitling… toast and the outcome toast.
+- `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, short-title check, answer parsing, conversation excerpt). Workspace titles would get a sibling module with their own rules and lifecycle; nothing here assumes agents are the only target.
+- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`).
+- `server/prompts.ts`: the shared rules and the three situation tasks.
+- `server/model.ts`: Claude CLI call.
+- `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
+- `index.server.ts`: automatic titling after each reply, the `retitle` RPC, per-tab exclusivity.
+- `index.client.tsx`, `client/settings.tsx`: the three triggers, the tab spinner, the toasts, the settings screen.
 
-`npm test` runs 7 tests on the pure policy: the default-title rule, which
-titles count as short, keep-versus-rename parsing with identifier-safe Title
-Case, rejection of bad answers, excerpt filtering, merging of agentic turns,
-and bounds on long replies.
+`npm test` runs 8 tests on the pure policy: the placeholder rule, which titles
+count as short, which titles automatic titling may touch (hand names never),
+keep-versus-rename parsing with identifier-safe Title Case, rejection of bad
+answers, excerpt filtering, merging of agentic turns, and bounds on long
+replies.

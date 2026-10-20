@@ -8,10 +8,22 @@ export function defaultTitle(prompt) {
   return line?.replace(/\s+/g, " ").slice(0, 60).trim() || null;
 }
 
+// Labels Titles keeps on each agent. A title is Titles' to manage only while it
+// equals one of them (or, at the first reply, Paseo's placeholder); any other
+// name was chosen by hand and is never changed automatically.
+export const LABEL_NAMED = "titles.named"; // the title Titles chose
+export const LABEL_UNNAMED = "titles.unnamed"; // Paseo's placeholder, still waiting for a subject
+
+export function titleOwnership(title, labels, placeholder = null) {
+  if (!title) return "hand";
+  if (title === labels?.[LABEL_NAMED]) return "named";
+  if (title === placeholder || title === labels?.[LABEL_UNNAMED]) return "unnamed";
+  return "hand";
+}
+
 const WORD = /^[\p{L}\p{N}][\p{L}\p{N}'’+.#-]*$/u;
 
-// A title in our own format: one word, or two. Longer names (Paseo's default
-// first-prompt line, or a hand-written phrase) are never "kept" by a check.
+// A title in our own format: one word, or two, made of plain word characters.
 export function isShortTitle(title) {
   const words = title?.trim().split(/\s+/) ?? [];
   return words.length >= 1 && words.length <= 2 && words.every(word => WORD.test(word));

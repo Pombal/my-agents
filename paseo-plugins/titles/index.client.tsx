@@ -3,6 +3,7 @@ import type { PluginButtonIconProps, PluginClientContext } from "@getpaseo/plugi
 import { useToast, type ToastApi, type ToastOptions, type ToastVariant } from "@getpaseo/plugin/client/react-native";
 import { useEffect } from "react";
 import { retitle } from "./shared/rpc";
+import { TitlesSettings } from "./client/settings";
 
 const TAB = '[data-testid^="workspace-tab-agent_"][aria-selected="true"]';
 const PANE = '[data-testid^="workspace-pane-"]';
@@ -69,9 +70,8 @@ export default function contribute(client: PluginClientContext) {
     let feedback: { text: string; variant: ToastVariant };
     try {
       const result = await client.rpc(retitle, { agentId });
-      feedback = result.outcome === "renamed" ? { text: `Renamed to ${result.title}`, variant: "success" }
-        : result.outcome === "kept" ? { text: `“${result.title}” still fits`, variant: "info" }
-        : result.outcome === "unclear" ? { text: "No clear subject yet; title unchanged", variant: "info" }
+      feedback = result.outcome === "renamed"
+        ? { text: `Renamed to ${result.title}${result.previous && result.previous.length <= 30 ? ` (was ${result.previous})` : ""}`, variant: "success" }
         : { text: `Couldn't retitle: ${result.message}`, variant: "error" };
     } catch (error) {
       feedback = { text: `Couldn't retitle: ${error instanceof Error ? error.message : String(error)}`, variant: "error" };
@@ -88,7 +88,8 @@ export default function contribute(client: PluginClientContext) {
   const cleanups = [
     // Command Center requires a built-in glyph; tab and workspace icons are left alone except for the spinner.
     client.addCommandCenterItem({ id: "retitle", title: "Retitle this tab", icon: "Type", keywords: ["title", "rename", "tab"], context: "agent", onSelect: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
-    client.addSlashCommand({ name: "retitle", description: "Rename this tab if its title no longer fits", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
+    client.addSlashCommand({ name: "retitle", description: "Give this tab a new title", argumentHint: "", context: "agent", onSubmit: ({ agent, workspace }) => run(agent.id, async () => workspace.id) }),
+    client.addSettingsScreen({ id: "automatic", title: "Titles", icon: "Type", Component: TitlesSettings }),
     () => style?.remove(),
   ];
 

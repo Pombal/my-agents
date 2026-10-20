@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conversationContext, defaultTitle, isShortTitle, parseDecision } from "../shared/agent-titles.mjs";
+import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, isShortTitle, parseDecision, titleOwnership } from "../shared/agent-titles.mjs";
 
 test("default title matches Paseo's first-prompt rule: first nonblank line, collapsed, 60 chars", () => {
   assert.equal(defaultTitle("\r\n  \r\n  Explain\t  caching  \r\nIgnore this second line"), "Explain caching");
@@ -9,9 +9,20 @@ test("default title matches Paseo's first-prompt rule: first nonblank line, coll
   assert.equal(defaultTitle("\n \t \n"), null);
 });
 
-test("only one- or two-word titles count as already short (and so can be kept)", () => {
+test("only one- or two-word titles of plain word characters are in our format", () => {
   for (const title of ["Volcanoes", "Dark Mode", "OAuth", "C++", "Node.js"]) assert(isShortTitle(title), title);
   for (const title of [null, "", "Explain database indexes", "My Galaxy Notes", "* Cache", "Cache!"]) assert(!isShortTitle(title), String(title));
+});
+
+test("automatic titling touches only the placeholder or a title it chose itself; any other name is hand-chosen", () => {
+  const labels = { [LABEL_NAMED]: "Cache", [LABEL_UNNAMED]: "hi there" };
+  assert.equal(titleOwnership("Cache", labels), "named");
+  assert.equal(titleOwnership("hi there", labels), "unnamed");
+  assert.equal(titleOwnership("Fix the cache please", {}, "Fix the cache please"), "unnamed");
+  // Renamed by hand after Titles named it, or never touched by Titles at all.
+  assert.equal(titleOwnership("My Cache Notes", labels), "hand");
+  assert.equal(titleOwnership("Fix the cache please", {}), "hand");
+  assert.equal(titleOwnership(null, labels, "x"), "hand");
 });
 
 test("keep wins over a stray title; renames are Title Cased without flattening identifiers", () => {
