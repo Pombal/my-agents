@@ -31,11 +31,14 @@ export async function realOrNull(target: string): Promise<string | null> {
 }
 
 /**
- * Default exclusions: `__share__` holds frozen copies of nilo-wayfinder's efforts, and
- * `~/tmp-archive` holds fixtures. A folder listed in the settings is scanned anyway.
+ * Default exclusions, as a reason in words (null = scanned): `__share__` holds frozen copies of
+ * nilo-wayfinder's efforts, and `~/tmp-archive` holds fixtures. A folder listed in the settings is
+ * scanned anyway.
  */
-export function excludedByDefault(root: string, home: string): boolean {
-  return root.includes(`${path.sep}__share__${path.sep}`) || root.startsWith(path.join(home, "tmp-archive") + path.sep);
+export function skipReason(root: string, home: string): string | null {
+  if (root.includes(`${path.sep}__share__${path.sep}`)) return "it is inside __share__, which holds frozen copies";
+  if (root.startsWith(path.join(home, "tmp-archive") + path.sep)) return "it is under ~/tmp-archive, which holds throwaway fixtures";
+  return null;
 }
 
 /** `.scratch` folder for a settings entry: the folder itself, or the `.scratch` inside it. */

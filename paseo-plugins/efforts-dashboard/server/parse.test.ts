@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { bucketOf, headFields, parseBlockedBy, statusWord } from "../shared/parse";
-import { scratchFor } from "./scan";
+import { scratchFor, skipReason } from "./scan";
 
 // Every value below is copied from a real ticket or map under nilo-wayfinder, index or
 // nilo-observatory `.scratch` (2026-10-20).
@@ -65,5 +65,18 @@ describe("symlinked .scratch roots", () => {
     const real = await scratchFor(path.join(dir, "nilo-wayfinder"), dir);
     expect(await scratchFor(path.join(dir, "worktree"), dir)).toBe(real);
     expect(await scratchFor("~/worktree/.scratch", dir)).toBe(real);
+  });
+});
+
+describe("skipped .scratch roots", () => {
+  it.each([
+    ["/home/cx/tmp-archive/efforts-grill-test/.scratch", "under ~/tmp-archive"],
+    ["/home/cx/workspace/nilo/__share__/nilo-wayfinder/.scratch", "inside __share__"],
+  ])("%s says why", (root, reason) => {
+    expect(skipReason(root, "/home/cx")).toContain(reason);
+  });
+
+  it.each(["/home/cx/workspace/nilo-wayfinder/.scratch", "/home/cx/tmp-archived/.scratch"])("%s is scanned", (root) => {
+    expect(skipReason(root, "/home/cx")).toBeNull();
   });
 });

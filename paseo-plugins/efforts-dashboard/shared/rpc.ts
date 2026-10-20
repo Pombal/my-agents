@@ -75,6 +75,8 @@ export const WorkspaceInfoSchema = z.object({
   dir: z.string(),
   /** Real path of the `.scratch` this workspace sees, null when it has none. */
   root: z.string().nullable(),
+  /** Why this workspace's `.scratch` exists but isn't scanned (default exclusion, not listed in the settings). */
+  skipped: z.string().nullable(),
   binding: BindingSchema.nullable(),
   /** Only for workspaces with no binding. */
   suggestion: SuggestionSchema.nullable(),

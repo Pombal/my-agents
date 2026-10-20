@@ -86,11 +86,19 @@ export function UnboundView(props: {
   let body;
   if (!data || !workspace) {
     body = <Text style={{ ...SMALL, color: c.muted, padding: 12 }}>{overview.isError ? String(overview.error) : "Loading efforts…"}</Text>;
+  } else if (!root && workspace.skipped) {
+    body = (
+      <View style={{ padding: 12, gap: 8 }}>
+        <Text style={{ ...SMALL, color: c.muted }}>
+          This folder's .scratch is skipped: {workspace.skipped}. Add it under Settings → Plugins → efforts-dashboard → Efforts → Extra folders.
+        </Text>
+      </View>
+    );
   } else if (!root) {
     body = (
       <View style={{ padding: 12, gap: 8 }}>
         <Text style={{ ...SMALL, color: c.muted }}>No efforts here: {workspace.dir} has no .scratch folder with efforts.</Text>
-        <Text style={{ ...SMALL, color: c.muted }}>Add folders in Settings → Efforts, or open All efforts from the sidebar.</Text>
+        <Text style={{ ...SMALL, color: c.muted }}>Add folders under Settings → Plugins → efforts-dashboard → Efforts, or open All efforts from the sidebar.</Text>
       </View>
     );
   } else {

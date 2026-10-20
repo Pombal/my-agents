@@ -23,7 +23,7 @@ import { commits, effortChanges, numstat, sectionChanges, type Change } from "./
 import { firstParagraph, headFields, knownStatus, lead, plain, sections, siblingLinks, topBullets } from "../shared/parse";
 import {
   artifactsDir,
-  excludedByDefault,
+  skipReason,
   findSibling,
   listArtifacts,
   readText,
@@ -123,7 +123,7 @@ export class EffortsService {
     const live = workspaces.filter((workspace) => !workspace.archivingAt && !workspace.internal);
     const roots = await Promise.all(live.map(workspaceRoot));
     const rootSet = new Set<string>();
-    roots.forEach((root) => root && !excludedByDefault(root, home) && rootSet.add(root));
+    roots.forEach((root) => root && !skipReason(root, home) && rootSet.add(root));
     if (settings.status === "ready") {
       for (const folder of settings.values.extraFolders) {
         const root = await scratchFor(folder, home);
@@ -153,6 +153,7 @@ export class EffortsService {
     const infos: WorkspaceInfo[] = await Promise.all(
       live.map(async (workspace, index): Promise<WorkspaceInfo> => {
         const root = roots[index] && scansByRoot.get(roots[index]!)?.length ? roots[index] : null;
+        const skipped = roots[index] && !rootSet.has(roots[index]!) ? skipReason(roots[index]!, home) : null;
         const binding = bindings[workspace.id] ?? null;
         let suggestion = null;
         if (!binding && root) {
@@ -181,6 +182,7 @@ export class EffortsService {
           projectName: workspace.projectDisplayName,
           dir: workspaceDir(workspace),
           root,
+          skipped,
           binding,
           suggestion,
           activityAt: workspace.activityAt,

@@ -65,8 +65,9 @@ folder, so it only shows up while listed under extra folders).
 ## Data rules
 - Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so nilo's worktrees count as
   nilo-wayfinder) plus the extra folders setting. `__share__` and `~/tmp-archive` are
-  skipped unless listed. `_to_organize_`, hidden folders and folders with no map/issues/Markdown
-  are not efforts. No map: title = first `# ` of the biggest top-level `.md`.
+  skipped unless listed; a workspace whose `.scratch` is skipped says so in its Efforts tab, with
+  the reason and where to list it. `_to_organize_`, hidden folders and folders with no
+  map/issues/Markdown are not efforts. No map: title = first `# ` of the biggest top-level `.md`.
 - Ticket status = first word of `Status:` (bold, dates and prose allowed) → open / claimed /
   done / parked; unknown words count as open. Blocked = open and a `Blocked by:` ticket here is
   not done; `chat-widgets 08` style references resolve to the other effort; prose blocks nothing.
