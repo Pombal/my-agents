@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { providerRows } from "../shared/rows";
 
 const nilo = { provider: "omp-nilo", image: "data:image/svg+xml;base64,PHN2Zy8+", name: "favicon.svg", style: "original" as const };
