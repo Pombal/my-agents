@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import { isDiffBlock, parseDiff, type DiffModel, type EditKind, type TokenKind } from "./model";
-import { diffPalette, type DiffPalette, type Scheme } from "./palette";
+import { diffPalette, tint, type DiffPalette, type Scheme, type Side } from "./palette";
 
 // Web and desktop only. Paseo renders chat code blocks as React Native Web views marked with
 // data-paseo-markdown-* attributes for its own copy-as-markdown feature (kept through the
@@ -85,15 +85,25 @@ const TEXT_NODE = 3;
 const THEME_POLL_MS = 1500;
 const TOKEN_KINDS: TokenKind[] = ["keyword", "comment", "string", "number", "literal", "function", "type", "tag", "attribute", "property", "operator", "addSign", "delSign", "header", "hunk"];
 const EDIT_KINDS: EditKind[] = ["delEdit", "addEdit"];
+const SIDES: Side[] = ["add", "del"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
+const GUTTER_BAR_PX = 2;
 
-type HighlightKind = TokenKind | EditKind;
+// Highlight names and priorities, all below Paseo's own highlights (chat Find, priority 0). Bottom
+// to top: plain text on added/removed lines (`text-add`), syntax tokens (`keyword` on context lines,
+// `keyword-add` / `keyword-del` on changed lines, tinted toward the line color), word marks.
+const HIGHLIGHTS: Array<[name: string, priority: number]> = [
+  ...SIDES.map((side): [string, number] => [`text-${side}`, -3]),
+  ...TOKEN_KINDS.map((kind): [string, number] => [kind, -2]),
+  ...SIDES.flatMap((side) => TOKEN_KINDS.map((kind): [string, number] => [`${kind}-${side}`, -2])),
+  ...EDIT_KINDS.map((kind): [string, number] => [kind, -1]),
+];
 
 interface Block {
   code: DomElement;
   text: string;
   model: DiffModel;
-  ranges: Array<[HighlightKind, DomRange]>;
+  ranges: Array<[string, DomRange]>;
   nodes: DomText[];
   starts: number[];
 }
@@ -103,17 +113,13 @@ export function startDiffHighlighting(): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
 
   const blocks = new Map<DomElement, Block>();
-  const highlights = {} as Record<HighlightKind, HighlightSet | undefined>;
+  const highlights = new Map<string, HighlightSet>();
   if (CSS?.highlights && Highlight) {
-    // Below Paseo's own highlights (chat Find), which use the default priority 0. Word marks sit
-    // above the syntax colors: inside a changed range the text takes the plain foreground.
-    for (const [kinds, priority] of [[TOKEN_KINDS, -2], [EDIT_KINDS, -1]] as const) {
-      for (const kind of kinds) {
-        const highlight = new Highlight();
-        highlight.priority = priority;
-        CSS.highlights.set(`${PREFIX}-${kind}`, highlight);
-        highlights[kind] = highlight;
-      }
+    for (const [name, priority] of HIGHLIGHTS) {
+      const highlight = new Highlight();
+      highlight.priority = priority;
+      CSS.highlights.set(`${PREFIX}-${name}`, highlight);
+      highlights.set(name, highlight);
     }
   }
   const style = document.createElement("style");
@@ -139,10 +145,14 @@ export function startDiffHighlighting(): () => void {
     if (key === paletteKey) return false;
     paletteKey = key;
     palette = diffPalette(syntaxTheme, scheme);
-    const markText = foreground ? ` color: ${foreground};` : "";
+    const rule = (name: string, body: string) => `::highlight(${PREFIX}-${name}) { ${body} }`;
     style.textContent = [
-      ...TOKEN_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { color: ${palette.tokens[kind]}; }`),
-      ...EDIT_KINDS.map((kind) => `::highlight(${PREFIX}-${kind}) { background-color: ${palette.edits[kind]};${markText} }`),
+      ...TOKEN_KINDS.map((kind) => rule(kind, `color: ${palette.tokens[kind]};`)),
+      ...SIDES.flatMap((side) => [
+        ...(foreground ? [rule(`text-${side}`, `color: ${tint(foreground, palette.lines[side])};`)] : []),
+        ...TOKEN_KINDS.map((kind) => rule(`${kind}-${side}`, `color: ${palette.changedTokens[side][kind]};`)),
+      ]),
+      ...EDIT_KINDS.map((kind) => rule(kind, `background-color: ${palette.edits[kind]}; color: ${palette.editText};`)),
     ].join("\n");
     return true;
   };
@@ -150,7 +160,7 @@ export function startDiffHighlighting(): () => void {
   const clear = (pre: DomElement) => {
     const block = blocks.get(pre);
     if (!block) return;
-    for (const [kind, range] of block.ranges) highlights[kind]?.delete(range);
+    for (const [name, range] of block.ranges) highlights.get(name)?.delete(range);
     for (const property of ROW_STYLE) pre.style.removeProperty(property);
     blocks.delete(pre);
     resizes.unobserve(pre);
@@ -171,10 +181,11 @@ export function startDiffHighlighting(): () => void {
   const paintRows = (pre: DomElement, block: Block) => {
     const box = pre.getBoundingClientRect();
     const lineHeight = parseFloat(getComputedStyle(block.code).lineHeight);
-    const rows: Array<{ top: number; bottom: number; color: string }> = [];
+    const rows: Array<{ top: number; bottom: number; color: string; bar: string | undefined }> = [];
     for (const line of block.model.lines) {
       const color = palette.rows[line.kind];
       if (!color) continue;
+      const bar = palette.bars[line.kind];
       const rects = Array.from(rangeFor(block, line.start, line.end)?.getClientRects() ?? []).filter((r) => r.height > 0);
       if (rects.length === 0) continue;
       const leading = Number.isFinite(lineHeight) ? Math.max(0, (lineHeight - rects[0]!.height) / 2) : 0;
@@ -183,18 +194,23 @@ export function startDiffHighlighting(): () => void {
       const previous = rows[rows.length - 1];
       // Rows are contiguous: snap sub-pixel gaps so a run of changes paints as one band.
       if (previous && previous.color === color && top - previous.bottom < 2) previous.bottom = bottom;
-      else rows.push({ top: previous && top - previous.bottom < 2 ? previous.bottom : top, bottom, color });
+      else rows.push({ top: previous && top - previous.bottom < 2 ? previous.bottom : top, bottom, color, bar });
     }
-    // The shade sits under the rows and over the theme's own block background, so the block
-    // deepens toward black (light themes: white) but keeps the theme's hue. It always covers the
-    // whole block, also while a streaming block grows before the next repaint.
+    // Top to bottom: gutter bars, row bands, then the shade. The shade sits over the theme's own
+    // block background, so the block deepens toward black (light themes: white) but keeps the
+    // theme's hue; it always covers the whole block, also while a streaming block grows.
     const px = (n: number) => `${Math.round(n * 100) / 100}px`;
+    const layers = [
+      ...rows.flatMap((r) => (r.bar ? [{ color: r.bar, size: `${GUTTER_BAR_PX}px ${px(r.bottom - r.top)}`, at: `0 ${px(r.top)}` }] : [])),
+      ...rows.map((r) => ({ color: r.color, size: `100% ${px(r.bottom - r.top)}`, at: `0 ${px(r.top)}` })),
+      { color: palette.shade, size: "100% 100%", at: "0 0" },
+    ];
     // Important, so theme plugins that restyle code blocks (Chat Polish sets `background` with
     // !important) don't hide the rows; inline !important wins over any stylesheet.
     const set = (property: string, value: string) => pre.style.setProperty(property, value, "important");
-    set("background-image", [...rows.map((r) => r.color), palette.shade].map((color) => `linear-gradient(${color}, ${color})`).join(", "));
-    set("background-size", [...rows.map((r) => `100% ${px(r.bottom - r.top)}`), "100% 100%"].join(", "));
-    set("background-position", [...rows.map((r) => `0 ${px(r.top)}`), "0 0"].join(", "));
+    set("background-image", layers.map((l) => `linear-gradient(${l.color}, ${l.color})`).join(", "));
+    set("background-size", layers.map((l) => l.size).join(", "));
+    set("background-position", layers.map((l) => l.at).join(", "));
     set("background-repeat", "no-repeat");
     set("background-origin", "border-box");
   };
@@ -218,13 +234,23 @@ export function startDiffHighlighting(): () => void {
       offset += textNode.data.length;
     }
     const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts };
-    for (const span of [...block.model.spans, ...block.model.edits]) {
-      const highlight = highlights[span.kind];
-      const range = highlight && rangeFor(block, span.start, span.end);
-      if (!range) continue;
+    const mark = (name: string, start: number, end: number) => {
+      const highlight = highlights.get(name);
+      const range = highlight && rangeFor(block, start, end);
+      if (!range) return;
       highlight.add(range);
-      block.ranges.push([span.kind, range]);
+      block.ranges.push([name, range]);
+    };
+    // Tokens on added/removed lines go to that side's tinted highlight; spans come in line order.
+    const lines = block.model.lines;
+    let at = 0;
+    for (const span of block.model.spans) {
+      while (lines[at]!.end < span.start) at++;
+      const kind = lines[at]!.kind;
+      mark(kind === "add" || kind === "del" ? `${span.kind}-${kind}` : span.kind, span.start, span.end);
     }
+    for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
+    for (const edit of block.model.edits) mark(edit.kind, edit.start, edit.end);
     blocks.set(pre, block);
     resizes.observe(pre);
     if (syncPalette(code)) repaintAll();
@@ -293,7 +319,7 @@ export function startDiffHighlighting(): () => void {
     if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
     if (mutationFrame !== undefined) cancelAnimationFrame(mutationFrame);
     for (const pre of [...blocks.keys()]) clear(pre);
-    for (const kind of [...TOKEN_KINDS, ...EDIT_KINDS]) CSS?.highlights?.delete(`${PREFIX}-${kind}`);
+    for (const name of highlights.keys()) CSS?.highlights?.delete(`${PREFIX}-${name}`);
     style.remove();
   };
 }

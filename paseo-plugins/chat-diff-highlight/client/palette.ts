@@ -1,9 +1,9 @@
 import type { EditKind, LineKind, TokenKind } from "./model";
 
-// Colors copied from Paseo 0.11.4 so diff blocks match its own code blocks and git diff view:
-// syntax palettes from packages/highlight/src/themes.ts + colors.ts (Settings → Appearance → Syntax
-// theme), status colors from packages/app/src/styles/theme.ts. Row tints start from
-// git/diff-document/palette.ts and are a step stronger (see diffPalette).
+// Syntax palettes copied from Paseo 0.11.4 (packages/highlight/src/themes.ts + colors.ts, Settings →
+// Appearance → Syntax theme) so context lines match Paseo's own code blocks. Added/removed lines use
+// Stefan's pick from the style workshop (variant 11, 2026-10-20): neon green/red with a 2 px gutter
+// bar, a 6% row tint, syntax colors pulled halfway toward the line color, and reverse-video word marks.
 
 export type Scheme = "light" | "dark";
 
@@ -67,19 +67,35 @@ const SYNTAX: Record<string, { light: RolePalette; dark: RolePalette }> = {
   },
 };
 
-/** Paseo's statusSuccess / statusDanger for its built-in light and dark themes. */
-const STATUS: Record<Scheme, { success: string; danger: string }> = {
-  light: { success: "#3e704a", danger: "#9d433b" },
-  dark: { success: "#6cb17b", danger: "#d8847b" },
+export type Side = "add" | "del";
+
+/** Neon green/red of added and removed lines; signs, gutter bars, row tints and word marks derive from it. */
+const LINE: Record<Scheme, Record<Side, string>> = {
+  light: { add: "#00a843", del: "#e0002b" },
+  dark: { add: "#00e676", del: "#ff1744" },
 };
 
+/** Share of the line color mixed into text on added and removed lines. */
+const LINE_TINT = 0.5;
+
+/** `color` pulled toward `toward` by `share`, mixed as the eye sees it. */
+export const tint = (color: string, toward: string, share = LINE_TINT) =>
+  `color-mix(in oklab, ${color} ${Math.round((1 - share) * 100)}%, ${toward})`;
+
 export interface DiffPalette {
-  /** Text colors. */
+  /** Text colors on context, header and hunk lines. */
   tokens: Record<TokenKind, string>;
-  /** Changed words inside a paired row: strong backgrounds over the row tint, text in the plain foreground. */
+  /** Text colors on added and removed lines: each syntax color tinted toward the line color. */
+  changedTokens: Record<Side, Record<TokenKind, string>>;
+  /** Line colors; plain text on changed lines is the foreground tinted toward them (see `tint`). */
+  lines: Record<Side, string>;
+  /** Changed words: solid line color with white text (reverse video). */
   edits: Record<EditKind, string>;
+  editText: string;
   /** Full-width row bands; kinds without one keep the block's own surface. */
   rows: Partial<Record<LineKind, string>>;
+  /** Gutter bar at the left edge of added and removed rows. */
+  bars: Partial<Record<LineKind, string>>;
   /** Laid over the theme's block background: half black in dark themes, half white in light. */
   shade: string;
 }
@@ -90,38 +106,44 @@ const withAlpha = (hex: string, alpha: number) =>
 /** Paseo's default syntax theme is "one"; unknown ids fall back to it, as Paseo does. */
 export function diffPalette(syntaxTheme: string, scheme: Scheme): DiffPalette {
   const syntax = (SYNTAX[syntaxTheme] ?? SYNTAX.one!)[scheme];
-  const status = STATUS[scheme];
+  const line = LINE[scheme];
+  const tokens: Record<TokenKind, string> = {
+    keyword: syntax.keyword,
+    comment: syntax.comment,
+    string: syntax.string,
+    number: syntax.number,
+    literal: syntax.number,
+    function: syntax.function,
+    type: syntax.type,
+    tag: syntax.tag,
+    attribute: syntax.attribute,
+    property: syntax.attribute,
+    operator: syntax.operator,
+    addSign: line.add,
+    delSign: line.del,
+    header: syntax.comment,
+    hunk: syntax.function,
+  };
+  const tinted = (side: Side) =>
+    Object.fromEntries(Object.entries(tokens).map(([kind, color]) => [kind, tint(color, line[side])])) as Record<TokenKind, string>;
+  // Never dark text on a dark block: in dark themes the solid mark is the line color pulled 40%
+  // toward black, so white text stays readable; light themes keep the full color.
+  const mark = (color: string) => (scheme === "dark" ? `color-mix(in oklab, ${color} 60%, black)` : color);
   return {
-    tokens: {
-      keyword: syntax.keyword,
-      comment: syntax.comment,
-      string: syntax.string,
-      number: syntax.number,
-      literal: syntax.number,
-      function: syntax.function,
-      type: syntax.type,
-      tag: syntax.tag,
-      attribute: syntax.attribute,
-      property: syntax.attribute,
-      operator: syntax.operator,
-      addSign: status.success,
-      delSign: status.danger,
-      header: syntax.comment,
-      hunk: syntax.function,
-    },
-    // Vivid, like delta's and git's word highlights: clearly brighter than the row tint, so the
-    // changed words are found at a glance. Text inside them drops its syntax color for the
-    // theme's foreground (set in web.ts), which stays readable on the strong background.
-    edits: { addEdit: withAlpha(status.success, scheme === "light" ? 0.45 : 0.55), delEdit: withAlpha(status.danger, scheme === "light" ? 0.42 : 0.55) },
+    tokens,
+    changedTokens: { add: tinted("add"), del: tinted("del") },
+    lines: line,
+    edits: { addEdit: mark(line.add), delEdit: mark(line.del) },
+    editText: "#ffffff",
     rows: {
-      // Paseo's git diff view uses 0.15 / 0.1; chat blocks sit on a tinted surface, so a step stronger.
-      add: withAlpha(status.success, 0.24),
-      del: withAlpha(status.danger, 0.18),
+      add: withAlpha(line.add, 0.06),
+      del: withAlpha(line.del, 0.06),
       // A faint band in the hunk color separates hunks, as GitHub's blue hunk rows do; file
       // headers get a neutral band so each file of a multi-file diff starts visibly.
       hunk: withAlpha(syntax.function, 0.1),
       header: withAlpha(syntax.comment, 0.12),
     },
+    bars: { add: line.add, del: line.del },
     shade: scheme === "dark" ? "rgba(0, 0, 0, 0.5)" : "rgba(255, 255, 255, 0.5)",
   };
 }
