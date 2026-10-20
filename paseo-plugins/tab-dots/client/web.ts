@@ -64,6 +64,7 @@ const ROWS = `[data-testid^="${ROW_PREFIX}"]`;
 const LAYOUT_KEY = "workspace-layout-state";
 const DOTS = "data-tab-dots";
 const REPLACE = "data-tab-dots-replace";
+const ALIGN = "data-tab-dots-align";
 const MAX_DOTS = { regular: 5, small: 8 } as const;
 
 const LABEL: Record<DotState, string> = {
@@ -95,7 +96,10 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) { [${DOTS}] > i, [data-tab-dots-tip] i { animation: none !important; } }
 /* Right edge: the time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
 [${REPLACE}] [data-testid="sidebar-workspace-timestamp"] { display: none !important; }
-[${REPLACE}="edge"]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
+[${REPLACE}][${ALIGN}="edge"]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
+/* Left: the title stops growing, so the dots follow it; the time keeps the right edge. */
+[${ALIGN}="left"] div:has(+ [${DOTS}]) { flex: 0 1 auto !important; min-width: 0 !important; }
+[${ALIGN}="left"] [${DOTS}] { margin-right: auto; }
 [data-tab-dots-tip] { position: fixed; z-index: 2147483000; pointer-events: none; display: none; align-items: center; gap: 6px;
   max-width: 280px; padding: 3px 8px; border-radius: 6px; font: 12px/18px system-ui, sans-serif; white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0,0,0,.25); --td-ok: #35c264; --td-err: #f7796d; --td-warn: #db932e; --td-run: #5caaf6; }
@@ -148,6 +152,7 @@ export function startTabDots(initial: Preferences): TabDots {
   const clearRow = (row: El) => {
     row.querySelector(`[${DOTS}]`)?.remove();
     row.removeAttribute(REPLACE);
+    row.removeAttribute(ALIGN);
   };
 
   const renderRow = (row: El) => {
@@ -163,8 +168,9 @@ export function startTabDots(initial: Preferences): TabDots {
     const title = titleRow.firstElementChild as El;
     const { color, tone } = inkOf(title);
     const signature = JSON.stringify([color, preferences.size, more, dots]);
-    if (preferences.replaceTime) row.setAttribute(REPLACE, preferences.align);
+    if (preferences.replaceTime) row.setAttribute(REPLACE, "");
     else row.removeAttribute(REPLACE);
+    row.setAttribute(ALIGN, preferences.align);
     const existing = row.querySelector(`[${DOTS}]`);
     if (existing && existing.parentElement === titleRow && existing.getAttribute(DOTS) === signature) return;
     existing?.remove();

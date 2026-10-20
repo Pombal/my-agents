@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const SHOW_MODES = ["unread", "unread-running", "all"] as const;
 export const SIZES = ["regular", "small"] as const;
-export const ALIGNS = ["edge", "steady"] as const;
+export const ALIGNS = ["edge", "steady", "left"] as const;
 
 export const preferences = defineSettings({
   id: "dots",
@@ -17,7 +17,7 @@ export const preferences = defineSettings({
     size: z.enum(SIZES).default("regular"),
     /** Hide the row's time while it shows dots. */
     replaceTime: z.boolean().default(true),
-    /** With replaceTime: edge = dots reach the right edge and shift left on hover (menu); steady = they keep the menu's room. */
+    /** edge = where the time was, shifts left on row hover (menu) · steady = right, never moves · left = right after the title. */
     align: z.enum(ALIGNS).default("edge"),
   }),
 });

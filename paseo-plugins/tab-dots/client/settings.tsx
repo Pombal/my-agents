@@ -16,6 +16,7 @@ const SIZE_OPTIONS: { label: string; value: DotSize }[] = [
 const ALIGN_OPTIONS: { label: string; value: DotAlign }[] = [
   { label: "Right edge", value: "edge" },
   { label: "Steady", value: "steady" },
+  { label: "Left", value: "left" },
 ];
 const INFO =
   "One dot per tab in the sidebar's workspace rows, in tab order; sub-agents are left out. " +
@@ -62,8 +63,8 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           <SettingsSwitch label="Replace the time" hint="Rows with dots hide their last-activity time"
             value={current.replaceTime} disabled={settings.saving || !current.enabled}
             onValueChange={(replaceTime) => save({ replaceTime })} />
-          <SettingsSelect label="Dot position" hint="Right edge: where the time was; moves left while the row's menu shows on hover · Steady: never moves, keeps room for the menu"
-            value={current.align} options={ALIGN_OPTIONS} disabled={settings.saving || !current.enabled || !current.replaceTime}
+          <SettingsSelect label="Dot position" hint="Right edge: where the time was; moves left while the row's menu shows on hover · Steady: right, never moves · Left: right after the title"
+            value={current.align} options={ALIGN_OPTIONS} disabled={settings.saving || !current.enabled}
             onValueChange={(align) => save({ align })} />
         </> : null}
       </SettingsCard>

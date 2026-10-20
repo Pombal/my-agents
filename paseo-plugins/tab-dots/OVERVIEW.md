@@ -23,7 +23,7 @@ Settings → Plugins → tab-dots → Tab dots, or ⌘K "Tab dots settings" (⌘
 - **Which tabs**: Unread (default), Unread and running, or Every tab.
 - **Dot size**: Regular (5 px, up to 5 dots) or Small (4 px, up to 8). Extra tabs show as "+N"; tabs waiting on you are kept first, then running ones.
 - **Replace the time** (on by default): rows with dots hide their last-activity time.
-- **Dot position** (with Replace the time): Right edge (default) puts the dots where the time was; hovering the row brings back the row menu, so they move left by its width. Steady never moves them and leaves the menu's room free.
+- **Dot position**: Right edge (default) puts the dots where the time was; hovering the row brings back the row menu, so they move left by its width. Steady keeps them on the right but never moves them, leaving the menu's room free. Left puts them right after the workspace title.
 
 Settings are stored on the host, so every window and phone connected to it uses them. Replace the time and Dot position only apply to web and desktop.
 
