@@ -137,7 +137,6 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     action: { ...SMALL, color: colors.foreground, fontWeight: "500" },
     preview: { ...muted, marginTop: 1 },
     previewInline: { ...muted, flex: 1, minWidth: 0 },
-    previewNone: { fontStyle: "italic", opacity: 0.75 },
     recapLabel: { color: colors.foreground, fontWeight: "500" },
     expansion: { paddingLeft: GLYPH + 10, paddingBottom: 2 },
     folderHeader: {
@@ -214,7 +213,7 @@ function StateMessage(props: {
 
 function Preview({ entry, styles, lines }: { entry: PastSession; styles: Styles; lines: number }) {
   const { preview } = entry;
-  if (!preview) return <Text style={[styles.preview, styles.previewNone]}>No reply</Text>;
+  if (!preview) return null;
   return (
     <Text style={styles.preview} numberOfLines={lines}>
       {preview.kind === "recap" ? <Text style={styles.recapLabel}>Recap </Text> : null}
@@ -410,22 +409,23 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
             </View>
           );
         }
-        const opened = hot && !compact;
+        const opened = hot && !compact && entry.preview !== null;
         return (
           <>
             <View style={[styles.line, styles.lineCompact]}>
               {glyph}
               {title}
               {folder}
-              {compact ? null : (
+              {!compact && entry.preview ? (
                 <View style={[styles.tail, opened ? styles.tailHidden : null]}>
                   <Text style={styles.dash}>—</Text>
-                  <Text style={[styles.previewInline, entry.preview ? null : styles.previewNone]} numberOfLines={1}>
-                    {entry.preview?.text ?? "No reply"}
+                  <Text style={styles.previewInline} numberOfLines={1}>
+                    {entry.preview.text}
                   </Text>
                 </View>
+              ) : (
+                <View style={styles.spacer} />
               )}
-              {compact ? <View style={styles.spacer} /> : null}
               {right}
             </View>
             {opened ? (

@@ -23,10 +23,11 @@ the whole row is the button. The time's tooltip has the absolute date. Sizes are
 defaults, 14 px titles and 12 px for the rest (plugins can't read the Interface size setting).
 
 Preview, in order: the `paseo-recap` summary (`~/.paseo/plugin-data/paseo-recap/recaps.json`),
-marked **Recap**; else the last assistant reply from the session's transcript; else *No reply*.
-Transcripts: the OMP session file (terminal rows, and OMP agents' native handle) or Claude Code's
-`~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in date folders, so Codex agents show
-*No reply*. Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,
+marked **Recap**; else the last assistant reply from the session's transcript; else nothing (the
+row is just its title line). Transcripts: the OMP session file (terminal rows, and OMP agents'
+native handle) or Claude Code's `~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in
+date folders that would need a search, so Codex rows have no preview (Stefan, 2026-10-20: skip it,
+keep the list fast). Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,
 `<system-notice>` … any hyphenated tag), OMP `/prose` `[ran …; recover: …]` records, code blocks
 and markdown markup are removed. Rows are dated by the transcript's newest message, not the file
 mtime: OMP appends `session_exit` records to old sessions when their terminal is killed (a herdr
@@ -159,11 +160,13 @@ Earlier, before the toolbar change:
   shows the Recap preview and Restore; the collapsed terminal section below.
 - `desktop-dark-project-chips.webp`: Project scope, nilo › Playtest Errors: terminal rows with
   `terminal · …`, folder chips for herdr worktrees, a hovered Paseo row with Restore, a
-  *No reply* row, `omp-nilo` marks repainted by provider-icons.
+  preview-less row (then shown as *No reply*; the placeholder is gone since), `omp-nilo` marks
+  repainted by provider-icons.
 - `desktop-dark-compact-hover.webp`: Compact density, a hovered row opened to its Recap, the
   terminal section expanded with `terminal · 1h` rows.
 - `desktop-light-workspace.webp`: light theme, nilo-wayfinder › Subagents: OMP, Claude (with
-  previews from Claude Code transcripts) and Codex (*No reply*) rows, a hovered Restore.
+  previews from Claude Code transcripts) and Codex rows (*No reply* then, no preview now), a
+  hovered Restore.
 - `phone-light-project-comfortable.webp`, `phone-light-project-compact.webp`,
   `phone-dark-workspace-comfortable.webp`: phone width; search on its own line; the terminal
   section expanded.
@@ -191,7 +194,7 @@ Earlier, before the toolbar change:
 - Session folders set via `PI_CODING_AGENT_SESSION_DIR`, `sessionDir` settings or `XDG_DATA_HOME`
   are not read. Claude Code and Codex sessions: see the 200 limit above.
 - A preview needs an assistant reply in the transcript's last 64 KB; a session that ends in a
-  long tool run shows an older reply or *No reply*. Tooltips (full path, absolute time) and hover
+  long tool run shows an older reply or no preview. Tooltips (full path, absolute time) and hover
   exist only on web/desktop.
 
 ## Disable
