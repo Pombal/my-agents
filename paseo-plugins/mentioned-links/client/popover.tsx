@@ -176,7 +176,7 @@ export function createLinksPopover(store: LinksStore) {
                 hitSlop={6}
               >
                 {({ hovered }: PressState) => (
-                  <Text style={subagentsShown ? styles.subagentsOn : hovered ? styles.subagentsHover : styles.subagents}>{`↳ subagents ${extra}`}</Text>
+                  <Text style={subagentsShown ? styles.subagentsOn : hovered ? styles.subagentsHover : styles.subagents}>{`+${extra} subagents`}</Text>
                 )}
               </Pressable>
             ) : null}
