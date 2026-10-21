@@ -71,9 +71,12 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   with step-end opacity where the `z-index` used to flip (`depthSwap()`); moon phases slides the
   masked element and counter-slides the moon inside it (the old `mask-position` sweep); morph
   (`border-radius`) and starburst (`clip-path`) spin a wrapper and change shape as a flipbook of
-  pre-drawn copies, one shown per slot by step-end opacity (`flipbook()`: 48 and 66 slots per cycle,
-  about 30 shape steps a second, sampled with the old easing; rotation stays continuous). Rolling
-  time digits slide by `transform` instead of `margin-top`.
+  pre-drawn copies, one shown per display frame by step-end opacity (`flipbook()`: 96 and 132
+  slots per cycle = one per 60 Hz frame, 49 and 67 copies, each slot centred on a frame time so a
+  60 Hz display never lands on a switch; sampled with the old easing). Measured frame by frame at
+  60 Hz with rotation frozen: the shape is within 0.002 px of the old continuous change, and changes
+  on the same frames. Rolling time digits slide by `transform` instead of `margin-top`, in
+  whole-pixel steps (`round()`), so they rest exactly where `margin-top` put them.
 - **Animations run as Web Animations** (`runOnCompositor()` in `client/web.ts`). Paseo's React
   root listens for `animationiteration`; while anything listens, Chromium wakes the main thread
   for each running CSS animation (lab probe: one 250 ms CSS animation = 20 main frames/s; the same
