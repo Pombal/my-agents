@@ -47,8 +47,9 @@ Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload turn-status`. Che
 
 ## Runtime cost (applied 2026-10-21)
 
-Every animation should run on the compositor (only `transform` and `opacity` change), so a running
-turn in view costs the page's main thread nothing between steps. Measurements and reasoning:
+Every animation runs on the compositor as a Web Animation (only `transform` and `opacity` change,
+plus starburst's `clip-path`, which Chromium composites), so a running turn in view costs the page's
+main thread nothing between steps. Measurements and reasoning:
 `~/agentspace/index/.scratch/paseo-grievances/runtime-cost-fix-advice.md` §2.5.
 
 - **Warming** steps every 10 s with no transition (`warmth()` in `client/web.ts`). It used a 1 s
@@ -91,9 +92,21 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   durations. No IntersectionObserver anywhere: one active observation turns every composited
   frame into a main-thread frame.
 - `client/web.test.ts` checks that the injected CSS animates and transitions nothing but
-  `transform` and `opacity`, and the Web Animation lifecycle (copied on layout, paused while
-  hidden, cancelled when the footer goes, re-timed on a reduced-motion switch);
-  `client/catalog.test.ts` that each flipbook and depth swap shows exactly one copy at every moment.
+  `transform` and `opacity` (and starburst's `clip-path`), and the Web Animation lifecycle (copied
+  on layout, paused while hidden, cancelled when the footer goes, re-timed on a reduced-motion
+  switch); `client/catalog.test.ts` that the morph flipbook and the depth swaps show exactly one
+  copy at every moment and switch only between 60 Hz frames.
+
+Lab (Paseo 0.12 lab daemon, headless Chromium 150 on the RTX 3060, scenario S2 = turn running in
+view, Paseo's own loader loop ablated so the plugin's frames show; main-thread frames/s, 386a050c →
+now): plain time 15 → 1.6 (typing dots alone: their 3 CSS animations woke the main thread); shimmer
+time 60 → 2.6; live shimmer 60 → 1.6; warming 60 (1–5 min) / 32 (colour ramp) → 1.6; morph
+60 → 1.7 (renderer main 150 → 14 ms/s); starburst 3.7 → 1.6. Floor with nothing animated: 1.6.
+Option sweep: every option composited, or (pseudo-element targets the sweep cannot inspect) at
+the 1.6 floor. Visual: old vs new frames at the same animation times (24 per option, DPR 1 and 4)
+are pixel-identical for 22 of 25 spinners, rolling time and warming; moon phases, atom and morph
+differ only in edge antialiasing (at most 2.6 % of a 14 px tile's pixels by more than 32/255), the
+sheens in text-edge antialiasing (≤ 1 %). Files: `~/tmp-archive/runtime-cost/results/turn-status-visual/`.
 
 ## Limits
 
