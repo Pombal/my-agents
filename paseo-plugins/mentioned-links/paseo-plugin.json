@@ -1,0 +1,6 @@
+{
+  "id": "mentioned-links",
+  "name": "Mentioned links",
+  "description": "A composer pill per chat listing the web links, images and files that you and the agent mentioned in it.",
+  "requirements": { "paseo": ">=0.12.0" }
+}
