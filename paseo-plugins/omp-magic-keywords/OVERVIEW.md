@@ -67,10 +67,14 @@ RPC, 1–3 ms) and rescans only if a setting changed. The plugin's server part o
 settings; it never spawns a process.
 
 The color rules exist only while a keyword is on screen, and only for the words shown. Each
-`::highlight()` rule slows the styling of every element Paseo restyles, and with all 240 rules a
-streaming reply cost several times more style work than without them (23 µs vs 6 µs per element).
-With no keyword in view the plugin adds no rules; with one word in view it adds 60. Rules for a word
-go 300 ms after its last message or text box leaves the view. Nothing runs on a timer: removed
-messages, tab switches, text Paseo writes into the box itself, and theme switches are each picked up
-from the page's own events. The text box's `value` setter is wrapped on that element to see Paseo's
-own writes; React's value tracking still runs underneath.
+`::highlight()` rule slows the styling of every element Paseo restyles: with all 240 rules a
+streaming reply cost about ten times more style work (668 vs 68 ms/s in the lab). With no keyword in
+view the plugin adds no rules (4 µs per restyled element, as without the plugin); with one word in
+view it adds 60 (9–10 µs). Rules for a word go 300 ms after its last message or text box leaves the
+view. Nothing runs on a timer: removed messages, tab switches, text Paseo writes into the box
+itself, and theme switches are each picked up from the page's own events. The text box's `value`
+setter is wrapped on that element to see Paseo's own writes; React's value tracking still runs
+underneath. The plugin uses no IntersectionObserver: while one observes anything, Chromium redraws
+the page on the main thread for every frame of Paseo's spinning status rings. Messages are placed by
+reading their boxes after scrolls and page changes instead. With agents running and no keyword on
+screen, the page does 0.6 main-thread frames a second with or without the plugin (2.5 before).
