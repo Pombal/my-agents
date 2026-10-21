@@ -7,27 +7,32 @@ import { createLinksPopover } from "./popover";
 import { keepChatSubagents, LinksStore, type ChatLinks } from "./store";
 import { hideParentSlot } from "./web";
 
-/** `28 links`, `1 link`, `0 links`, worded like Paseo's own pills; `links` before the first count. */
+/** `28 links`, `1 link`, worded like Paseo's own pills; `links` before the first count. */
 export function linksLabel(count: number | null): string {
   if (count === null) return "links";
   return count === 1 ? "1 link" : `${count} links`;
 }
 
 /**
- * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon.
- * A chat's links are fetched when its pill first shows (the pill's icon slot mounting is the signal), again when its agent finishes a turn while the pill
- * shows, and on opening the popover. Nothing polls while agents are idle. Fed by `followAgents`.
+ * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon,
+ * hidden while the chat has no links. A chat's links are fetched when its pill first shows (the
+ * pill's icon slot mounting is the signal; until then it reads `links`), again when its agent
+ * finishes a turn while the pill shows or is hidden for having none, and on opening the popover.
+ * Nothing polls while agents are idle. Fed by `followAgents`.
  */
 export function startPills(client: PluginClientContext): { agents: AgentListener; stop(): void } {
   const store = new LinksStore<ChatLinks>((agentId, subagents) => client.rpc(linksForAgent, { agentId, subagents }), keepChatSubagents);
-  const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
+  const pills = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
   const statuses = new Map<string, string>();
   /** Mounted pill icons per chat: these chats are on screen. */
   const onScreen = new Map<string, number>();
   /** Chats whose agent finished a turn while their pill was hidden: refetch on next show. */
   const stale = new Set<string>();
 
-  const labelOf = (agentId: string) => linksLabel(store.get(agentId).data?.links.length ?? 0);
+  const countOf = (agentId: string) => store.get(agentId).data?.links.length ?? null;
+  const labelOf = (agentId: string) => linksLabel(countOf(agentId));
+  /** Shown while the count is unknown (its mount fetches it), hidden once it is 0. */
+  const visibleOf = (agentId: string) => countOf(agentId) !== 0;
 
   /**
    * Paseo requires an icon and always draws a 16 px slot for it. This component draws nothing and,
@@ -54,10 +59,13 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
 
   const offStore = store.subscribe((agentId) => {
     const pill = pills.get(agentId);
+    if (!pill) return;
     const label = labelOf(agentId);
-    if (!pill || pill.label === label) return;
-    pill.registration.update({ label });
+    const visible = visibleOf(agentId);
+    if (pill.label === label && pill.visible === visible) return;
+    pill.registration.update({ label, visible });
     pill.label = label;
+    pill.visible = visible;
   });
 
   const remove = (agentId: string) => {
@@ -73,18 +81,20 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
     const before = statuses.get(agent.id);
     statuses.set(agent.id, agent.status);
     if (before === "running" && agent.status !== "running") {
-      if (onScreen.has(agent.id)) void store.refresh(agent.id);
+      // A hidden pill (no links yet) can't tell whether its chat is on screen, so it refetches now.
+      if (onScreen.has(agent.id) || countOf(agent.id) === 0) void store.refresh(agent.id);
       else if (store.get(agent.id).data) stale.add(agent.id);
     }
     if (pills.has(agent.id)) return;
     const label = labelOf(agent.id);
+    const visible = visibleOf(agent.id);
     const registration = client.addComposerPill({
       id: "links",
       workspaceId: agent.workspaceId,
       agentId: agent.id,
-      button: { title: "Mentioned links", icon: PillIcon, label, behavior: { kind: "popover", Content } },
+      button: { title: "Mentioned links", icon: PillIcon, label, visible, behavior: { kind: "popover", Content } },
     });
-    pills.set(agent.id, { registration, label });
+    pills.set(agent.id, { registration, label, visible });
   };
 
   return {
