@@ -16,8 +16,9 @@ folder, so it only shows up while listed under extra folders).
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
 - **Header pill** per workspace: map icon + effort name + chevron; `bind?` when unbound with a
   suggestion; nothing when there is none. Popover (option B): name + status, path, counts,
-  `Not committed · N`, the next ticket (opens it in the panel), Open Efforts panel, "Switch this
-  workspace to" (efforts it leans on, then Other effort…), All efforts, Unbind. Unbound: the
+  `Not committed · N`, the next ticket (opens it in the panel), Open Efforts panel, then a small
+  footer bar: All efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover
+  on its first frame, so each bound workspace's effort is read ahead when its pill appears. Unbound: the
   suggestion with Bind · New effort · No effort. On phones the header button is icon-only and
   opens the whole effort as a sheet.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs

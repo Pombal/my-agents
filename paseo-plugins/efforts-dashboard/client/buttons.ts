@@ -1,6 +1,7 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { AppState, Dimensions } from "react-native";
 import type { Overview, WorkspaceInfo } from "../shared/rpc";
+import { warmDetail } from "./data";
 import { findEffort } from "./model";
 import { EffortPopover } from "./popover";
 import { fetchOverview, latestOverview, latestOverviewAt, onOverview } from "./runtime";
@@ -47,6 +48,8 @@ export function startButtons(client: PluginClientContext): () => void {
     }
     for (const workspace of overview.workspaces) {
       const label = headerLabel(workspace);
+      // The popover is sized on its first frame, so its effort is read before it opens.
+      if (workspace.binding?.kind === "effort") warmDetail(workspace.binding);
       const current = headers.get(workspace.id);
       if (!label) {
         if (current?.visible) {

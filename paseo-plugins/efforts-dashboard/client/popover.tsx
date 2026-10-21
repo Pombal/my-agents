@@ -3,8 +3,8 @@ import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native
 import { Text, View } from "react-native";
 import { useDetail, useOverview } from "./data";
 import { EffortView } from "./effort-view";
-import { Bar, colorsOf, Dot, Glyph, LABEL, SMALL, Tag, WsChip, type Palette } from "./marks";
-import { findEffort, workspacesOf } from "./model";
+import { colorsOf, Dot, Glyph, LABEL, SMALL, Tag, type Palette } from "./marks";
+import { findEffort } from "./model";
 import { bindOrToast, openAllEfforts, openPanel } from "./runtime";
 import { setViewState, viewKey, type Page } from "./state";
 import { CountsLine, RowButton, styles as ui } from "./ui";
@@ -24,9 +24,20 @@ function Item(props: { c: Palette; icon?: string; label: string; right?: React.R
   );
 }
 
+/** Small muted icon+label button for the popover's footer bar. */
+function FooterButton(props: { c: Palette; icon: string; label: string; onPress(): void }) {
+  const { c } = props;
+  return (
+    <RowButton c={c} onPress={props.onPress} style={{ flexDirection: "row", alignItems: "center", gap: 5, height: 24, paddingHorizontal: 6, borderRadius: 4 }}>
+      <Icon name={props.icon} size={12} color={c.muted} />
+      <Text style={{ ...SMALL, color: c.muted }}>{props.label}</Text>
+    </RowButton>
+  );
+}
+
 /**
- * Header pill popover. Wide layouts: the panel's head lines, path, Not committed, next ticket and
- * the switch list (H1 option B). Phones get the whole effort as a sheet (P3), which is also what
+ * Header pill popover. Wide layouts: the panel's head lines, path, Not committed, next ticket,
+ * Open Efforts panel, then a footer bar (All efforts · Switch… · Unbind). Phones get the whole effort as a sheet (P3), which is also what
  * the composer pill opens.
  */
 export function EffortPopover({ workspaceId, theme, layout, close }: PluginButtonContentProps) {
@@ -108,32 +119,14 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
         </View>
       ) : null}
       <Item c={c} icon="PanelRight" label="Open Efforts panel" onPress={() => go()} />
-      <View style={{ marginTop: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: c.border }}>
-        <Text style={{ ...LABEL, color: c.muted, paddingHorizontal: 12, paddingVertical: 3 }}>Switch this workspace to</Text>
-        {(data?.leansOn ?? []).map((related) => {
-          const chip = overview.data ? workspacesOf(overview.data, related).bound[0] : undefined;
-          return (
-            <Item
-              key={related.slug}
-              c={c}
-              lead={<Bar done={related.counts.done} total={related.counts.total} c={c} />}
-              label={related.slug}
-              right={chip ? <WsChip c={c} name={chip.name} /> : null}
-              onPress={() => {
-                bindOrToast(toast, workspaceId, { kind: "effort", root: related.root, slug: related.slug });
-                close();
-              }}
-            />
-          );
-        })}
-        <Item c={c} icon="Search" muted label="Other effort…" onPress={() => go({ kind: "switch" })} />
-      </View>
-      <View style={{ marginTop: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: c.border }}>
-        <Item c={c} icon="LayoutGrid" label="All efforts" onPress={() => { close(); openAllEfforts(workspaceId, summary?.key); }} />
-        <Item
+      {detail.isPending ? <Text style={{ ...LABEL, color: c.muted, paddingHorizontal: 12 }}>Reading the effort…</Text> : null}
+      <View style={{ marginTop: 8, paddingTop: 6, paddingHorizontal: 6, borderTopWidth: 1, borderTopColor: c.border, flexDirection: "row", alignItems: "center", gap: 2 }}>
+        <FooterButton c={c} icon="LayoutGrid" label="All efforts" onPress={() => { close(); openAllEfforts(workspaceId, summary?.key); }} />
+        <FooterButton c={c} icon="Search" label="Switch…" onPress={() => go({ kind: "switch" })} />
+        <View style={ui.grow} />
+        <FooterButton
           c={c}
           icon="Unlink"
-          muted
           label="Unbind"
           onPress={() => {
             bindOrToast(toast, workspaceId, { kind: "clear" });
@@ -141,7 +134,6 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
           }}
         />
       </View>
-      {detail.isPending ? <Text style={{ ...LABEL, color: c.muted, paddingHorizontal: 12 }}>Reading the effort…</Text> : null}
     </ScrollView>
   );
 }

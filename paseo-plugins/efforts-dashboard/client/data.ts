@@ -43,6 +43,29 @@ export function useOverview(visible: boolean) {
 type EffortRef = { root: string; slug: string };
 
 /**
+ * The last detail read per effort, kept outside React. Paseo sizes a header popover once, on its
+ * first frame; a popover whose detail arrives later is cut off at the bottom. `warmDetail` reads it
+ * ahead when the header button appears, and `useDetail` starts from it. `detail` is absent while
+ * the first read is in flight.
+ */
+const warmDetails = new Map<string, { detail?: EffortDetail; at: number }>();
+const WARM_MS = 30_000;
+const warmKey = (effort: EffortRef) => `${effort.root}\0${effort.slug}`;
+
+export function warmDetail(effort: EffortRef): void {
+  const key = warmKey(effort);
+  const held = warmDetails.get(key);
+  if (held && Date.now() - held.at < WARM_MS) return;
+  warmDetails.set(key, { detail: held?.detail, at: Date.now() });
+  client()
+    .rpc(detailRpc, { root: effort.root, slug: effort.slug, since: held?.detail?.etag })
+    .then((result) => {
+      if (!("unchanged" in result)) warmDetails.set(key, { detail: result, at: Date.now() });
+    })
+    .catch(() => warmDetails.set(key, { detail: held?.detail, at: 0 }));
+}
+
+/**
  * The detail query. A poll sends the etag of the detail it holds; an unchanged effort comes back
  * as `{ unchanged }` and keeps the same object, so nothing re-renders.
  */
@@ -53,7 +76,10 @@ function detailOptions(queryClient: QueryClient, effort: EffortRef) {
     queryFn: async (): Promise<EffortDetail> => {
       const previous = queryClient.getQueryData<EffortDetail>(queryKey);
       const result = await client().rpc(detailRpc, { root: effort.root, slug: effort.slug, since: previous?.etag });
-      if (!("unchanged" in result)) return result;
+      if (!("unchanged" in result)) {
+        warmDetails.set(warmKey(effort), { detail: result, at: Date.now() });
+        return result;
+      }
       if (previous) return previous;
       const fresh = await client().rpc(detailRpc, { root: effort.root, slug: effort.slug });
       if ("unchanged" in fresh) throw new Error("Efforts server answered “unchanged” to a first read");
@@ -77,8 +103,12 @@ function docOptions(effort: EffortRef, rel: string) {
 export function useDetail(effort: EffortRef | null, visible: boolean) {
   const queryClient = useQueryClient();
   const options = effort ? detailOptions(queryClient, effort) : { queryKey: ["efforts", "detail", undefined, undefined], queryFn: () => Promise.reject(new Error("No effort")) };
+  const warm = effort ? warmDetails.get(warmKey(effort)) : undefined;
   return useQuery({
     ...options,
+    // Start from the read-ahead copy and re-read it at once (updatedAt 0 marks it stale).
+    initialData: warm?.detail,
+    initialDataUpdatedAt: 0,
     enabled: !!effort,
     refetchInterval: visible ? POLL_MS : false,
     retry: false,
