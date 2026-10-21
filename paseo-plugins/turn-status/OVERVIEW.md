@@ -42,7 +42,21 @@ real turn. Saved per host; other open windows pick it up on focus.
 - Elements it adds carry `data-spn-own`, so their own animations never wake the page observer.
   Disabling the plugin puts every footer back exactly as Paseo drew it.
 
-Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload turn-status`.
+Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload turn-status`. Checks: `npm run typecheck`, `npm test`
+(`client/web.test.ts`, vitest + jsdom).
+
+## Runtime cost (applied 2026-10-21)
+
+Every animation should run on the compositor (only `transform` and `opacity` change), so a running
+turn in view costs the page's main thread nothing between steps. Measurements and reasoning:
+`~/agentspace/index/.scratch/paseo-grievances/runtime-cost-fix-advice.md` §2.5.
+
+- **Warming** steps every 10 s with no transition (`warmth()` in `client/web.ts`). It used a 1 s
+  `color`/`opacity` transition re-aimed by every 1 s elapsed-text update, i.e. a main-thread
+  animation running for the whole 1–15 min ramp. A 10 s step moves at most 5 % opacity or a
+  thirtieth of the colour blend.
+- The footer writes `data-spn-spinner`, `data-spn-time` and the warming variables only when their
+  value changes (each write restyles the footer).
 
 ## Limits
 

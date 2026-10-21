@@ -234,11 +234,18 @@ export function formatDuration(seconds: number): string {
   return minutes % 60 === 0 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** Warming changes in steps of this many seconds. */
+const WARM_STEP = 10;
+
 /**
  * Warming time: invisible for the first minute (the user only cares about turns that run long),
  * a faint 15 % that firms up to full by 5 min, then amber by 10 min and red by 15 min.
+ * It moves in 10 s steps with no transition: a step is at most 5 % opacity or a thirtieth of the
+ * colour blend, too small to see, and nothing animates between steps (a transition re-aimed every
+ * second kept the page drawing frames for the whole 1–15 min ramp).
  */
-export function warmth(seconds: number, light: boolean): { opacity: number; color: string } {
+export function warmth(elapsed: number, light: boolean): { opacity: number; color: string } {
+  const seconds = Math.floor(elapsed / WARM_STEP) * WARM_STEP;
   const warm = light ? "#b7741a" : "#e8a64a";
   const hot = light ? "#c8412f" : "#ec6f5e";
   const mix = (from: string, to: string, f: number) => `color-mix(in srgb, ${to} ${Math.round(Math.min(1, f) * 100)}%, ${from})`;
@@ -274,7 +281,7 @@ const FOOTER_CSS = `
   background: linear-gradient(100deg, var(--spn-muted) 0 35%, var(--spn-fg) 50%, var(--spn-muted) 65% 100%) 0 0 / 300% 100%;
   -webkit-background-clip: text; background-clip: text; animation: spn-sweep 1.8s linear infinite; }
 [data-spn-time="warming"] ${ELAPSED} { color: var(--spn-warm-color, var(--spn-muted)) !important;
-  opacity: var(--spn-warm-opacity, 0) !important; transition: color 1s linear, opacity 1s linear; }
+  opacity: var(--spn-warm-opacity, 0) !important; }
 [data-spn-time="rolling"] .spn-roll { color: var(--spn-muted); }
 `;
 
@@ -378,7 +385,14 @@ interface FooterState {
   live?: LiveLabel;
   roll?: RollingTime;
   hold?: { row: string; since: number };
+  /** The warming opacity and colour last written, so a render that changes nothing writes nothing. */
+  warm?: string;
   light: boolean;
+}
+
+/** Sets an attribute only when it differs: every write invalidates the footer's style. */
+function setAttribute(element: El, name: string, value: string): void {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
 
 export interface Indicator {
@@ -431,7 +445,7 @@ export function startIndicator(): Indicator {
     const elapsed = footer.querySelector(ELAPSED);
     const state = states.get(footer) ?? setup(footer, loader, elapsed);
 
-    footer.setAttribute("data-spn-spinner", prefs.spinner);
+    setAttribute(footer, "data-spn-spinner", prefs.spinner);
     if (state.spinnerId !== prefs.spinner) {
       state.spin?.remove();
       state.spin = createSpinner(prefs.spinner) ?? undefined;
@@ -467,7 +481,7 @@ export function startIndicator(): Indicator {
       }
     }
 
-    footer.setAttribute("data-spn-time", prefs.time);
+    setAttribute(footer, "data-spn-time", prefs.time);
     const text = elapsed?.textContent ?? "";
     if (prefs.time === "rolling" && elapsed?.parentElement) {
       if (!state.roll) {
@@ -482,8 +496,11 @@ export function startIndicator(): Indicator {
     }
     if (prefs.time === "warming") {
       const { opacity, color } = warmth(parseDuration(text) ?? 0, state.light);
-      footer.style.setProperty("--spn-warm-opacity", String(opacity));
-      footer.style.setProperty("--spn-warm-color", color);
+      if (state.warm !== `${opacity} ${color}`) {
+        state.warm = `${opacity} ${color}`;
+        footer.style.setProperty("--spn-warm-opacity", String(opacity));
+        footer.style.setProperty("--spn-warm-color", color);
+      }
     }
   };
 
@@ -620,15 +637,18 @@ export function mountTimeDemo(host: El, style: Preferences["time"], colors: Demo
   const roll = style === "rolling" ? new RollingTime() : null;
   const text = roll ? roll.el : document.createElement("span");
   if (style === "shimmer") text.className = "spn-shim";
-  if (style === "warming") text.className = "spn-warm";
   host.appendChild(text);
+  let warm = "";
   const tick = () => {
     if (style === "warming") {
       const seconds = ((Date.now() - started) * 0.03) % 1200;
       const { opacity, color } = warmth(seconds, colors.light);
       text.textContent = formatDuration(seconds);
-      text.style.setProperty("opacity", String(opacity));
-      text.style.setProperty("color", color);
+      if (warm !== `${opacity} ${color}`) {
+        warm = `${opacity} ${color}`;
+        text.style.setProperty("opacity", String(opacity));
+        text.style.setProperty("color", color);
+      }
       return;
     }
     const label = formatDuration(72 + (Date.now() - started) / 1000);

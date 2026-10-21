@@ -264,7 +264,6 @@ const STATIC_CSS = `
 .spn-roll .col { display: inline-block; height: var(--spn-lh, 1.4em); overflow: hidden; }
 .spn-roll .col > span { display: block; transition: margin-top .45s cubic-bezier(.3, 1.4, .5, 1); }
 .spn-roll .col > span > b { display: block; height: var(--spn-lh, 1.4em); font-weight: inherit; }
-.spn-warm { transition: color 1s linear, opacity 1s linear; }
 
 @media (prefers-reduced-motion: reduce) {
   .spn, .spn *, .spn::before, .spn::after, .spn-shim, .spn-live > * { animation-duration: 3s !important; }
