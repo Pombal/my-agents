@@ -65,3 +65,12 @@ frame is requested at all unless a keyword draft is being tracked in the text bo
 out of view inside a long message no longer repaints. Window focus re-reads the settings (one cached
 RPC, 1–3 ms) and rescans only if a setting changed. The plugin's server part only registers the
 settings; it never spawns a process.
+
+The color rules exist only while a keyword is on screen, and only for the words shown. Each
+`::highlight()` rule slows the styling of every element Paseo restyles, and with all 240 rules a
+streaming reply cost several times more style work than without them (23 µs vs 6 µs per element).
+With no keyword in view the plugin adds no rules; with one word in view it adds 60. Rules for a word
+go 300 ms after its last message or text box leaves the view. Nothing runs on a timer: removed
+messages, tab switches, text Paseo writes into the box itself, and theme switches are each picked up
+from the page's own events. The text box's `value` setter is wrapped on that element to see Paseo's
+own writes; React's value tracking still runs underneath.

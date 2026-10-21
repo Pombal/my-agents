@@ -27,7 +27,11 @@ export interface Engine {
 const SENT = '[data-testid="user-message"] [data-message-text], [data-testid="chat-outline-preview"] [dir="auto"]';
 const COMPOSER = "textarea[data-composer-input]";
 const PREFIX = "omp-magic-keywords";
-const POLL_MS = 500;
+/** How long rules outlive the last keyword in view, so a prompt at the viewport edge does not flip the sheet per frame. */
+const RULES_OFF_MS = 300;
+/** Sent messages this close to the viewport (and to their scroller's visible part) already count as in view
+ *  for the rules, so a keyword scrolled in is coloured on its first frame. */
+const NEAR_MARGIN = "50% 0px";
 /** How far up React's tree to look for the chat's agent before giving up. */
 const FIBER_DEPTH = 80;
 /** Bit `i` set: keyword `i` of {@link MAGIC_KEYWORDS} may be coloured. */
@@ -76,7 +80,7 @@ interface Overlay {
   node: Text;
   /** Hidden textarea holding the draft at the composer's width, for the line check. */
   mirror: HTMLTextAreaElement;
-  /** The textarea's text style as CSS, read on input, scroll, poll and rescan rather than every frame. */
+  /** The textarea's text style as CSS, read when its text or tab changes, on scroll and on rescan rather than every frame. */
   textCss: string;
   /** The textarea's vertical padding in px. */
   padding: number;
@@ -94,6 +98,8 @@ interface Source {
   text: string;
   /** Words this source may colour (bit mask), as decided when its glyphs were built. */
   words: number;
+  /** Words that occur in its runs (bit mask): their rules must exist while it is in view. */
+  present: number;
   /** Text nodes the glyphs' Ranges address; one leaving the page leaves the Ranges stale. */
   nodes: Text[];
   /** Keyword occurrences, each with its glyphs in order. */
@@ -113,6 +119,13 @@ interface Fiber {
   memoizedProps: { agentId?: unknown; agent?: { id?: unknown; provider?: unknown } | null } | null;
   type: unknown;
   return: Fiber | null;
+}
+
+/** What {@link unhookValue} needs to put a composer's `value` property back. */
+interface ValueHook {
+  /** The element's own `value` property before the hook (React's value tracker), if it had one. */
+  own: PropertyDescriptor | undefined;
+  hook: PropertyDescriptor;
 }
 
 /** Starts the engine idle; it colours nothing until the first {@link Engine.setPreferences}. */
@@ -143,19 +156,59 @@ export function startKeywordShimmer(): Engine {
   const sources = new Map<HTMLElement, Source>();
   const visible = new Set<HTMLElement>();
 
-  let tone: Tone | undefined;
-  const syncScheme = (sample?: HTMLElement) => {
-    // Light text means a dark theme. Without a sample the tone stays as it is: dark at startup.
-    const color = sample ? getComputedStyle(sample).color : "";
-    const next: Tone = color ? (luminance(color) < 0.5 ? "light" : "dark") : tone ?? "dark";
-    if (next === tone) return;
-    tone = next;
-    style.textContent = MAGIC_KEYWORDS.flatMap(({ word, hue: [from, to] }) =>
-      Array.from({ length: STOPS }, (_, stop) =>
-        `::highlight(${PREFIX}-${word}-${stop}) { color: ${keywordColor(from + (stop / STOPS) * (to - from), next)}; }`),
+  // Every `::highlight()` rule slows the style of each restyled element on the page (23 µs instead of
+  // 6 µs per element with all 240), so rules exist only for the words of sources in view: sent messages
+  // near the viewport and shown composer overlays. A word's rules are added at once and dropped
+  // RULES_OFF_MS after its last such source leaves; each change restyles the page once.
+  const near = new Set<HTMLElement>();
+  // Dark until the first coloured element is read.
+  let tone: Tone = "dark";
+  let ruleWords = 0;
+  let offTimer: number | undefined;
+  const writeRules = (words: number) => {
+    ruleWords = words;
+    style.textContent = MAGIC_KEYWORDS.flatMap(({ word, hue: [from, to] }, keyword) =>
+      words & (1 << keyword)
+        ? Array.from({ length: STOPS }, (_, stop) =>
+          `::highlight(${PREFIX}-${word}-${stop}) { color: ${keywordColor(from + (stop / STOPS) * (to - from), tone)}; }`)
+        : [],
     ).join("\n");
   };
-  syncScheme();
+  const wantedWords = (): number => {
+    let words = 0;
+    for (const [element, source] of sources) {
+      if (source.overlay ? source.overlay.shown : near.has(element)) words |= source.present;
+    }
+    return words;
+  };
+  const dropRules = () => {
+    offTimer = undefined;
+    if (disposed) return;
+    const wanted = wantedWords();
+    if (wanted !== ruleWords) writeRules(wanted);
+  };
+  /** Called whenever a source appears, goes, enters or leaves the view, or shows or hides its overlay. */
+  const syncRules = () => {
+    if (disposed) return;
+    const wanted = wantedWords();
+    if (wanted & ~ruleWords) writeRules(ruleWords | wanted);
+    if (wanted === ruleWords) {
+      clearTimeout(offTimer);
+      offTimer = undefined;
+    } else {
+      offTimer ??= setTimeout(dropRules, RULES_OFF_MS);
+    }
+  };
+
+  /** Reads the theme off a coloured element: light text means a dark theme. */
+  const syncScheme = (sample: HTMLElement) => {
+    const color = getComputedStyle(sample).color;
+    if (!color) return;
+    const next: Tone = luminance(color) < 0.5 ? "light" : "dark";
+    if (next === tone) return;
+    tone = next;
+    if (ruleWords) writeRules(ruleWords);
+  };
 
   const styleOf = (kind: Kind): Style => preferences?.[kind] ?? "off";
 
@@ -253,6 +306,8 @@ export function startKeywordShimmer(): Engine {
   // Keystrokes only mark their composer: the overlay is rebuilt in the frame that first shows the new
   // text, not inside the input event, where its layout would be forced synchronously.
   const dirty = new Set<HTMLTextAreaElement>();
+  // Every composer on the page, observed from the moment it appears, with its value hook.
+  const composers = new Map<HTMLTextAreaElement, ValueHook | undefined>();
 
   // Only on-screen sources run the loop: shimmering ones to animate, composers with keywords to
   // track their textarea. It stops when none are left. Between two colour stops nothing changes, so
@@ -294,15 +349,33 @@ export function startKeywordShimmer(): Engine {
   };
   reducedMotion.addEventListener("change", schedule);
 
+  // Sources and composers in the viewport. A composer's edges also replace the old poll: Paseo hides
+  // the composers of inactive tabs with display: none, which leaves them no box to intersect.
   const intersections = new IntersectionObserver((entries) => {
     if (disposed) return;
     for (const { target, isIntersecting } of entries) {
       const element = target as HTMLElement;
-      if (isIntersecting && sources.has(element)) visible.add(element);
+      const composer = composers.has(element as HTMLTextAreaElement);
+      if (isIntersecting && (composer || sources.has(element))) visible.add(element);
       else visible.delete(element);
+      if (!composer) continue;
+      if (isIntersecting) dirty.add(element as HTMLTextAreaElement);
+      else clear(element);
     }
     schedule();
   });
+
+  // Sent sources near the viewport, for the rules only. scrollMargin (Chromium 120+) widens the chat's
+  // scroller too; rootMargin alone widens only the viewport.
+  const nearby = new IntersectionObserver((entries) => {
+    if (disposed) return;
+    for (const { target, isIntersecting } of entries) {
+      const element = target as HTMLElement;
+      if (isIntersecting && sources.has(element)) near.add(element);
+      else near.delete(element);
+    }
+    syncRules();
+  }, { rootMargin: NEAR_MARGIN, scrollMargin: NEAR_MARGIN } as IntersectionObserverInit);
 
   const clear = (element: HTMLElement) => {
     const source = sources.get(element);
@@ -310,8 +383,33 @@ export function startKeywordShimmer(): Engine {
     unpaint(source);
     source.overlay?.element.remove();
     sources.delete(element);
-    visible.delete(element);
-    intersections.unobserve(element);
+    // A composer stays observed for as long as it is on the page.
+    if (source.kind === "sent") {
+      visible.delete(element);
+      intersections.unobserve(element);
+      near.delete(element);
+      nearby.unobserve(element);
+    }
+    syncRules();
+  };
+
+  const onValueSet = (textarea: HTMLTextAreaElement) => {
+    if (disposed || !preferences) return;
+    dirty.add(textarea);
+    schedule();
+  };
+  const track = (textarea: HTMLTextAreaElement) => {
+    if (composers.has(textarea)) return;
+    composers.set(textarea, hookValue(textarea, onValueSet));
+    intersections.observe(textarea);
+  };
+  const forget = (textarea: HTMLTextAreaElement) => {
+    clear(textarea);
+    unhookValue(textarea, composers.get(textarea));
+    composers.delete(textarea);
+    dirty.delete(textarea);
+    visible.delete(textarea);
+    intersections.unobserve(textarea);
   };
 
   const processSent = (element: HTMLElement) => {
@@ -339,11 +437,15 @@ export function startKeywordShimmer(): Engine {
       offset += textNode.data.length;
     }
     const runs = runsFor(matches, nodes, starts);
-    const source: Source = { kind: "sent", text, words, nodes, runs, glyphs: flat(runs) };
+    const source: Source = { kind: "sent", text, words, present: wordsIn(runs), nodes, runs, glyphs: flat(runs) };
     sources.set(element, source);
     syncScheme(element);
     paint(source);
     intersections.observe(element);
+    // Near until the observer's first report says otherwise: it arrives after this frame is drawn.
+    near.add(element);
+    nearby.observe(element);
+    syncRules();
   };
 
   /** Lays the overlay over its textarea and shows it only while it has as many lines as the textarea. */
@@ -378,6 +480,7 @@ export function startKeywordShimmer(): Engine {
     if (shown === overlay.shown) return;
     overlay.element.style.visibility = shown ? "visible" : "hidden";
     overlay.shown = shown;
+    syncRules();
   };
 
   /** Builds a composer's see-through overlay and registers the textarea as a source. */
@@ -397,16 +500,17 @@ export function startKeywordShimmer(): Engine {
     element.appendChild(mirror);
     document.body.appendChild(element);
     const source: Source = {
-      kind: "composer", text: "", words: -1, nodes: [node], runs: [], glyphs: [],
+      kind: "composer", text: "", words: -1, present: 0, nodes: [node], runs: [], glyphs: [],
       overlay: { element, inner, node, mirror, textCss: "", padding: 0, css: "", mirrorCss: "", shown: false },
     };
     sources.set(textarea, source);
-    intersections.observe(textarea);
     return source;
   };
 
   const processComposer = (textarea: HTMLTextAreaElement) => {
-    if (styleOf("composer") === "off" || !textarea.isConnected || !isShown(textarea)) {
+    // Out of view means a hidden tab. One hidden by its own styles (opacity 0 while dictating) keeps its
+    // source, and place() hides the overlay until the textarea shows again.
+    if (styleOf("composer") === "off" || !textarea.isConnected || !visible.has(textarea)) {
       clear(textarea);
       return;
     }
@@ -431,11 +535,13 @@ export function startKeywordShimmer(): Engine {
       overlay.fits = undefined;
       source.runs = runsFor(matches, source.nodes, [0]);
       source.glyphs = flat(source.runs);
+      source.present = wordsIn(source.runs);
       syncScheme(textarea);
       paint(source);
+      syncRules();
     }
-    // Paseo restyles the composer per keystroke. Its text style is read here, on input, scroll, poll and
-    // rescan, and not in the frame loop.
+    // Paseo restyles the composer per keystroke. Its text style is read here, when its text or tab
+    // changes, on scroll, window focus and rescan, and not in the frame loop.
     const computed = getComputedStyle(textarea);
     overlay.textCss = COPIED.map((name) => `${name}:${computed.getPropertyValue(name)};`).join("");
     overlay.padding = parseFloat(computed.getPropertyValue("padding-top")) + parseFloat(computed.getPropertyValue("padding-bottom"));
@@ -461,7 +567,10 @@ export function startKeywordShimmer(): Engine {
     if (disposed || !preferences) return;
     for (const [element, source] of [...sources]) if (styleOf(source.kind) === "off") clear(element);
     for (const element of document.querySelectorAll<HTMLElement>(SENT)) processSent(element);
-    for (const element of document.querySelectorAll<HTMLTextAreaElement>(COMPOSER)) processComposer(element);
+    for (const element of document.querySelectorAll<HTMLTextAreaElement>(COMPOSER)) {
+      track(element);
+      processComposer(element);
+    }
     // A switch between moving and still colours keeps the glyphs and only repaints them.
     for (const source of sources.values()) paint(source);
     schedule();
@@ -471,22 +580,35 @@ export function startKeywordShimmer(): Engine {
   };
 
   // The chat list is virtualized: messages mount and unmount as it scrolls. Changes are collected
-  // and handled once per frame.
+  // and handled once per frame. Composers are tracked from the moment they mount, and sources and
+  // composers that left the page are dropped as soon as a removal is seen.
   let mutationFrame: number | undefined;
   const pending = new Set<HTMLElement>();
   const mutations = new MutationObserver((records) => {
-    if (disposed || styleOf("sent") === "off") return;
+    if (disposed || !preferences) return;
+    const sent = styleOf("sent") !== "off";
+    const watched = sent ? `${SENT}, ${COMPOSER}` : COMPOSER;
+    let removed = false;
     for (const record of records) {
-      const target = record.target.nodeType === Node.ELEMENT_NODE ? (record.target as HTMLElement) : record.target.parentElement;
-      const sent = target?.closest<HTMLElement>(SENT);
-      if (sent) pending.add(sent);
+      if (sent) {
+        const target = record.target.nodeType === Node.ELEMENT_NODE ? (record.target as HTMLElement) : record.target.parentElement;
+        const inside = target?.closest<HTMLElement>(SENT);
+        if (inside) pending.add(inside);
+      }
       if (record.type !== "childList") continue;
+      if (record.removedNodes.length > 0) removed = true;
       for (const node of Array.from(record.addedNodes)) {
         if (node.nodeType !== Node.ELEMENT_NODE) continue;
         const element = node as HTMLElement;
-        if (element.matches(SENT)) pending.add(element);
-        for (const inner of element.querySelectorAll<HTMLElement>(SENT)) pending.add(inner);
+        for (const found of [element, ...element.querySelectorAll<HTMLElement>(watched)]) {
+          if (found.matches(COMPOSER)) track(found as HTMLTextAreaElement);
+          else if (sent && found.matches(SENT)) pending.add(found);
+        }
       }
+    }
+    if (removed) {
+      for (const element of [...sources.keys()]) if (!element.isConnected) clear(element);
+      for (const textarea of [...composers.keys()]) if (!textarea.isConnected) forget(textarea);
     }
     if (pending.size === 0) return;
     mutationFrame ??= requestAnimationFrame(() => {
@@ -498,16 +620,35 @@ export function startKeywordShimmer(): Engine {
   });
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
 
-  // Unmounted sources, composers shown or hidden by a tab switch, values Paseo set without an event
-  // while no overlay was showing, and theme switches change nothing this module observes.
-  const poll = setInterval(() => {
-    if (disposed || !preferences) return;
-    for (const element of [...sources.keys()]) if (!element.isConnected) clear(element);
-    if (styleOf("composer") !== "off") {
-      for (const element of Array.from(document.querySelectorAll(COMPOSER))) processComposer(element as HTMLTextAreaElement);
-    }
-    syncScheme(sources.keys().next().value);
-  }, POLL_MS);
+  // Theme switches: Paseo's Unistyles swaps a theme class on <html> for a fixed theme and follows
+  // prefers-color-scheme for "auto". The tone is read again in the next frame, from any source.
+  let themeFrame: number | undefined;
+  const retone = () => {
+    if (disposed) return;
+    themeFrame ??= requestAnimationFrame(() => {
+      themeFrame = undefined;
+      const sample = sources.keys().next().value;
+      if (!disposed && sample) syncScheme(sample);
+    });
+  };
+  const themes = new MutationObserver(retone);
+  for (const root of [document.documentElement, document.body]) {
+    themes.observe(root, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+  }
+  const colorScheme = matchMedia("(prefers-color-scheme: dark)");
+  colorScheme.addEventListener("change", retone);
+
+  // Back in the window or tab, or resized (Paseo's breakpoints change the text style): re-read the
+  // composers in view and the theme.
+  const onReturn = () => {
+    if (disposed || !preferences || document.visibilityState === "hidden") return;
+    for (const textarea of composers.keys()) if (visible.has(textarea)) dirty.add(textarea);
+    schedule();
+    retone();
+  };
+  window.addEventListener("focus", onReturn);
+  window.addEventListener("resize", onReturn);
+  document.addEventListener("visibilitychange", onReturn);
 
   return {
     setPreferences(values) {
@@ -523,19 +664,66 @@ export function startKeywordShimmer(): Engine {
     },
     dispose() {
       disposed = true;
-      clearInterval(poll);
+      clearTimeout(offTimer);
       mutations.disconnect();
+      themes.disconnect();
       intersections.disconnect();
+      nearby.disconnect();
       document.removeEventListener("input", onComposerEvent, true);
       document.removeEventListener("scroll", onComposerEvent, true);
+      window.removeEventListener("focus", onReturn);
+      window.removeEventListener("resize", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
       reducedMotion.removeEventListener("change", schedule);
-      for (const handle of [frame, mutationFrame, rescanFrame]) if (handle !== undefined) cancelAnimationFrame(handle);
+      colorScheme.removeEventListener("change", retone);
+      for (const handle of [frame, mutationFrame, rescanFrame, themeFrame]) if (handle !== undefined) cancelAnimationFrame(handle);
       clearTimeout(stopTimer);
       for (const element of [...sources.keys()]) clear(element);
+      for (const textarea of [...composers.keys()]) forget(textarea);
       for (const { word } of MAGIC_KEYWORDS) for (let stop = 0; stop < STOPS; stop++) registry.delete(`${PREFIX}-${word}-${stop}`);
       style.remove();
     },
   };
+}
+
+/** The words that occur in `runs`, as a bit mask over {@link MAGIC_KEYWORDS}. */
+function wordsIn(runs: Run[]): number {
+  let words = 0;
+  for (const run of runs) words |= 1 << run.glyphs[0]!.keyword;
+  return words;
+}
+
+/**
+ * Paseo writes `textarea.value` directly on send, clear, draft restore, dictation and edit, which fires
+ * no event. Wrapping the setter on this one element makes those writes visible without polling;
+ * React's value tracker, an own property it defines at mount, stays in the chain.
+ */
+function hookValue(textarea: HTMLTextAreaElement, onSet: (textarea: HTMLTextAreaElement) => void): ValueHook | undefined {
+  const own = Object.getOwnPropertyDescriptor(textarea, "value");
+  const base = own ?? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+  const get = base?.get;
+  const set = base?.set;
+  if (!get || !set || own?.configurable === false) return undefined;
+  const hook: PropertyDescriptor = {
+    configurable: true,
+    enumerable: base.enumerable,
+    get(this: HTMLTextAreaElement) {
+      return get.call(this);
+    },
+    set(this: HTMLTextAreaElement, value: unknown) {
+      set.call(this, value);
+      onSet(textarea);
+    },
+  };
+  Object.defineProperty(textarea, "value", hook);
+  return { own, hook };
+}
+
+/** Undoes {@link hookValue}, unless something has replaced the hook since. */
+function unhookValue(textarea: HTMLTextAreaElement, hook: ValueHook | undefined) {
+  if (!hook || Object.getOwnPropertyDescriptor(textarea, "value")?.set !== hook.hook.set) return;
+  if (hook.own) Object.defineProperty(textarea, "value", hook.own);
+  else Reflect.deleteProperty(textarea, "value");
 }
 
 /**
