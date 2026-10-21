@@ -53,13 +53,19 @@ export async function prepareRightPane(source: HTMLElement | null): Promise<void
   if (current.length !== 1) return;
   const menu = source.querySelector<HTMLElement>('[data-testid="workspace-split-pane-menu"]');
   if (!menu) return;
+  // Paseo 0.12 has no plugin API to split a pane, so this presses the pane's own split menu.
   menu.click();
+  let split: HTMLElement;
   try {
-    const split = await waitFor(() => document.querySelector<HTMLElement>('[data-testid="workspace-split-pane-right"]'));
-    split.click();
-    await waitFor(() => panes().find(pane => pane !== source) ?? null);
+    split = await waitFor(() => document.querySelector<HTMLElement>('[data-testid="workspace-split-pane-right"]'));
   } catch (error) {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+    // Never synthesize Escape: Paseo hands it to the top overlay (which may not be this menu, e.g.
+    // fullscreen composer) or, with none open, to agent.interrupt. This backdrop exists only while
+    // the split menu is open, and pressing it closes that menu alone.
+    document.querySelector<HTMLElement>('[data-testid="workspace-split-pane-menu-content-backdrop"]')?.click();
     throw error;
   }
+  // The item closes the menu before it splits, so a timeout below leaves nothing to clean up.
+  split.click();
+  await waitFor(() => panes().find(pane => pane !== source) ?? null);
 }
