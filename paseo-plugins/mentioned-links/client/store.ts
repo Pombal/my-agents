@@ -90,25 +90,17 @@ export function kindCounts(links: readonly Link[]): { kind: LinkKind; count: num
 }
 
 /**
- * The types a chat's popover shows: the user's chips in that chat that are still present; else,
- * with two or more types, Web alone when the chat has web links; else every type.
+ * The one type a chat's popover shows, like a tab: the user's pick in that chat while that type is
+ * still present, else Web when the chat has web links, else its first type. Null without links.
  */
-export function shownKinds(links: readonly Link[], choice: readonly LinkKind[] | undefined): LinkKind[] {
+export function shownKind(links: readonly Link[], choice: LinkKind | undefined): LinkKind | null {
   const kinds = kindCounts(links).map((entry) => entry.kind);
-  if (kinds.length < 2) return kinds;
-  const kept = kinds.filter((kind) => choice?.includes(kind));
-  if (kept.length) return kept;
-  return kinds.includes("web") ? ["web"] : kinds;
+  if (choice && kinds.includes(choice)) return choice;
+  return kinds.includes("web") ? "web" : (kinds[0] ?? null);
 }
 
-/** A chip tap: the type goes on or off, except the last one on, so the list never empties. */
-export function toggleKind(shown: readonly LinkKind[], kind: LinkKind): readonly LinkKind[] {
-  if (!shown.includes(kind)) return KIND_ORDER.filter((each) => each === kind || shown.includes(each));
-  return shown.length > 1 ? shown.filter((each) => each !== kind) : shown;
-}
-
-/** Each chat's types switched on, for this app session only. */
-export const typeChoices = new Map<string, readonly LinkKind[]>();
+/** Each chat's picked type, for this app session only. */
+export const typeChoices = new Map<string, LinkKind>();
 
 /** Chats whose popover shows sub-agent links, for this app session only. */
 export const subagentChoices = new Set<string>();

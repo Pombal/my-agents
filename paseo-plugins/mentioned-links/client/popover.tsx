@@ -3,7 +3,7 @@ import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import type { Link, LinkKind } from "../shared/links";
-import { kindCounts, shownKinds, subagentChoices, toggleKind, typeChoices, whereLabel, withSubagents, type LinksStore } from "./store";
+import { kindCounts, shownKind, subagentChoices, typeChoices, whereLabel, withSubagents, type LinksStore } from "./store";
 
 const KIND_LABEL: Record<LinkKind, string> = { web: "Web", image: "Images", file: "Files" };
 
@@ -30,11 +30,11 @@ export function createLinksPopover(store: LinksStore) {
     const { theme, layout, close } = props;
     const agentId = props.context === "agent" ? props.agentId : "";
     const chat = useSyncExternalStore(subscribe, () => store.get(agentId));
-    const [choice, setChoice] = useState<readonly LinkKind[] | undefined>(() => typeChoices.get(agentId));
+    const [choice, setChoice] = useState<LinkKind | undefined>(() => typeChoices.get(agentId));
     const choose = useCallback(
-      (kinds: readonly LinkKind[]) => {
-        typeChoices.set(agentId, kinds);
-        setChoice(kinds);
+      (kind: LinkKind) => {
+        typeChoices.set(agentId, kind);
+        setChoice(kind);
       },
       [agentId],
     );
@@ -70,8 +70,9 @@ export function createLinksPopover(store: LinksStore) {
       () => ({
         // The surface is 280–420 px wide and sizes to its content; rows want all of it.
         list: layout.compact ? {} : { width: 396 },
-        chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 4, marginBottom: 4 },
-        chip: {
+        header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, marginBottom: 4 },
+        tabs: { flex: 1, flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 4 },
+        tab: {
           flexDirection: "row" as const,
           alignItems: "center" as const,
           gap: 4,
@@ -79,13 +80,14 @@ export function createLinksPopover(store: LinksStore) {
           paddingHorizontal: 8,
           borderRadius: 11,
         },
-        chipOn: { backgroundColor: theme.colors.surface2 },
-        // A little apart: it adds rows, the type chips pick among them.
-        subagentChip: { marginLeft: 4 },
-        chipText: { fontSize: 12, color: muted },
-        chipTextOn: { fontSize: 12, color: theme.colors.foreground },
-        chipCount: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
-        chipCountOff: { fontSize: 11, color: muted, opacity: 0.7, fontVariant: ["tabular-nums" as const] },
+        tabOn: { backgroundColor: theme.colors.surface2 },
+        tabText: { fontSize: 12, color: muted },
+        tabTextOn: { fontSize: 12, color: theme.colors.foreground },
+        tabCount: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
+        // Not a tab: a small text switch that adds rows, faint while off.
+        subagents: { fontSize: 11, color: muted, opacity: 0.6, fontVariant: ["tabular-nums" as const] },
+        subagentsHover: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
+        subagentsOn: { fontSize: 11, color: theme.colors.foreground, fontVariant: ["tabular-nums" as const] },
         line: { fontSize: 12, color: muted },
         row: {
           flexDirection: "row" as const,
@@ -138,39 +140,44 @@ export function createLinksPopover(store: LinksStore) {
 
     const all = withSubagents(links, chat.subagentLinks, subagentsShown);
     const kinds = kindCounts(all);
-    const shown = shownKinds(all, choice);
-    const rows = all.filter((link) => shown.includes(link.kind));
+    const shown = shownKind(all, choice);
+    const rows = all.filter((link) => link.kind === shown);
     const now = Date.now();
     return (
       <View style={styles.list}>
         {kinds.length > 1 || extra ? (
-          <View style={styles.chips}>
-            {kinds.map(({ kind, count }) => {
-              const on = shown.includes(kind);
-              return (
-                <Pressable
-                  key={kind}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${on ? "Hide" : "Show"} ${KIND_LABEL[kind].toLowerCase()}`}
-                  onPress={() => choose(toggleKind(shown, kind))}
-                  style={({ hovered }: PressState) => [styles.chip, (on || hovered) && styles.chipOn]}
-                >
-                  <Text style={on ? styles.chipTextOn : styles.chipText}>{KIND_LABEL[kind]}</Text>
-                  <Text style={on ? styles.chipCount : styles.chipCountOff}>{count}</Text>
-                </Pressable>
-              );
-            })}
+          <View style={styles.header}>
+            <View style={styles.tabs}>
+              {kinds.length > 1
+                ? kinds.map(({ kind, count }) => {
+                    const on = kind === shown;
+                    return (
+                      <Pressable
+                        key={kind}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: on }}
+                        accessibilityLabel={`Show ${KIND_LABEL[kind].toLowerCase()}`}
+                        onPress={() => choose(kind)}
+                        style={({ hovered }: PressState) => [styles.tab, (on || hovered) && styles.tabOn]}
+                      >
+                        <Text style={on ? styles.tabTextOn : styles.tabText}>{KIND_LABEL[kind]}</Text>
+                        <Text style={styles.tabCount}>{count}</Text>
+                      </Pressable>
+                    );
+                  })
+                : null}
+            </View>
             {extra ? (
               <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: subagentsShown }}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: subagentsShown }}
                 accessibilityLabel={subagentsShown ? "Hide links from subagents" : `Show ${extra} more ${extra === 1 ? "link" : "links"} from subagents`}
                 onPress={toggleSubagents}
-                style={({ hovered }: PressState) => [styles.chip, styles.subagentChip, (subagentsShown || hovered) && styles.chipOn]}
+                hitSlop={6}
               >
-                <Text style={subagentsShown ? styles.chipTextOn : styles.chipText}>↳ Subagents</Text>
-                <Text style={subagentsShown ? styles.chipCount : styles.chipCountOff}>{extra}</Text>
+                {({ hovered }: PressState) => (
+                  <Text style={subagentsShown ? styles.subagentsOn : hovered ? styles.subagentsHover : styles.subagents}>{`↳ subagents ${extra}`}</Text>
+                )}
               </Pressable>
             ) : null}
           </View>

@@ -1,34 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Link, LinkKind } from "../shared/links";
-import { kindCounts, shownKinds, toggleKind, whereLabel, withSubagents } from "./store";
+import { kindCounts, shownKind, whereLabel, withSubagents } from "./store";
 
 const link = (kind: LinkKind, n: number): Link => ({ key: `${kind}:${n}`, kind, title: `${kind} ${n}`, where: "", glyph: "File", lastAt: n });
 
-describe("type chips", () => {
-  it("lists only the types a chat has, in chip order", () => {
+describe("type tabs", () => {
+  it("lists only the types a chat has, in tab order", () => {
     expect(kindCounts([link("file", 1), link("image", 2), link("file", 3)])).toEqual([
       { kind: "image", count: 1 },
       { kind: "file", count: 2 },
     ]);
   });
 
-  it("show only web by default when the chat also has other types, else everything", () => {
-    expect(shownKinds([link("image", 1), link("web", 2), link("file", 3)], undefined)).toEqual(["web"]);
-    expect(shownKinds([link("image", 1), link("file", 2)], undefined)).toEqual(["image", "file"]);
-    expect(shownKinds([link("file", 1), link("file", 2)], ["image"])).toEqual(["file"]);
+  it("open on Web when the chat has web links, else on its first type", () => {
+    expect(shownKind([link("image", 1), link("web", 2), link("file", 3)], undefined)).toBe("web");
+    expect(shownKind([link("file", 1), link("image", 2)], undefined)).toBe("image");
+    expect(shownKind([], undefined)).toBeNull();
   });
 
-  it("keep the chips the user switched on while those types are present, else fall back", () => {
+  it("keep the user's tab while that type is present, else fall back", () => {
     const chat = [link("web", 1), link("image", 2), link("file", 3)];
-    expect(shownKinds(chat, ["image", "file"])).toEqual(["image", "file"]);
-    expect(shownKinds([link("web", 1), link("image", 2)], ["file"])).toEqual(["web"]);
-  });
-
-  it("switch one type on or off, in chip order, but never the last one off", () => {
-    expect(toggleKind(["file"], "web")).toEqual(["web", "file"]);
-    expect(toggleKind(["web", "file"], "web")).toEqual(["file"]);
-    const last = ["image"] as const;
-    expect(toggleKind(last, "image")).toBe(last);
+    expect(shownKind(chat, "file")).toBe("file");
+    expect(shownKind([link("web", 1), link("image", 2)], "file")).toBe("web");
   });
 });
 
