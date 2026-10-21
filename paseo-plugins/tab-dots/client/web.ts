@@ -31,7 +31,7 @@ interface El {
   style: { left: string; top: string };
 }
 interface PulseKeyframe { offset: number; opacity: number; transform: string; easing?: string }
-interface PulseAnimation { startTime: number | null; cancel(): void }
+interface PulseAnimation { startTime: number | null; readonly playState: string; pause(): void; cancel(): void }
 interface MediaQueryLike {
   readonly matches: boolean;
   addEventListener(type: "change", listener: () => void): void;
@@ -70,6 +70,13 @@ interface MutationRecordLike { target: El; addedNodes: ArrayLike<El>; removedNod
 declare class MutationObserver {
   constructor(callback: (records: MutationRecordLike[]) => void);
   observe(target: El, options: { childList: boolean; subtree: boolean }): void;
+  disconnect(): void;
+}
+interface IntersectionEntryLike { target: El; isIntersecting: boolean }
+declare class IntersectionObserver {
+  constructor(callback: (entries: IntersectionEntryLike[]) => void);
+  observe(target: El): void;
+  unobserve(target: El): void;
   disconnect(): void;
 }
 
@@ -219,12 +226,26 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   let shownDot: El | null = null;
   // Running row dots and their pulse. A Web Animation outlives its element's removal (and would
   // keep it alive), so each is cancelled once its dot leaves the page.
-  const pulses = new Map<El, PulseAnimation>();
+  const pulses = new Map<El, { animation: PulseAnimation; index: number }>();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  // A Web Animation on an element that isn't rendered (Paseo's collapsed sidebar is
+  // `display: none`) leaves the compositor and is ticked on the main thread every frame, where a
+  // CSS animation would simply stop. Pulses of dots off screen are paused, and rejoin the wave
+  // when their dot shows again.
+  const onScreen = new IntersectionObserver((entries) => {
+    for (const { target, isIntersecting } of entries) {
+      const pulse = pulses.get(target);
+      if (!pulse) continue;
+      if (!isIntersecting) pulse.animation.pause();
+      // Setting a start time resumes a paused animation.
+      else if (pulse.animation.playState === "paused") pulse.animation.startTime = waveStart(pulse.index);
+    }
+  });
   const dropDetachedPulses = () => {
-    for (const [dot, animation] of pulses) {
+    for (const [dot, { animation }] of pulses) {
       if (dot.isConnected) continue;
       animation.cancel();
+      onScreen.unobserve(dot);
       pulses.delete(dot);
     }
   };
@@ -294,7 +315,8 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       if (dot.state === "running" && !reducedMotion.matches) {
         const animation = element.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
         animation.startTime = waveStart(index);
-        pulses.set(element, animation);
+        pulses.set(element, { animation, index });
+        onScreen.observe(element);
       }
       container.appendChild(element);
     });
@@ -491,10 +513,11 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       reducedMotion.removeEventListener("change", schedule);
       for (const type of PRESS_EVENTS) window.removeEventListener(type, onPress, true);
       observer.disconnect();
+      onScreen.disconnect();
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
       document.querySelectorAll(ROWS).forEach((row) => { if (isMine(row)) clearRow(row); });
-      for (const animation of pulses.values()) animation.cancel();
+      for (const { animation } of pulses.values()) animation.cancel();
       pulses.clear();
       tip.remove();
       style.remove();

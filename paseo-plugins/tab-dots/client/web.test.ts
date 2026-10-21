@@ -28,8 +28,24 @@ const agentsOf = (...list: AgentInfo[]) => new Map(list.map((agent) => [agent.id
 const running = (id: string, workspaceId: string): AgentInfo =>
   unread(id, workspaceId, { status: "running", requiresAttention: false, attentionReason: null });
 
-/** `Element.animate` and the reduced-motion query, both missing from jsdom. */
-interface FakeAnimation { dot: Element; options: { duration: number; iterations: number }; startTime: number | null; cancelled: boolean; cancel(): void }
+/** `Element.animate`, `IntersectionObserver` and the reduced-motion query, all missing from jsdom. */
+class FakeAnimation {
+  cancelled = false;
+  playState: "running" | "paused" = "running";
+  #startTime: number | null = null;
+  constructor(readonly dot: Element, readonly options: { duration: number; iterations: number }) {}
+  get startTime() { return this.#startTime; }
+  // As in Web Animations: a start time makes a paused animation play again.
+  set startTime(value: number | null) {
+    this.#startTime = value;
+    if (value !== null) this.playState = "running";
+  }
+  pause() {
+    this.playState = "paused";
+    this.#startTime = null;
+  }
+  cancel() { this.cancelled = true; }
+}
 let animations: FakeAnimation[] = [];
 let reduceMotion = false;
 let motionListeners = new Set<() => void>();
@@ -37,9 +53,18 @@ const setReducedMotion = (value: boolean) => {
   reduceMotion = value;
   for (const listener of motionListeners) listener();
 };
-/** Agent ids of the dots in `row` with a live pulse, and each pulse's start time. */
+type Intersections = (entries: { target: Element; isIntersecting: boolean }[]) => void;
+let intersectionObservers: { callback: Intersections; targets: Set<Element> }[] = [];
+/** What the browser reports when `dots` leave or enter the screen. */
+const setOnScreen = (dots: Element[], isIntersecting: boolean) => {
+  for (const { callback, targets } of intersectionObservers) {
+    const seen = dots.filter((dot) => targets.has(dot));
+    if (seen.length > 0) callback(seen.map((target) => ({ target, isIntersecting })));
+  }
+};
+/** Agent ids of the dots in `row` with a playing pulse, and each pulse's start time. */
 const pulses = (row: Element) => Object.fromEntries(animations
-  .filter((animation) => !animation.cancelled && row.contains(animation.dot))
+  .filter((animation) => !animation.cancelled && animation.playState === "running" && row.contains(animation.dot))
   .map((animation) => [animation.dot.getAttribute("data-agent"), animation.startTime]));
 
 const dotsIn = (row: Element) => [...row.querySelectorAll("[data-tab-dots] > i")].map((dot) => dot.getAttribute("data-agent"));
@@ -69,15 +94,26 @@ beforeEach(() => {
   animations = [];
   reduceMotion = false;
   motionListeners = new Set();
+  intersectionObservers = [];
   vi.stubGlobal("matchMedia", () => ({
     get matches() { return reduceMotion; },
     addEventListener: (_type: string, listener: () => void) => motionListeners.add(listener),
     removeEventListener: (_type: string, listener: () => void) => motionListeners.delete(listener),
   }));
+  vi.stubGlobal("IntersectionObserver", class {
+    #entry: { callback: Intersections; targets: Set<Element> };
+    constructor(callback: Intersections) {
+      this.#entry = { callback, targets: new Set() };
+      intersectionObservers.push(this.#entry);
+    }
+    observe(target: Element) { this.#entry.targets.add(target); }
+    unobserve(target: Element) { this.#entry.targets.delete(target); }
+    disconnect() { this.#entry.targets.clear(); }
+  });
   Object.defineProperty(Element.prototype, "animate", {
     configurable: true,
     value(this: Element, _keyframes: unknown, options: FakeAnimation["options"]) {
-      const animation: FakeAnimation = { dot: this, options, startTime: null, cancelled: false, cancel() { this.cancelled = true; } };
+      const animation = new FakeAnimation(this, options);
       animations.push(animation);
       return animation;
     },
@@ -255,6 +291,24 @@ describe("running pulse", () => {
     dots.dispose();
     started = [];
     expect(animations.filter((animation) => !animation.cancelled)).toEqual([]);
+  });
+
+  // A Web Animation on a `display: none` dot (Paseo's collapsed sidebar) is ticked on the main
+  // thread every frame; measured 60 main frames/s for five dots.
+  test("a dot off screen holds its pulse, and rejoins the wave when it shows again", async () => {
+    const row = addRow("srv_A:wks_a");
+    start(agentsOf(running("a1", "wks_a"), running("a2", "wks_a")), SHOW_RUNNING);
+    await frames();
+    const wave = pulses(row);
+    const dots = [...row.querySelectorAll("[data-tab-dots] > i")];
+
+    setOnScreen(dots, false);
+    expect(pulses(row)).toEqual({});
+    expect(animations.every(({ cancelled }) => !cancelled)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(2500);
+    setOnScreen(dots, true);
+    expect(pulses(row)).toEqual(wave);
   });
 
   test("reduced motion keeps the dots still, and switching it applies at once", async () => {

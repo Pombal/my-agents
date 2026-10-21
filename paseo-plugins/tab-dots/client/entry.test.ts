@@ -40,6 +40,7 @@ let stop: (() => void) | null = null;
 beforeEach(() => {
   document.body.innerHTML = "";
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+  vi.stubGlobal("IntersectionObserver", class { observe() {} unobserve() {} disconnect() {} });
 });
 afterEach(() => { stop?.(); stop = null; vi.unstubAllGlobals(); });
 
