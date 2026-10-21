@@ -31,36 +31,49 @@ export function linkRoot(): string {
   return join(home, "omp-session-tree");
 }
 
-interface ProcessInfo {
+export interface OmpHost {
   pid: number;
-  argv: string[];
   env: Record<string, string>;
 }
 
-async function listProcesses(): Promise<ProcessInfo[]> {
-  const processes: ProcessInfo[] = [];
-  for (const name of await readdir("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    try {
-      const [cmdline, environ] = await Promise.all([readFile(`/proc/${name}/cmdline`, "utf8"), readFile(`/proc/${name}/environ`, "utf8")]);
-      const env: Record<string, string> = {};
-      for (const pair of environ.split("\0")) {
-        const at = pair.indexOf("=");
-        if (at > 0) env[pair.slice(0, at)] = pair.slice(at + 1);
+/**
+ * Paseo's OMP hosts for this chat: `omp --mode rpc-ui …` started with the chat's PASEO_AGENT_ID.
+ * Reads every process's short cmdline, and the environment only of OMP RPC processes.
+ */
+export async function ompHosts(agentId: string): Promise<OmpHost[]> {
+  const hosts: OmpHost[] = [];
+  await Promise.all(
+    (await readdir("/proc")).map(async name => {
+      if (!/^\d+$/.test(name)) return;
+      try {
+        const [command = "", ...args] = (await readFile(`/proc/${name}/cmdline`, "utf8")).split("\0").filter(Boolean);
+        if (!/(^|\/)omp$/.test(command) || !args.some(arg => /^(--mode=)?rpc(-ui)?$/.test(arg))) return;
+        const env: Record<string, string> = {};
+        for (const pair of (await readFile(`/proc/${name}/environ`, "utf8")).split("\0")) {
+          const at = pair.indexOf("=");
+          if (at > 0) env[pair.slice(0, at)] = pair.slice(at + 1);
+        }
+        if (env.PASEO_AGENT_ID === agentId) hosts.push({ pid: Number(name), env });
+      } catch {
+        // Exited meanwhile, or another user's process.
       }
-      processes.push({ pid: Number(name), argv: cmdline.split("\0").filter(Boolean), env });
-    } catch {
-      // Exited meanwhile, or another user's process.
-    }
-  }
-  return processes;
+    }),
+  );
+  return hosts;
 }
 
-/** Paseo's OMP hosts for this chat: `omp --mode rpc-ui …` started with the chat's PASEO_AGENT_ID. */
-export async function ompHosts(agentId: string): Promise<number[]> {
-  return (await listProcesses())
-    .filter(info => info.env.PASEO_AGENT_ID === agentId && /(^|\/)omp$/.test(info.argv[0] ?? "") && info.argv.slice(1).some(arg => /^(--mode=)?rpc(-ui)?$/.test(arg)))
-    .map(info => info.pid);
+/**
+ * Whether an OMP process with this environment loads the session-tree extension: through a config
+ * overlay (PI_CONFIG_FILES, how Paseo's OMP providers get it) or the profile's extensions folder.
+ */
+export async function loadsExtension(env: Record<string, string>): Promise<boolean> {
+  for (const file of (env.PI_CONFIG_FILES ?? "").split(":").filter(Boolean)) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (/\.omp\/extensions\/session-tree\b/.test(text)) return true;
+  }
+  const home = env.HOME || homedir();
+  const agentDir = env.OMP_PROFILE ? join(home, ".omp", "profiles", env.OMP_PROFILE, "agent") : join(home, ".omp", "agent");
+  return readdir(join(agentDir, "extensions")).then(names => names.includes("session-tree"), () => false);
 }
 
 /** Pids of this chat's OMP processes that loaded the extension. */
@@ -120,7 +133,7 @@ export async function cancelRequest(agentId: string, id: string): Promise<void> 
 export async function cleanUp(agentId: string, id: string): Promise<void> {
   const dir = join(linkRoot(), agentId);
   const names = await readdir(dir).catch(() => [] as string[]);
-  const live = new Set(await ompHosts(agentId));
+  const live = new Set((await ompHosts(agentId)).map(host => host.pid));
   await Promise.all(
     names
       .filter(name => name.startsWith(`${id}.`) || (/^\.process-\d+$/.test(name) && !live.has(Number(name.slice(9)))))

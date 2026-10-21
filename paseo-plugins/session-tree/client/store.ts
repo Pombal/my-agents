@@ -43,6 +43,12 @@ const SLOW_CHATS_MS = 5_000;
 const SLOW_STATE_MS = 2_000;
 const FAST_MS = 500;
 const SUMMARIZED_MS = 2_500;
+const STATE_TIMEOUT_MS = 15_000;
+/** The server bounds every step (reloads, OMP replies); past these a move is given up on screen. */
+const MOVE_LIMIT_MS = 4 * 60_000;
+const SUMMARIZE_LIMIT_MS = 20 * 60_000;
+/** A move the server neither runs nor finished, this long after it was accepted: the server lost it. */
+const LOST_MS = 5_000;
 
 export class TreeStore {
   readonly #transport: TreeTransport;
@@ -61,6 +67,10 @@ export class TreeStore {
   /** Op ids this client started; their outcomes become notices here. */
   readonly #mine = new Set<string>();
   readonly #reported = new Set<string>();
+  /** Per chat: the move this client started and still waits on. */
+  readonly #tracking = new Map<string, { opId: string; kind: OpKind; since: number }>();
+  /** Moves given up on: no longer shown as running even if the server still reports them. */
+  readonly #ignored = new Set<string>();
   #noticeKey = 0;
   #disposed = false;
   #chatsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -117,9 +127,12 @@ export class TreeStore {
     await Promise.all(
       [...ids].map(async agentId => {
         try {
-          const state = await this.#transport.state(agentId);
-          this.#states.set(agentId, state);
-          this.#settle(agentId, state);
+          // A hung request must not stop the polling loop (and leave a move "running" on screen).
+          const state = await Promise.race([
+            this.#transport.state(agentId),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), STATE_TIMEOUT_MS)),
+          ]);
+          this.#states.set(agentId, this.#settle(agentId, state));
         } catch {
           // Keep the last state.
         }
@@ -130,14 +143,39 @@ export class TreeStore {
     this.#stateTimer = setTimeout(() => void this.refreshStates(), fast ? FAST_MS : SLOW_STATE_MS);
   }
 
-  /** Turns finished moves this client started into notices. */
-  #settle(agentId: string, state: TreeState): void {
+  /**
+   * Turns finished moves this client started into notices, and gives up on a move whose end it
+   * cannot see: one running far too long, or one the server no longer knows (plugin restarted).
+   * Returns the state to show: a move given up on no longer dims the chat.
+   */
+  #settle(agentId: string, state: TreeState): TreeState {
+    if (state.op && this.#ignored.has(state.op.id)) state = { ...state, op: null };
     if (state.op) this.#starting.delete(agentId);
     const last = state.last;
-    if (!last || this.#reported.has(last.id) || !this.#mine.has(last.id)) return;
-    this.#reported.add(last.id);
+    const mine = this.#tracking.get(agentId);
+    if (last && !this.#reported.has(last.id) && this.#mine.has(last.id)) {
+      this.#reported.add(last.id);
+      this.#starting.delete(agentId);
+      if (mine?.opId === last.id) this.#tracking.delete(agentId);
+      this.#report(agentId, last);
+      return state;
+    }
+    if (!mine) return state;
+    const age = Date.now() - mine.since;
+    let giveUp: string | undefined;
+    if (state.op?.id === mine.opId) {
+      if (age > (mine.kind === "summarize" ? SUMMARIZE_LIMIT_MS : MOVE_LIMIT_MS)) {
+        giveUp = "The branch switch is taking too long. Reload the chat if it looks wrong.";
+      }
+    } else if (!state.op && last?.id !== mine.opId && age > LOST_MS) {
+      giveUp = "Lost track of the branch switch (the plugin restarted?). Reload the chat if it looks wrong.";
+    }
+    if (!giveUp) return state;
+    this.#ignored.add(mine.opId);
+    this.#tracking.delete(agentId);
     this.#starting.delete(agentId);
-    this.#report(agentId, last);
+    this.notify(agentId, giveUp, undefined, true);
+    return state.op?.id === mine.opId ? { ...state, op: null } : state;
   }
 
   #report(agentId: string, last: Outcome): void {
@@ -168,7 +206,9 @@ export class TreeStore {
     this.#focusOpen.delete(agentId);
     this.#emit();
     try {
-      this.#mine.add(await call());
+      const opId = await call();
+      this.#mine.add(opId);
+      this.#tracking.set(agentId, { opId, kind, since: Date.now() });
       void this.refreshStates();
       void this.refreshChats();
     } catch (error) {

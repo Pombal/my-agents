@@ -1,4 +1,4 @@
-Companion of the Paseo plugin `session-tree` (`paseo-plugins/session-tree/`): moves a Paseo-hosted OMP chat around its own session tree (OMP's `/tree`). Installed by the symlink `~/.omp/agent/extensions/session-tree` → this folder.
+Companion of the Paseo plugin `session-tree` (`paseo-plugins/session-tree/`): moves a Paseo-hosted OMP chat around its own session tree (OMP's `/tree`). Loaded for Paseo's OMP agents (all profiles) by the `extensions:` entry in `~/.paseo/omp-overlay.yml` (Paseo's `omp`/`omp-nilo` providers set `PI_CONFIG_FILES` to it). If it is ever loaded twice, the second copy does nothing.
 
 ## How
 
@@ -13,4 +13,4 @@ Companion of the Paseo plugin `session-tree` (`paseo-plugins/session-tree/`): mo
 - Running agents load extensions only at start; the plugin reloads a chat that lacks the extension on its first move (or run `paseo agent reload <id>`).
 - Coupled to AgentSession members `navigateTree`, `abortBranchSummary`, `isBusyForSnapshot` and SessionManager `getSessionFile/getLeafId/getEntry/appendCustomEntry/flush`. If an OMP update changes them, moves fail with an error toast.
 
-Disable: remove the symlink, then restart OMP agents.
+Disable: remove its line from `~/.paseo/omp-overlay.yml`, then reload OMP agents.

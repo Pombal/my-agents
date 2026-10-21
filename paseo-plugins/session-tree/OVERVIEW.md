@@ -7,9 +7,13 @@ summarized, or opened in its own tab. Design: variant 1 "Instant, offer after"
 `~/www/webshare/pages/session-tree-demo/`. OMP chats only (provider `omp` or a provider that
 `extends` it in `~/.paseo/config.json`); every other chat shows nothing.
 
-Needs the companion OMP extension `~/workspace/my-agents/.omp/extensions/session-tree/`
-(linked as `~/.omp/agent/extensions/session-tree`). A chat whose OMP process started before the
-extension existed is reloaded once automatically on its first branch move.
+Needs the companion OMP extension `~/workspace/my-agents/.omp/extensions/session-tree/`, loaded
+for every Paseo OMP agent in every OMP profile (`omp`, `omp-nilo`) through the Paseo-only overlay
+`~/.paseo/omp-overlay.yml` (`extensions:` list; the providers set `PI_CONFIG_FILES` to it). Not
+in `~/.omp/agent/extensions/`: that folder is the default profile's only, so `omp-nilo` chats
+(`~/.omp/profiles/nilo/agent/`) never loaded it. A chat whose OMP process started before the
+extension existed is reloaded once automatically on its first branch move. A chat whose setup
+cannot load it fails at once with a toast naming the overlay (no reload, no waiting).
 
 ## What you see
 

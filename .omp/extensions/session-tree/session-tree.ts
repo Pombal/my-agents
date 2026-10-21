@@ -126,6 +126,10 @@ export default function sessionTree(api: SessionTreeApi) {
 	const dir = linkDir(process.env);
 	// Tools can start nested non-RPC `omp` processes with the same environment; only Paseo's RPC host serves requests.
 	if (!dir || !process.argv.some(arg => /^(--mode=)?rpc(-ui)?$/.test(arg))) return;
+	// Loaded twice (config overlay and an extensions folder)? Serve once, or two watchers race for each request.
+	const loaded = Symbol.for("paseo-session-tree.loaded");
+	if (Reflect.get(globalThis, loaded)) return;
+	Reflect.set(globalThis, loaded, true);
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(join(dir, `.process-${process.pid}`), "");
 

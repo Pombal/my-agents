@@ -9,13 +9,12 @@ import {
   treeCancel, treeChats, treeDismiss, treeGoto, treeOpenTab, treeState, treeSummarize, treeSummary,
 } from "./shared/tree";
 import { readEntries, SessionTree } from "./server/session-file";
-import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, ompHosts, sendRequest, servingPids } from "./server/link";
+import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, loadsExtension, ompHosts, sendRequest, servingPids } from "./server/link";
 import { connectLocalDaemon, reloadChat } from "./server/daemon";
 import { copyBranch, removeCopy } from "./server/branch-copy";
 
 const UNSUPPORTED: TreeState = { supported: false, ready: false, busy: false, turns: [], branches: [], offer: null, op: null, last: null };
-/** Outcomes stay readable this long, so clients that polled late still see them. */
-const OUTCOME_MS = 15_000;
+const NOT_LOADED = "This chat's OMP setup does not load the session-tree extension. Add it to ~/.paseo/omp-overlay.yml (see the plugin's OVERVIEW.md).";
 
 /** Parsed session files, re-read only when size or mtime changed. */
 const trees = new Map<string, { size: number; mtimeMs: number; tree: SessionTree }>();
@@ -84,27 +83,30 @@ export default function contribute(server: PluginServerContext) {
     return setAside > 0 ? { markerId: marker.id, setAside, from: marker.data.from, fork: marker.data.fork } : null;
   }
 
+  /** The latest finished move per chat, kept until the next one: a client that polled late still learns how its move ended. */
   function lastOutcome(agentId: string): Outcome | null {
-    const outcome = outcomes.get(agentId);
-    return outcome && Date.now() - outcome.finishedAt < OUTCOME_MS ? outcome : null;
+    return outcomes.get(agentId) ?? null;
   }
 
   /**
-   * Makes sure the chat's OMP process has the extension. A chat without a process, or one
-   * started before the extension was installed, is reloaded first (that loads the extension).
+   * Makes sure the chat's OMP process serves requests. One that started before the extension was
+   * installed (or no process at all) is reloaded once. One whose setup never loads the extension
+   * fails at once, without reloading the chat for nothing.
    */
   async function ensureServing(agentId: string): Promise<void> {
-    const hosts = await ompHosts(agentId);
-    const serving = await servingPids(agentId);
-    if (hosts.length && hosts.every(pid => serving.has(pid))) return;
+    const ready = async () => {
+      const hosts = await ompHosts(agentId);
+      const serving = await servingPids(agentId);
+      if (hosts.length && hosts.every(host => serving.has(host.pid))) return true;
+      for (const host of hosts) if (!serving.has(host.pid) && !(await loadsExtension(host.env))) throw new Error(NOT_LOADED);
+      return false;
+    };
+    if (await ready()) return;
     await reloadChat(agentId);
-    for (let waited = 0; waited < 15_000; waited += 200) {
-      const now = await ompHosts(agentId);
-      const marked = await servingPids(agentId);
-      if (now.length && now.every(pid => marked.has(pid))) return;
-      await sleep(200);
+    for (const deadline = Date.now() + 10_000; Date.now() < deadline; await sleep(250)) {
+      if (await ready()) return;
     }
-    throw new Error("This chat's OMP process did not load the session-tree extension. Is it linked in ~/.omp/agent/extensions/?");
+    throw new Error("This chat's OMP process did not start serving branch moves. Try again, or reload the chat.");
   }
 
   /** Runs one request against the OMP extension, then reloads the chat so Paseo shows the new path. */
@@ -179,7 +181,7 @@ export default function contribute(server: PluginServerContext) {
     const op = ops.get(agentId);
     return {
       supported: true,
-      ready: hosts.every(pid => serving.has(pid)),
+      ready: hosts.every(host => serving.has(host.pid)),
       busy: found.agent.status === "running",
       turns: tree.turns(),
       branches: tree.branches(),

@@ -425,7 +425,8 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
     for (const [agentId, dock] of docks) {
       const scroll = byAgent.get(agentId);
       const pane = scroll?.closest('[data-testid^="workspace-pane-"]') ?? scroll?.parentElement?.parentElement;
-      const composer = pane?.querySelector('[data-testid="message-input-root"]');
+      // A pane keeps hidden tabs mounted: take the composer that is on screen.
+      const composer = [...(pane?.querySelectorAll('[data-testid="message-input-root"]') ?? [])].find(visible);
       if (!scroll || !composer) {
         dock.node.style.display = "none";
         continue;
