@@ -195,25 +195,27 @@ describe("every animation runs on the compositor", () => {
   /** The CSS the plugin puts on the page: catalog (spinners, labels, time) and footer rules. */
   const pluginCss = () => [...document.querySelectorAll('style[data-plugin^="turn-status"]')].map((style) => style.textContent).join("\n");
 
-  test("keyframes and transitions change only transform and opacity", () => {
+  test("keyframes and transitions change only transform and opacity (and starburst's clip-path, which Chromium composites)", () => {
     start({});
     const css = pluginCss();
     const animated = new Set<string>();
-    for (const match of css.matchAll(/@keyframes\s+[\w-]+\s*\{/g)) {
+    for (const match of css.matchAll(/@keyframes\s+([\w-]+)\s*\{/g)) {
       let depth = 0, i = match.index + match[0].length - 1;
       const from = i;
       for (; i < css.length; i++) {
         if (css[i] === "{") depth++;
         else if (css[i] === "}" && --depth === 0) break;
       }
-      for (const [, property] of css.slice(from, i).matchAll(/[{;]\s*([a-z-]+)\s*:/g)) animated.add(property!);
+      for (const [, property] of css.slice(from, i).matchAll(/[{;]\s*([a-z-]+)\s*:/g)) {
+        animated.add(property === "clip-path" ? `${match[1]}: clip-path` : property!);
+      }
     }
     for (const [, value] of css.matchAll(/(?:^|[{;\s])transition\s*:\s*([^;}]+)/g)) {
       for (const part of value!.split(/,(?![^(]*\))/)) animated.add(part.trim().split(/\s+/)[0]!);
     }
     animated.delete("animation-timing-function");
     animated.delete("none");
-    expect([...animated].sort()).toEqual(["opacity", "transform"]);
+    expect([...animated].sort()).toEqual(["opacity", "spn-burst: clip-path", "transform"]);
   });
 });
 

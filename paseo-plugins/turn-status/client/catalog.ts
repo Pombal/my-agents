@@ -80,8 +80,8 @@ function flipbook(name: string, copies: string, frames: number, ease: (x: number
   return css;
 }
 
-/** Flipbook slots per cycle: one per 60 Hz frame (morph 1.6 s, starburst 2.2 s). */
-const MORPH_FRAMES = 96, BURST_FRAMES = 132;
+/** Flipbook slots per cycle: one per 60 Hz frame (1.6 s). */
+const MORPH_FRAMES = 96;
 
 function generated(): string {
   let css = "";
@@ -108,8 +108,8 @@ function generated(): string {
   css += flipbook("spn-morph", ".spn-morph b i", MORPH_FRAMES, cubicBezier(0.42, 0, 0.58, 1),
     (p) => `border-radius:calc(${f3(0.08 * (1 - p))}em + ${(50 * p).toFixed(2)}%)`);
   // Starburst: 24 points, alternating radii; the inner ones pull in and out.
-  css += flipbook("spn-burst", ".spn-burst b i", BURST_FRAMES, cubicBezier(0.6, 0, 0.4, 1),
-    (p) => `clip-path:${polygon(24, (j) => (j % 2 ? 0.92 + (0.36 - 0.92) * p : 1))}`);
+  const burst = (inner: number) => polygon(24, (j) => (j % 2 ? inner : 1));
+  css += `@keyframes spn-burst{0%{clip-path:${burst(0.92)};transform:rotate(0) scale(.7)}50%{clip-path:${burst(0.36)};transform:rotate(90deg) scale(1)}100%{clip-path:${burst(0.92)};transform:rotate(180deg) scale(.7)}}`;
   // Sliding tiles: the empty corner travels clockwise; 12 moves bring every tile home.
   const corners = [[0, 0], [0.6, 0], [0.6, 0.6], [0, 0.6]] as const;
   const at = [0, 1, 2];
@@ -220,13 +220,13 @@ const STATIC_CSS = `
 @keyframes spn-phase { 0% { transform: translateX(-1.9em) } 50% { transform: translateX(-1.15em) } 100% { transform: translateX(-.4em) } }
 @keyframes spn-phase-moon { 0% { transform: translateX(1.9em) } 50% { transform: translateX(1.15em) } 100% { transform: translateX(.4em) } }
 
-/* Morph and starburst: b spins; the shape change inside is a flipbook (see flipbook()). */
+/* Morph: b spins; the shape change inside is a flipbook (see flipbook()). */
 .spn-morph b { position: absolute; inset: .2em; animation: spn-morph 1.6s ease-in-out infinite; }
 .spn-morph b i { position: absolute; inset: 0; background: currentColor; opacity: 0; animation: 1.6s step-end infinite; }
 @keyframes spn-morph { 0% { transform: rotate(0) scale(.85) } 50% { transform: rotate(180deg) scale(.6) } 100% { transform: rotate(360deg) scale(.85) } }
-.spn-burst b { position: absolute; inset: .04em; animation: spn-burst 2.2s cubic-bezier(.6, 0, .4, 1) infinite; }
-.spn-burst b i { position: absolute; inset: 0; background: currentColor; opacity: 0; animation: 2.2s step-end infinite; }
-@keyframes spn-burst { 0% { transform: rotate(0) scale(.7) } 50% { transform: rotate(90deg) scale(1) } 100% { transform: rotate(180deg) scale(.7) } }
+/* Starburst keeps its clip-path animation: Chromium runs clip-path animations on the compositor
+   (lab, Chromium 150: no main-thread frames as a Web Animation, and cheaper than a 67-copy flipbook). */
+.spn-burst::after { content: ""; position: absolute; inset: .04em; background: currentColor; animation: spn-burst 2.2s cubic-bezier(.6, 0, .4, 1) infinite; }
 
 .spn-constel .spn-star { transform: scale(0); animation: spn-pop 2s ease-in-out infinite; }
 .spn-constel .spn-star:nth-child(1) { left: .05em; top: .1em; width: .42em; height: .42em; animation-duration: 1.9s }
@@ -379,7 +379,7 @@ export const SPINNER_MARKUP: Record<Exclude<SpinnerId, "off">, { cls: string; ht
   eclipse: { cls: "spn-eclipse", html: dots(3) },
   "moon-phases": { cls: "spn-phase", html: "<i><b><b></b></b></i>" },
   morph: { cls: "spn-morph", html: `<b>${dots(MORPH_FRAMES / 2 + 1)}</b>` },
-  starburst: { cls: "spn-burst", html: `<b>${dots(BURST_FRAMES / 2 + 1)}</b>` },
+  starburst: { cls: "spn-burst", html: "" },
   constellation: { cls: "spn-constel", html: stars(5) },
   bounce: { cls: "spn-bounce", html: "" },
   "sideways-bounce": { cls: "spn-hbounce spn-wide", html: dots(1) },

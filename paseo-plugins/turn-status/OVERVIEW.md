@@ -65,18 +65,20 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   repainted on the main thread every frame while a turn was in view. Same 100° band, 300 % width
   and 1.8 s sweep as before. The shimmer time style now hides Paseo's elapsed text and shows our
   copy in the same font (as rolling always did); the icon style's one band covers icon and text.
-- **Spinners** that animated main-thread properties now use transform/opacity only, same look:
+- **Spinners** that animated main-thread properties now run on the compositor, same look:
   binary pair drops its `z-index` keyframes (both dots are one colour, so stacking never showed);
   atom and eclipse draw the orbiting body twice, under and over the centre body, and swap the two
   with step-end opacity where the `z-index` used to flip (`depthSwap()`); moon phases slides the
   masked element and counter-slides the moon inside it (the old `mask-position` sweep); morph
-  (`border-radius`) and starburst (`clip-path`) spin a wrapper and change shape as a flipbook of
-  pre-drawn copies, one shown per display frame by step-end opacity (`flipbook()`: 96 and 132
-  slots per cycle = one per 60 Hz frame, 49 and 67 copies, each slot centred on a frame time so a
-  60 Hz display never lands on a switch; sampled with the old easing). Measured frame by frame at
-  60 Hz with rotation frozen: the shape is within 0.002 px of the old continuous change, and changes
-  on the same frames. Rolling time digits slide by `transform` instead of `margin-top`, in
-  whole-pixel steps (`round()`), so they rest exactly where `margin-top` put them.
+  (`border-radius`) spins a wrapper and changes shape as a flipbook of pre-drawn copies, one shown
+  per display frame by step-end opacity (`flipbook()`: 96 slots per cycle = one per 60 Hz frame,
+  49 copies, each slot centred on a frame time so a 60 Hz display never lands on a switch; sampled
+  with the old easing). Measured frame by frame at 60 Hz with rotation frozen, the shape is within
+  0.002 px of the old continuous change and changes on the same frames. Starburst keeps its own
+  `clip-path` keyframes: Chromium composites clip-path animations, and as a Web Animation it ran
+  with no main-thread frames and cost less than a 67-copy flipbook (lab, renderer compositor
+  49–65 vs 75 ms/s, viz 26–35 vs 89 ms/s). Rolling time digits slide by `transform` instead of
+  `margin-top`, in whole-pixel steps (`round()`), so they rest exactly where `margin-top` put them.
 - **Animations run as Web Animations** (`runOnCompositor()` in `client/web.ts`). Paseo's React
   root listens for `animationiteration`; while anything listens, Chromium wakes the main thread
   for each running CSS animation (lab probe: one 250 ms CSS animation = 20 main frames/s; the same

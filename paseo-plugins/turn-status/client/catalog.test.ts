@@ -26,7 +26,7 @@ const copiesIn = (html: string) => html.match(/<i><\/i>/g)?.length ?? 0;
 const SAMPLES = Array.from({ length: 10000 }, (_, k) => k / 100);
 
 describe("flipbooks", () => {
-  test.each([["morph", "spn-morph"], ["starburst", "spn-burst"]] as const)("%s shows exactly one copy at every moment, out and back", (id, name) => {
+  test.each([["morph", "spn-morph"]] as const)("%s shows exactly one copy at every moment, out and back", (id, name) => {
     const copies = copiesIn(SPINNER_MARKUP[id].html);
     const books = Array.from({ length: copies }, (_, j) => keyframes(`${name}${j}`));
     expect(CATALOG_CSS).not.toContain(`@keyframes ${name}${copies}{`);
@@ -41,7 +41,7 @@ describe("flipbooks", () => {
     }
   });
 
-  test.each([["morph", "spn-morph", 1600], ["starburst", "spn-burst", 2200]] as const)("%s switches copies only between 60 Hz frames", (id, name, cycle) => {
+  test.each([["morph", "spn-morph", 1600]] as const)("%s switches copies only between 60 Hz frames", (id, name, cycle) => {
     const copies = copiesIn(SPINNER_MARKUP[id].html);
     const switches = Array.from({ length: copies }, (_, j) => keyframes(`${name}${j}`).map(([offset]) => (offset * cycle) / 100))
       .flat().filter((ms) => ms > 0 && ms < cycle);
