@@ -62,10 +62,13 @@ declare const document: {
   createElement(tag: "style"): StyleElement;
   createRange(): DomRange;
   createTreeWalker(root: DomElement, whatToShow: number): { nextNode(): DomNode | null };
+  addEventListener(type: "scroll", listener: () => void, options: { capture: true; passive: true }): void;
+  removeEventListener(type: "scroll", listener: () => void, options: { capture: true }): void;
 };
 declare const window: {
-  addEventListener(type: "focus", listener: () => void): void;
-  removeEventListener(type: "focus", listener: () => void): void;
+  readonly innerHeight: number;
+  addEventListener(type: "focus" | "resize", listener: () => void): void;
+  removeEventListener(type: "focus" | "resize", listener: () => void): void;
 };
 declare function matchMedia(query: string): {
   addEventListener(type: "change", listener: () => void): void;
@@ -104,6 +107,14 @@ const EDIT_KINDS: EditKind[] = ["delEdit", "addEdit"];
 const SIDES: Side[] = ["add", "del"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
 const GUTTER_BAR_PX = 2;
+/**
+ * How far off screen (px) a block keeps its highlights. Chromium repaints every highlighted text
+ * node in its paint area, which reaches thousands of pixels around the visible part of the chat,
+ * on every frame, so far blocks only cost. Scrolling on the compositor can show already-painted
+ * content before the page sees the scroll; this margin is far more than it gets ahead, so a block
+ * has its colors back long before it shows.
+ */
+const NEAR_PX = 1500;
 
 // Token kinds per line kind. Kinds that never occur there (signs on context lines, header/hunk
 // on changed lines) get no highlight: every `::highlight` rule costs style time on each element.
@@ -130,6 +141,8 @@ interface Block {
   starts: number[];
   /** Border-box size the rows were last painted for; resize reports of this size are no-ops. */
   size: string;
+  /** Whether `ranges` are in the page's highlights: only while the block is on or near screen. */
+  shown: boolean;
 }
 
 /** Starts coloring diff code blocks. Returns cleanup; a no-op off the web. */
@@ -186,14 +199,34 @@ export function startDiffHighlighting(): () => void {
     return true;
   };
 
-  const dropRanges = (block: Block) => {
+  const show = (block: Block) => {
+    if (block.shown) return;
+    block.shown = true;
+    for (const [name, range] of block.ranges) highlights.get(name)?.add(range);
+  };
+  const hide = (block: Block) => {
+    if (!block.shown) return;
+    block.shown = false;
     for (const [name, range] of block.ranges) highlights.get(name)?.delete(range);
+  };
+  // A block in a hidden panel (another tab) has no box: it keeps what it has, so switching back
+  // shows its colors in the first frame. Hidden, it isn't painted anyway.
+  const place = (pre: DomElement, block: Block) => {
+    const box = pre.getBoundingClientRect();
+    if (box.height === 0) return;
+    if (box.bottom > -NEAR_PX && box.top < window.innerHeight + NEAR_PX) show(block);
+    else hide(block);
+  };
+  // Runs inside the frame that moved the blocks (scroll and resize events come before paint), so
+  // a block reaching the screen is colored in that same frame.
+  const placeAll = () => {
+    for (const [pre, block] of blocks) place(pre, block);
   };
 
   const clear = (pre: DomElement) => {
     const block = blocks.get(pre);
     if (!block) return;
-    dropRanges(block);
+    hide(block);
     for (const property of ROW_STYLE) pre.style.removeProperty(property);
     blocks.delete(pre);
     resizes.unobserve(pre);
@@ -260,7 +293,8 @@ export function startDiffHighlighting(): () => void {
     if (existing && existing.code === code && existing.text === text && existing.nodes.every((node) => node.isConnected)) return;
     // Re-processing keeps the block observed: a fresh observation would report its size once more
     // and repaint rows that are painted below anyway.
-    if (existing) dropRanges(existing);
+    const shown = existing ? existing.shown : true;
+    if (existing) hide(existing);
 
     const nodes: DomText[] = [];
     const starts: number[] = [];
@@ -272,15 +306,12 @@ export function startDiffHighlighting(): () => void {
       starts.push(offset);
       offset += textNode.data.length;
     }
-    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, size: "" };
+    const block: Block = { code, text, model: parseDiff(text), ranges: [], nodes, starts, size: "", shown: false };
     const mark = (name: string, start: number, end: number) => {
-      const highlight = highlights.get(name);
-      const from = highlight && locate(block, start);
+      const from = highlights.has(name) && locate(block, start);
       const to = from && locate(block, end);
       if (!to) return;
-      const range = new StaticRange({ startContainer: from[0], startOffset: from[1], endContainer: to[0], endOffset: to[1] });
-      highlight.add(range);
-      block.ranges.push([name, range]);
+      block.ranges.push([name, new StaticRange({ startContainer: from[0], startOffset: from[1], endContainer: to[0], endOffset: to[1] })]);
     };
     // Tokens on added/removed lines go to that side's tinted highlight; spans come in line order.
     const lines = block.model.lines;
@@ -292,10 +323,12 @@ export function startDiffHighlighting(): () => void {
     }
     for (const line of lines) if ((line.kind === "add" || line.kind === "del") && line.end > line.start + 1) mark(`text-${line.kind}`, line.start + 1, line.end);
     for (const edit of block.model.edits) mark(edit.kind, edit.start, edit.end);
+    if (shown) show(block);
     blocks.set(pre, block);
     if (!existing) resizes.observe(pre);
     if (syncPalette(code)) repaintAll();
     else paintRows(pre, block);
+    place(pre, block);
   };
 
   const repaintAll = () => {
@@ -306,9 +339,12 @@ export function startDiffHighlighting(): () => void {
   const pendingResize = new Set<DomElement>();
   const resizes = new ResizeObserver((entries) => {
     for (const entry of entries) {
+      const block = blocks.get(entry.target);
+      // Reported after layout, before paint: a block back from a hidden panel is placed this frame.
+      if (block) place(entry.target, block);
       const size = entry.borderBoxSize?.[0];
       // Reports of the size the rows were painted for (every fresh observation sends one) change nothing.
-      if (size && blocks.get(entry.target)?.size === `${size.inlineSize}x${size.blockSize}`) continue;
+      if (size && block?.size === `${size.inlineSize}x${size.blockSize}`) continue;
       pendingResize.add(entry.target);
     }
     if (pendingResize.size === 0) return;
@@ -321,11 +357,16 @@ export function startDiffHighlighting(): () => void {
       pendingResize.clear();
     });
   });
+  document.addEventListener("scroll", placeAll, { capture: true, passive: true });
+  window.addEventListener("resize", placeAll);
 
   // Streaming rewrites a block's text node in place; virtualized chat mounts and unmounts blocks.
   // Changes are collected and handled once per frame, so a fast stream re-parses a growing block
-  // at most at the display rate. Unmounted blocks are let go right away, without a frame.
+  // at most at the display rate. Unmounted blocks are let go right away, without a frame. Nodes
+  // added or removed elsewhere (a tool call expanding) can move blocks without a scroll, so those
+  // blocks are placed again in the frame the change is drawn in.
   let mutationFrame: number | undefined;
+  let moved = false;
   const pendingMutation = new Set<DomElement>();
   const mutations = new MutationObserver((records) => {
     let removed = false;
@@ -334,6 +375,7 @@ export function startDiffHighlighting(): () => void {
       const pre = target?.closest(PRE);
       if (pre) pendingMutation.add(pre);
       if (record.type !== "childList") continue;
+      moved = true;
       if (record.removedNodes.length > 0) removed = true;
       for (const node of Array.from(record.addedNodes)) {
         if (node.nodeType !== ELEMENT_NODE) continue;
@@ -343,11 +385,13 @@ export function startDiffHighlighting(): () => void {
       }
     }
     if (removed) for (const pre of [...blocks.keys()]) if (!pre.isConnected) clear(pre);
-    if (pendingMutation.size === 0) return;
+    if (pendingMutation.size === 0 && !(moved && blocks.size > 0)) return;
     mutationFrame ??= requestAnimationFrame(() => {
       mutationFrame = undefined;
       for (const pre of pendingMutation) process(pre);
       pendingMutation.clear();
+      if (moved) placeAll();
+      moved = false;
     });
   });
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
@@ -382,6 +426,8 @@ export function startDiffHighlighting(): () => void {
   return () => {
     clearInterval(sweep);
     window.removeEventListener("focus", resync);
+    window.removeEventListener("resize", placeAll);
+    document.removeEventListener("scroll", placeAll, { capture: true });
     systemScheme.removeEventListener("change", resync);
     themeSheets.disconnect();
     themeClass.disconnect();

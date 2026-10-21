@@ -45,6 +45,11 @@ headless Chromium on a shared VM (a desktop is likely 2–4× faster); audit in
   change (the class on the page root, its theme stylesheet), window focus and the system light/dark
   switch. The plugin used to check every 1.5 s, forcing a style update each time; idle, it now
   reads no style at all, and only compares the stored settings every 10 s as a backstop.
+- Diff blocks more than 1500 px above or below the screen hold no colors. Chromium repaints every
+  colored line in the area around the screen on every frame (60 times a second while an agent's
+  loader runs), even lines nobody can see. A block gets its colors back in the same frame a scroll
+  or layout change brings it within that distance, well before it reaches the screen.
+  Measured in a lab chat with both diff blocks 2300–3500 px up: 323 → 4 repaints a second.
 
 Past 100,000 characters only rows, signs and changed words are colored, as Paseo itself stops syntax
 coloring there.

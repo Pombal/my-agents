@@ -5,7 +5,7 @@ import { startDiffHighlighting } from "./web";
 
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 
-// jsdom has no CSS Custom Highlight API, ResizeObserver, matchMedia or Range layout.
+// jsdom has no CSS Custom Highlight API, ResizeObserver, matchMedia or layout.
 class FakeHighlight extends Set<StaticRange> {
   priority = 0;
 }
@@ -27,6 +27,19 @@ Object.assign(globalThis, {
     removeEventListener: (_: string, listener: () => void) => (schemeListeners = schemeListeners.filter((l) => l !== listener)),
   }),
 });
+/**
+ * Puts a block `top` px below the top of the 768 px jsdom window (negative: above it), or in a
+ * hidden panel (no box), as the next layout would report it.
+ */
+function moveTo(pre: Element, top: number | "hidden") {
+  const height = top === "hidden" ? 0 : 80;
+  const y = top === "hidden" ? 0 : top;
+  pre.getBoundingClientRect = () => ({ x: 0, y, top: y, bottom: y + height, left: 0, right: 600, width: height ? 600 : 0, height, toJSON: () => ({}) });
+}
+const FAR_BELOW = 768 + 2000;
+const FAR_ABOVE = -2000;
+/** The chat's scroll box, scrolled: scroll events don't bubble, but reach capturing listeners. */
+const scrollChat = () => document.body.dispatchEvent(new Event("scroll"));
 
 const LIGHT_TEXT = "rgb(20, 20, 20)";
 const DARK_TEXT = "rgb(240, 240, 240)";
@@ -158,5 +171,70 @@ describe("cost while nothing changes", () => {
     pre.remove();
     await Promise.resolve();
     expect(rangeCount()).toBe(0);
+  });
+});
+
+describe("blocks far off screen", () => {
+  const sizes = () => [...registry.values()].map((highlight) => highlight.size);
+
+  test("a diff block far off screen holds no highlights, and has them all back in the scroll that brings it near", () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, 100);
+    stop = startDiffHighlighting();
+    const colored = sizes();
+    expect(rangeCount()).toBeGreaterThan(0);
+
+    moveTo(pre, FAR_ABOVE);
+    scrollChat();
+    expect(rangeCount()).toBe(0);
+    moveTo(pre, 768 + 1000);
+    scrollChat();
+    expect(sizes()).toEqual(colored);
+  });
+
+  test("a block that mounts far off screen gets no highlights until it comes near", () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, FAR_BELOW);
+    stop = startDiffHighlighting();
+    expect(rangeCount()).toBe(0);
+    moveTo(pre, 300);
+    window.dispatchEvent(new Event("resize"));
+    expect(rangeCount()).toBeGreaterThan(0);
+  });
+
+  test("a block moved near by content added elsewhere, without a scroll, is colored in the frame that draws it", async () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, FAR_BELOW);
+    stop = startDiffHighlighting();
+    moveTo(pre, 300);
+    document.body.prepend(document.createElement("div"));
+    await settle();
+    expect(rangeCount()).toBeGreaterThan(0);
+  });
+
+  test("a block that changes while far off screen comes back with the colors of its new text", async () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, FAR_BELOW);
+    stop = startDiffHighlighting();
+    const code = pre.querySelector('[data-paseo-markdown-tag="code"]')!;
+    code.append(Object.assign(document.createElement("span"), { textContent: "\n" }));
+    code.append(Object.assign(document.createElement("span"), { textContent: "+const b = 3;" }));
+    await settle();
+    expect(rangeCount()).toBe(0);
+
+    moveTo(pre, 300);
+    scrollChat();
+    const added = [...registry.get("chat-diff-highlight-text-add")!].map((range) => range.startContainer.textContent);
+    expect(added).toEqual(["+const a = 2;", "+const b = 3;"]);
+  });
+
+  test("a block in a hidden tab keeps its colors, so switching back shows them in the first frame", () => {
+    const pre = addDiffBlock(DIFF);
+    moveTo(pre, 100);
+    stop = startDiffHighlighting();
+    const ranges = rangeCount();
+    moveTo(pre, "hidden");
+    scrollChat();
+    expect(rangeCount()).toBe(ranges);
   });
 });
