@@ -349,6 +349,9 @@ const STATIC_CSS = `
   /* The footer's own elapsed-time sheen (.spn-stime) has always kept its speed here. */
   .spn, .spn *, .spn::before, .spn::after, .spn-sheen:not(.spn-stime) * { animation-duration: 3s !important; }
 }
+/* Copied into Web Animations (web.ts runOnCompositor): the CSS ones stop. */
+[data-spn-waapi], [data-spn-waapi] *, [data-spn-waapi]::before, [data-spn-waapi]::after,
+[data-spn-waapi] *::before, [data-spn-waapi] *::after { animation-name: none !important; }
 `;
 
 /** All CSS for spinners, live labels and time styles; inject once per document. */

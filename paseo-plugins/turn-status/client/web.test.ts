@@ -1,9 +1,56 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { DEFAULTS, type Preferences } from "../shared/preferences";
-import { type Indicator, LiveLabel, startIndicator, warmth } from "./web";
+import { createSpinner, type Indicator, LiveLabel, startIndicator, warmth } from "./web";
 
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
+
+// jsdom has no layout, animations or ResizeObserver. The fakes: every element under an animated root
+// that is not switched off (data-spn-waapi) runs one CSS animation lasting 1 s (3 s under reduced
+// motion, as the catalog CSS does), delayed by its child index × 100 ms; `layout` delivers the
+// ResizeObserver callback the browser would send.
+interface FakeAnimation {
+  animationName?: string; target: Element; keyframes: object[]; options: Record<string, unknown>;
+  playState: "running" | "paused" | "idle"; pause(): void; play(): void; cancel(): void;
+}
+const created: FakeAnimation[] = [];
+let reduceMotion = false;
+const motionListeners: (() => void)[] = [];
+const observed = new Set<Element>();
+let resize: ((entries: { target: Element; contentRect: { width: number; height: number } }[]) => void) | null = null;
+const fakeAnimation = (target: Element, keyframes: object[], options: Record<string, unknown>, animationName?: string): FakeAnimation => ({
+  animationName, target, keyframes, options, playState: "running",
+  pause() { if (this.playState !== "idle") this.playState = "paused"; },
+  play() { if (this.playState !== "idle") this.playState = "running"; },
+  cancel() { this.playState = "idle"; },
+});
+vi.stubGlobal("ResizeObserver", class {
+  constructor(callback: typeof resize) { resize = callback; }
+  observe(target: Element) { observed.add(target); }
+  unobserve(target: Element) { observed.delete(target); }
+});
+vi.stubGlobal("matchMedia", () => ({ get matches() { return reduceMotion; }, addEventListener: (_: string, listener: () => void) => motionListeners.push(listener) }));
+Object.assign(Element.prototype, {
+  getAnimations(this: Element) {
+    if (this.closest("[data-spn-waapi]")) return [];
+    return [this, ...this.querySelectorAll("*")].map((element) => {
+      const index = element.parentElement ? [...element.parentElement.children].indexOf(element) : 0;
+      const timing = { duration: reduceMotion ? 3000 : 1000, delay: index * 100, iterations: Infinity, easing: "linear" };
+      const animation = fakeAnimation(element, [{ offset: 0, opacity: 0.4, computedOffset: 0 }, { offset: 1, opacity: 1, computedOffset: 1 }], timing, "spn-test");
+      return Object.assign(animation, { effect: { target: element, pseudoElement: index === 0 ? "::after" : null, getKeyframes: () => animation.keyframes, getTiming: () => timing } });
+    });
+  },
+  animate(this: Element, keyframes: object[], options: Record<string, unknown>) {
+    const animation = fakeAnimation(this, keyframes, options);
+    created.push(animation);
+    return animation;
+  },
+});
+/** The ResizeObserver delivery for `target` at a size (0×0 = not rendered or removed). */
+const layout = (target: Element, width: number, height = width) => {
+  if (observed.has(target)) resize!([{ target, contentRect: { width, height } }]);
+};
+const states = (target: Element) => created.filter((animation) => target.contains(animation.target)).map((animation) => animation.playState);
 
 /** Paseo 0.12's running-turn footer: slot > content row > [loader wrapper > dots, elapsed]. */
 function addFooter(elapsed: string): { footer: HTMLElement; elapsed: HTMLElement } {
@@ -35,6 +82,8 @@ const start = (prefs: Partial<Preferences>) => {
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   document.body.innerHTML = "";
+  created.length = 0;
+  reduceMotion = false;
 });
 
 afterEach(() => {
@@ -165,5 +214,77 @@ describe("every animation runs on the compositor", () => {
     animated.delete("animation-timing-function");
     animated.delete("none");
     expect([...animated].sort()).toEqual(["opacity", "transform"]);
+  });
+});
+
+describe("animations run as Web Animations", () => {
+  test("a spinner's CSS animations are copied when it is laid out, keyframes, timing and pseudo-element included", () => {
+    const spinner = createSpinner("typing-dots") as unknown as HTMLElement;
+    document.body.appendChild(spinner);
+    expect(created).toEqual([]);
+    layout(spinner, 14);
+    const dots = [spinner, ...spinner.querySelectorAll("*")];
+    expect(created.map((animation) => [dots.indexOf(animation.target), animation.options])).toEqual(dots.map((_, i) => [i, {
+      duration: 1000, delay: (i === 0 ? 0 : i - 1) * 100, iterations: Infinity, easing: "linear", ...(i <= 1 ? { pseudoElement: "::after" } : {}),
+    }]));
+    expect(created[0]!.keyframes).toEqual([{ offset: 0, opacity: 0.4 }, { offset: 1, opacity: 1 }]);
+    // The CSS copies are switched off, so the page never runs both.
+    expect(spinner.getAnimations()).toEqual([]);
+  });
+
+  test("a footer spinner pauses while its tab is hidden, plays again when shown, and stops when the turn ends", async () => {
+    const { footer } = addFooter("12s");
+    start({ spinner: "typing-dots", live: "off", time: "plain" });
+    await frames();
+    const spinner = footer.querySelector(".spn")!;
+    layout(spinner, 14);
+    expect(new Set(states(spinner))).toEqual(new Set(["running"]));
+
+    layout(spinner, 0); // Paseo hides the inactive panel with display: none
+    expect(new Set(states(spinner))).toEqual(new Set(["paused"]));
+    layout(spinner, 14);
+    expect(new Set(states(spinner))).toEqual(new Set(["running"]));
+
+    footer.remove(); // the turn ends: Paseo unmounts the footer with our spinner in it
+    layout(spinner, 0);
+    expect(new Set(states(spinner))).toEqual(new Set(["idle"]));
+  });
+
+  test("a spinner that never got a box never starts", () => {
+    const hidden = document.body.appendChild(document.createElement("div"));
+    const spinner = createSpinner("orbit") as unknown as HTMLElement;
+    hidden.appendChild(spinner);
+    layout(spinner, 0);
+    expect(created).toEqual([]);
+  });
+
+  test("switching reduced motion re-times the running animations and keeps hidden ones paused", () => {
+    const shown = createSpinner("typing-dots") as unknown as HTMLElement;
+    const hidden = createSpinner("typing-dots") as unknown as HTMLElement;
+    document.body.append(shown, hidden);
+    layout(shown, 14);
+    layout(hidden, 14);
+    layout(hidden, 0);
+    const before = [...created];
+
+    reduceMotion = true;
+    motionListeners.forEach((listener) => listener());
+    expect(before.every((animation) => animation.playState === "idle")).toBe(true);
+    const after = created.slice(before.length);
+    expect(after.filter((a) => shown.contains(a.target)).map((a) => [a.options.duration, a.playState])).toEqual(before.filter((a) => shown.contains(a.target)).map(() => [3000, "running"]));
+    expect(new Set(after.filter((a) => hidden.contains(a.target)).map((a) => a.playState))).toEqual(new Set(["paused"]));
+  });
+
+  test("the shimmer time's sheen stops when the time style changes", async () => {
+    const { footer } = addFooter("1m 5s");
+    start({ spinner: "off", live: "off", time: "shimmer" });
+    await frames();
+    const sheen = footer.querySelector(".spn-gl")!;
+    layout(sheen, 30, 16);
+    expect(new Set(states(sheen))).toEqual(new Set(["running"]));
+    indicator!.setPreferences({ ...DEFAULTS, spinner: "off", time: "plain" });
+    await frames();
+    layout(sheen, 0);
+    expect(new Set(states(sheen))).toEqual(new Set(["idle"]));
   });
 });

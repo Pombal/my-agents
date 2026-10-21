@@ -74,9 +74,21 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   pre-drawn copies, one shown per slot by step-end opacity (`flipbook()`: 48 and 66 slots per cycle,
   about 30 shape steps a second, sampled with the old easing; rotation stays continuous). Rolling
   time digits slide by `transform` instead of `margin-top`.
+- **Animations run as Web Animations** (`runOnCompositor()` in `client/web.ts`). Paseo's React
+  root listens for `animationiteration`; while anything listens, Chromium wakes the main thread
+  for each running CSS animation (lab probe: one 250 ms CSS animation = 20 main frames/s; the same
+  animation as a Web Animation = 0.1/s). The CSS stays the single description: once a spinner, sheen or
+  typed caret is laid out, its CSS animations are copied (keyframes, per-keyframe easing,
+  duration, delay, pseudo-element) into `element.animate()` and switched off with
+  `data-spn-waapi`. A ResizeObserver pauses them while the element has no box (a hidden panel:
+  a Web Animation on a `display: none` element is ticked on the main thread every frame) and
+  cancels them once it leaves the page; a reduced-motion switch re-copies them with the new
+  durations. No IntersectionObserver anywhere: one active observation turns every composited
+  frame into a main-thread frame.
 - `client/web.test.ts` checks that the injected CSS animates and transitions nothing but
-  `transform` and `opacity`; `client/catalog.test.ts` that each flipbook and depth swap shows
-  exactly one copy at every moment.
+  `transform` and `opacity`, and the Web Animation lifecycle (copied on layout, paused while
+  hidden, cancelled when the footer goes, re-timed on a reduced-motion switch);
+  `client/catalog.test.ts` that each flipbook and depth swap shows exactly one copy at every moment.
 
 ## Limits
 

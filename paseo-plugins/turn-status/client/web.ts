@@ -26,6 +26,17 @@ export interface El {
   insertBefore(node: El, reference: El | null): void;
   appendChild(node: El | TextNode): void;
   remove(): void;
+  readonly isConnected: boolean;
+  getAnimations(options?: { subtree: boolean }): Anim[];
+  animate(keyframes: object[], options: object): Anim;
+}
+/** A Web Animation; CSS animations are the ones with an `animationName`. */
+export interface Anim {
+  readonly animationName?: string;
+  readonly effect: { readonly target: El; readonly pseudoElement: string | null; getKeyframes(): object[]; getTiming(): object } | null;
+  pause(): void;
+  play(): void;
+  cancel(): void;
 }
 interface TextNode { data: string }
 interface NodeLike { nodeType: number; parentElement: El | null }
@@ -37,7 +48,10 @@ declare const document: {
   createTextNode(data: string): TextNode;
   querySelectorAll(selector: string): ArrayLike<El>;
 };
-declare const window: { getComputedStyle(element: El): Computed };
+declare const window: {
+  getComputedStyle(element: El): Computed;
+  matchMedia(query: string): { readonly matches: boolean; addEventListener(type: "change", listener: () => void): void };
+};
 declare function setTimeout(callback: () => void, ms: number): number;
 declare function clearTimeout(handle: number): void;
 declare function requestAnimationFrame(callback: () => void): number;
@@ -48,6 +62,11 @@ declare class MutationObserver {
   constructor(callback: (records: ArrayLike<{ target: NodeLike }>) => void);
   observe(target: El, options: { childList: boolean; subtree: boolean; characterData: boolean }): void;
   disconnect(): void;
+}
+declare class ResizeObserver {
+  constructor(callback: (entries: ArrayLike<{ target: El; contentRect: { width: number; height: number } }>) => void);
+  observe(target: El): void;
+  unobserve(target: El): void;
 }
 
 export const isWeb = Platform.OS === "web" && typeof document !== "undefined";
@@ -77,6 +96,71 @@ export function retainCatalogStyle(): () => void {
   };
 }
 
+// ── Running the animations ──────────────────────────────────────────────────────────────────
+// Every animation is written as CSS (catalog.ts) but runs as a Web Animation. Paseo's React root
+// listens for `animationiteration`, and while anything listens Chromium wakes the main thread for
+// every CSS animation it runs, about 20 frames a second for each; a Web Animation fires no such
+// event and stays on the compositor. So once an element is laid out its CSS animations are copied
+// (same keyframes, easing, duration and delay) into Web Animations, and the CSS ones are switched
+// off with `data-spn-waapi`. A Web Animation on an element that is not rendered is ticked on the
+// main thread every frame (a CSS one would stop), so each one plays only while its element has a
+// box: a ResizeObserver pauses them at 0×0 (a hidden panel) and cancels them once the element has
+// left the page. Not an IntersectionObserver: while one observes anything, Chromium turns every
+// frame of a composited animation into a main-thread frame.
+
+const WAAPI = "data-spn-waapi";
+/** Each element whose animations run as Web Animations: null until it is first laid out. */
+const motions = new Map<El, { animations: Anim[] | null; shown: boolean }>();
+let sizes: ResizeObserver | null = null;
+
+/** Copies `root`'s CSS animations (its own and its descendants') into Web Animations, all started together. */
+function adopt(root: El): Anim[] {
+  const copies = root.getAnimations({ subtree: true }).flatMap((animation) => {
+    if (!animation.animationName || !animation.effect) return [];
+    const { target, pseudoElement } = animation.effect;
+    // computedOffset is read-only output; offsets, per-keyframe easing and values are kept as given.
+    const keyframes = animation.effect.getKeyframes().map(({ computedOffset: _, ...keyframe }: { computedOffset?: number }) => keyframe);
+    return [{ target, keyframes, timing: { ...animation.effect.getTiming(), ...(pseudoElement ? { pseudoElement } : {}) } }];
+  });
+  root.setAttribute(WAAPI, "");
+  return copies.map(({ target, keyframes, timing }) => target.animate(keyframes, timing));
+}
+
+/** Runs `root`'s CSS animations as Web Animations from its first layout until it leaves the page. */
+function runOnCompositor(root: El): void {
+  if (!sizes) {
+    sizes = new ResizeObserver((entries) => {
+      for (let i = 0; i < entries.length; i++) {
+        const { target, contentRect } = entries[i]!;
+        const motion = motions.get(target);
+        if (!motion) continue;
+        if (!target.isConnected) {
+          motion.animations?.forEach((animation) => animation.cancel());
+          motions.delete(target);
+          sizes!.unobserve(target);
+          continue;
+        }
+        motion.shown = contentRect.width > 0 || contentRect.height > 0;
+        if (!motion.shown) motion.animations?.forEach((animation) => animation.pause());
+        else if (!motion.animations) motion.animations = adopt(target);
+        else motion.animations.forEach((animation) => animation.play());
+      }
+    });
+    // Reduced motion slows the CSS (catalog.ts); a switch re-copies it with the new durations.
+    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", () => {
+      for (const [root, motion] of motions) {
+        if (!motion.animations) continue;
+        motion.animations.forEach((animation) => animation.cancel());
+        root.removeAttribute(WAAPI);
+        motion.animations = adopt(root);
+        if (!motion.shown) motion.animations.forEach((animation) => animation.pause());
+      }
+    });
+  }
+  motions.set(root, { animations: null, shown: false });
+  sizes.observe(root);
+}
+
 /** A spinner element (font-size sets its size), or null for "off". */
 export function createSpinner(id: SpinnerId): El | null {
   if (id === "off") return null;
@@ -86,6 +170,7 @@ export function createSpinner(id: SpinnerId): El | null {
   element.innerHTML = html;
   element.setAttribute(OWN, "");
   element.setAttribute("aria-hidden", "true");
+  runOnCompositor(element);
   return element;
 }
 
@@ -110,6 +195,7 @@ function addSheen(host: El): El {
   sheen.innerHTML = '<span class="w"><span class="c"></span></span>';
   host.classList.add("spn-sheen");
   host.appendChild(sheen);
+  runOnCompositor(sheen);
   return sheen.querySelector(".c")!;
 }
 
@@ -161,6 +247,7 @@ export class LiveLabel {
     this.line = style === "shimmer" || style === "rolling" ? new SheenText("t") : null;
     this.text = this.line?.el ?? document.createElement("span");
     if (!this.line) this.text.className = "t";
+    if (style === "typed") runOnCompositor(this.text); // the caret's blink
     this.el.appendChild(this.text);
     if (this.icon) {
       const copy = addSheen(this.el);
