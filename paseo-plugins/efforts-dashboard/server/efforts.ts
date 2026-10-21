@@ -226,12 +226,7 @@ export class EffortsService {
 
     const git = await effortChanges(scan.key, root);
     const changes = git?.changes ?? [];
-    const changedRels = new Set(changes.map((change) => change.rel));
-    const mapChange = changes.find((change) => change.rel === "map.md" && change.kind === "modified");
-    const mapDiff = git && mapChange ? await sectionChanges(git.top, mapFile, mapChange.sig) : { sections: [], added: new Set<number>() };
-    const changedHeadings = new Set(mapDiff.sections.map(([heading]) => heading));
     const stats = git ? await numstat(git.top, scan.key, changes) : new Map<string, { added: number; removed: number }>();
-    const mapStat = stats.get("map.md");
 
     const tickets: Ticket[] = scan.tickets.map((ticket) => ({
       num: ticket.num,
@@ -286,8 +281,6 @@ export class EffortsService {
           : bullets.length
             ? lead(fold.tail === "last" ? bullets[bullets.length - 1].text : bullets[0].text)
             : (firstParagraph(section.body) ?? "");
-      // Body lines start one line below the heading.
-      const bodyStart = section.line + 1;
       folds.push({
         name: fold.name,
         heading: section.heading,
@@ -295,23 +288,16 @@ export class EffortsService {
         tail,
         // Folds with bullets draw `items`; the body is only drawn when there are none.
         markdown: bullets.length ? "" : section.body.trim(),
-        items: bullets.map((bullet) => {
-          let changed = false;
-          for (let line = bullet.first; line <= bullet.last && !changed; line++) changed = mapDiff.added.has(bodyStart + line);
-          return {
-            // Decisions rows show the title and open map.md there; the bullet body isn't drawn.
-            markdown: fold.name === "Decisions" ? "" : bullet.markdown,
-            title: lead(bullet.text, 120),
-            date: /\b(20\d\d-\d\d-\d\d)\b/.exec(bullet.markdown)?.[1] ?? null,
-            changed,
-          };
-        }),
-        changed: changedHeadings.has(section.heading),
+        items: bullets.map((bullet) => ({
+          // Decisions rows show the title and open map.md there; the bullet body isn't drawn.
+          markdown: fold.name === "Decisions" ? "" : bullet.markdown,
+          title: lead(bullet.text, 120),
+          date: /\b(20\d\d-\d\d-\d\d)\b/.exec(bullet.markdown)?.[1] ?? null,
+        })),
       });
     }
 
     const docs: Doc[] = [];
-    const changedUnder = (prefix: string) => changes.some((change) => change.rel === prefix || change.rel.startsWith(`${prefix}/`));
     const newest = (files: { mtimeMs: number }[]) => Math.max(0, ...files.map((file) => file.mtimeMs));
     for (const file of scan.topFiles) {
       if (file.name !== "map.md" && !/\.(md|markdown|txt)$/i.test(file.name)) continue;
@@ -322,7 +308,6 @@ export class EffortsService {
         count: 0,
         more: false,
         mtimeMs: file.mtimeMs,
-        changed: changedRels.has(file.name),
         files: [],
       };
       if (doc.kind === "map") docs.unshift(doc);
@@ -339,15 +324,9 @@ export class EffortsService {
         count: folder.files.length,
         more: false,
         mtimeMs: newest(folder.files),
-        changed: changedUnder(folder.name),
         files: [...folder.files]
           .sort((a, b) => (folder.name === "issues" ? a.name.localeCompare(b.name) : b.mtimeMs - a.mtimeMs))
-          .map((file) => ({
-            rel: `${folder.name}/${file.name}`,
-            name: file.name,
-            mtimeMs: file.mtimeMs,
-            changed: changedRels.has(`${folder.name}/${file.name}`),
-          })),
+          .map((file) => ({ rel: `${folder.name}/${file.name}`, name: file.name, mtimeMs: file.mtimeMs })),
       });
     }
     const artifacts = listArtifacts(artifactsDir(root, slug));
@@ -359,8 +338,7 @@ export class EffortsService {
         count: artifacts.count,
         more: artifacts.more,
         mtimeMs: newest(artifacts.files),
-        changed: false,
-        files: artifacts.files.map((file) => ({ rel: `.artifacts/${file.rel}`, name: file.rel, mtimeMs: file.mtimeMs, changed: false })),
+        files: artifacts.files.map((file) => ({ rel: `.artifacts/${file.rel}`, name: file.rel, mtimeMs: file.mtimeMs })),
       });
     }
 
@@ -383,7 +361,7 @@ export class EffortsService {
     );
 
     const log = git ? await commits(git.top, scan.key) : [];
-    const rows = git ? await this.uncommittedRows(git.top, scan.key, changes, mapDiff.sections, stats) : [];
+    const rows = git ? await this.uncommittedRows(git.top, scan.key, changes, stats) : [];
     return unlessUnchanged(
       {
         summary,
@@ -395,10 +373,6 @@ export class EffortsService {
         tickets,
         sections: folds,
         docs,
-        mapChanges: {
-          lines: mapStat ? mapStat.added + mapStat.removed : 0,
-          sections: mapDiff.sections.map(([heading, added]) => ({ heading, added })),
-        },
         anomalies,
         uncommitted: git ? { rows, paths: changes.map((change) => path.join(scan.key, change.rel)), repo: git.top } : null,
         leansOn,
@@ -417,7 +391,6 @@ export class EffortsService {
     top: string,
     effortDir: string,
     changes: Change[],
-    mapSectionChanges: [string, number][],
     stats: Map<string, { added: number; removed: number }>,
   ): Promise<UncommittedRow[]> {
     const groups = new Map<string, Change[]>();
@@ -432,11 +405,7 @@ export class EffortsService {
         const change = group[0];
         const stat = stats.get(change.rel);
         const sectionsChanged =
-          change.rel === "map.md"
-            ? mapSectionChanges
-            : change.kind === "modified" && change.rel.endsWith(".md")
-              ? (await sectionChanges(top, path.join(effortDir, change.rel), change.sig)).sections
-              : [];
+          change.kind === "modified" && change.rel.endsWith(".md") ? (await sectionChanges(top, path.join(effortDir, change.rel), change.sig)).sections : [];
         let mtimeMs: number | null = null;
         if (change.kind !== "deleted") mtimeMs = await readText(path.join(effortDir, change.rel)).then((read) => read.mtimeMs, () => null);
         rows.push({

@@ -16,7 +16,7 @@ folder, so it only shows up while listed under extra folders).
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
 - **Header pill** per workspace: map icon + effort name + chevron; `bind?` when unbound with a
   suggestion; nothing when there is none. Popover (option B): name + status, path, counts,
-  `Not committed · N`, the next ticket (opens it in the panel), Open Efforts panel, then a small
+  the next ticket (opens it in the panel), Open Efforts panel, then a small
   footer bar: All efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover
   on its first frame, so each bound workspace's effort is read ahead when its pill appears. Unbound: the
   suggestion with Bind · New effort · No effort. On phones the header button is icon-only and
@@ -49,16 +49,18 @@ folder, so it only shows up while listed under extra folders).
   its Question as one muted line under it), `Blocked · N` (+ `after 01`), `Parked · N`, `▸ Done · N`
   fold. Type shown when not grilling; age only when ≥ 7 days. Parser anomalies (duplicate numbers,
   unknown Status word, Blocked-by naming another effort's ticket) as muted lines.
-- Folds: **Not committed** (open when non-empty; per file/folder with time, changed map sections
-  and `+16 −3` / `2 new`; copy-paths icon), Decisions (title · date, newest first, amber dot on
-  uncommitted ones), Not yet specified / Out of scope (map bullets, links open in the viewer),
-  Leans on, Commits. Doc chips: map.md with its age, top-level docs, folders with counts,
+- Planning and git are kept apart: the overview shows no git state at all. Folds: Decisions
+  (title · date, newest first), Not yet specified / Out of scope (map bullets, links open in the
+  viewer), Leans on. Doc chips: map.md with its age, top-level docs, folders with counts,
   `.artifacts/<slug>/` when it exists.
+- **Files & commits** (branch icon in the head row, amber count when something isn't
+  committed): its own page with Not committed (per file/folder with time, changed map sections,
+  `+16 −3` / `2 new`; copy-paths icon) and the effort's commits.
 - Drill-in (D): `1 of 9` with prev/next, relations (`blocks`, `after`), path, raw Status line only
   when it says more than the word, the ticket body, **Grill / Prototype / Research / Work in new
   chat** (creates an agent in this workspace with that workspace's latest chat settings and opens
-  it; label `effort=<slug>`) and Copy path. map.md opens as an outline (sections with item counts,
-  `N lines not committed`). Folder chips list files; relative links open in the same viewer.
+  it; label `effort=<slug>`) and Copy path. map.md opens as an outline (sections with item
+  counts). Folder chips list files; relative links open in the same viewer.
 - `⋯`: Switch effort…, Open map.md, Copy path, All efforts, Unbind, and the legend.
 - **Unbound (U):** suggestion card with its reason in words and Bind · New effort · No effort; a
   search over efforts, tickets and docs of this project (server-side, grouped Efforts / Tickets /

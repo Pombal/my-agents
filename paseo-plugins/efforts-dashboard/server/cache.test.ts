@@ -1,9 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { sectionChanges } from "./git";
 import { readText, TEXTS_CAP } from "./scan";
 
 const dirs: string[] = [];
@@ -59,31 +57,5 @@ describe("file text cache", () => {
 
     expect(await cachedText(files[count - 1], text)).toBe("old");
     expect(await cachedText(files[0], text)).toBe("new");
-  });
-});
-
-describe("section changes cache", () => {
-  it("drops the oldest diff once the added lines pass the byte cap; the newest is reused", async () => {
-    const repo = await tempDir();
-    const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { stdio: "pipe" });
-    const a = path.join(repo, "a.md");
-    const b = path.join(repo, "b.md");
-    await writeFile(a, "# A\n");
-    await writeFile(b, "# B\n");
-    git("init", "-q");
-    git("add", "-A");
-    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init");
-    // 70,000 added lines each: together past the 4 MiB cap, each alone well under it.
-    const lines = "- line\n".repeat(70_000);
-    await writeFile(a, `# A\n${lines}`);
-    await writeFile(b, `# B\n${lines}`);
-
-    const first = sectionChanges(repo, a, "a1");
-    expect((await first).added.size).toBe(70_000);
-    const second = sectionChanges(repo, b, "b1");
-    await second;
-
-    expect(sectionChanges(repo, b, "b1")).toBe(second);
-    expect(sectionChanges(repo, a, "a1")).not.toBe(first);
   });
 });

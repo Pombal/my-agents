@@ -3,7 +3,7 @@ import { Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native
 import { Text, View } from "react-native";
 import { useDetail, useOverview } from "./data";
 import { EffortView } from "./effort-view";
-import { colorsOf, Dot, Glyph, LABEL, SMALL, Tag, type Palette } from "./marks";
+import { colorsOf, Glyph, SMALL, Tag, type Palette } from "./marks";
 import { findEffort } from "./model";
 import { bindOrToast, openAllEfforts, openPanel } from "./runtime";
 import { setViewState, viewKey, type Page } from "./state";
@@ -13,7 +13,7 @@ import { SuggestionCard, UnboundView } from "./unbound-view";
 function Item(props: { c: Palette; icon?: string; label: string; right?: React.ReactNode; muted?: boolean; hot?: boolean; onPress(): void; lead?: React.ReactNode }) {
   const { c } = props;
   return (
-    <RowButton c={c} hot={props.hot} onPress={props.onPress} style={{ flexDirection: "row", alignItems: "center", gap: 8, height: 28, paddingHorizontal: 12 }}>
+    <RowButton c={c} hot={props.hot} onPress={props.onPress} style={{ flexDirection: "row", alignItems: "center", gap: 8, height: 28, paddingHorizontal: 6 }}>
       {props.lead ?? (props.icon ? <Icon name={props.icon} size={13} color={c.muted} /> : null)}
       <Text numberOfLines={1} style={{ fontSize: 13, color: props.muted ? c.muted : c.fg, flexShrink: 1 }}>
         {props.label}
@@ -71,7 +71,7 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
     const suggestion = workspace.suggestion ? findEffort(overview.data, workspace.suggestion.root, workspace.suggestion.slug) : null;
     if (!suggestion || !workspace.suggestion) return <Text style={{ ...SMALL, color: c.muted, padding: 12 }}>No effort suggested.</Text>;
     return (
-      <View style={{ width: 300, paddingVertical: 10 }}>
+      <View style={{ width: 300 }}>
         <SuggestionCard
           c={c}
           flat
@@ -88,13 +88,15 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
     );
   }
 
+  // Paseo sizes the popover on its first frame, so nothing is drawn until the detail is here;
+  // drawing without it would cut off what arrives later.
+  if (detail.isPending) return null;
   const summary = findEffort(overview.data, effort.root, effort.slug);
   const data = detail.data;
-  const uncommitted = data?.uncommitted?.rows.length ?? 0;
   const next = data?.tickets.find((ticket) => ticket.num === summary?.next?.num);
   return (
-    <ScrollView style={{ width: 340, maxHeight: 520 }} contentContainerStyle={{ paddingVertical: 10 }}>
-      <View style={{ paddingHorizontal: 12 }}>
+    <ScrollView style={{ width: 340, maxHeight: 520 }}>
+      <View style={{ paddingHorizontal: 6 }}>
         <View style={[ui.line, { gap: 6 }]}>
           <Icon name="Map" size={14} color={c.muted} />
           <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: "600", color: c.fg, flexShrink: 1 }}>
@@ -106,12 +108,6 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
           {data?.displayPath ?? `.scratch/${effort.slug}`}
         </Text>
         {summary ? <CountsLine c={c} counts={summary.counts} /> : null}
-        {uncommitted ? (
-          <View style={[ui.line, { gap: 6 }]}>
-            <Dot c={c} />
-            <Text style={{ ...SMALL, color: c.muted }}>Not committed · {uncommitted}</Text>
-          </View>
-        ) : null}
       </View>
       {next ? (
         <View style={{ marginTop: 6 }}>
@@ -119,8 +115,7 @@ export function EffortPopover({ workspaceId, theme, layout, close }: PluginButto
         </View>
       ) : null}
       <Item c={c} icon="PanelRight" label="Open Efforts panel" onPress={() => go()} />
-      {detail.isPending ? <Text style={{ ...LABEL, color: c.muted, paddingHorizontal: 12 }}>Reading the effort…</Text> : null}
-      <View style={{ marginTop: 8, paddingTop: 6, paddingHorizontal: 6, borderTopWidth: 1, borderTopColor: c.border, flexDirection: "row", alignItems: "center", gap: 2 }}>
+      <View style={{ marginTop: 4, paddingTop: 4, borderTopWidth: 1, borderTopColor: c.border, flexDirection: "row", alignItems: "center", gap: 2 }}>
         <FooterButton c={c} icon="LayoutGrid" label="All efforts" onPress={() => { close(); openAllEfforts(workspaceId, summary?.key); }} />
         <FooterButton c={c} icon="Search" label="Switch…" onPress={() => go({ kind: "switch" })} />
         <View style={ui.grow} />

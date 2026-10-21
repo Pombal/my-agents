@@ -137,8 +137,6 @@ export const SectionItemSchema = z.object({
   title: z.string(),
   /** First `YYYY-MM-DD` in the bullet. */
   date: z.string().nullable(),
-  /** Has lines added since the last commit. */
-  changed: z.boolean(),
 });
 export type SectionItem = z.infer<typeof SectionItemSchema>;
 
@@ -153,11 +151,10 @@ export const SectionSchema = z.object({
   markdown: z.string(),
   /** Bullets in map order. */
   items: z.array(SectionItemSchema),
-  changed: z.boolean(),
 });
 export type Section = z.infer<typeof SectionSchema>;
 
-export const DocFileSchema = z.object({ rel: z.string(), name: z.string(), mtimeMs: z.number(), changed: z.boolean() });
+export const DocFileSchema = z.object({ rel: z.string(), name: z.string(), mtimeMs: z.number() });
 export type DocFile = z.infer<typeof DocFileSchema>;
 
 export const DocSchema = z.object({
@@ -169,7 +166,6 @@ export const DocSchema = z.object({
   count: z.number(),
   more: z.boolean(),
   mtimeMs: z.number(),
-  changed: z.boolean(),
   files: z.array(DocFileSchema),
 });
 export type Doc = z.infer<typeof DocSchema>;
@@ -209,8 +205,6 @@ const EffortDetailSchema = z.object({
   tickets: z.array(TicketSchema),
   sections: z.array(SectionSchema),
   docs: z.array(DocSchema),
-  /** Added + removed lines of map.md not committed, and the sections they fall in. */
-  mapChanges: z.object({ lines: z.number(), sections: z.array(z.object({ heading: z.string(), added: z.number() })) }),
   /** Parser-detectable oddities, one line each (duplicate numbers, unknown Status words, foreign blockers). */
   anomalies: z.array(z.string()),
   /** Null when the effort is not inside a git repo. */

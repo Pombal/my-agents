@@ -152,16 +152,10 @@ export function numstat(top: string, effortDir: string, changes: readonly Change
 export interface SectionChanges {
   /** Added lines per `## ` section, in file order: `[["Decisions so far", 8], ["Notes", 3]]`. */
   sections: [string, number][];
-  /** 0-based lines of the current file that are added. */
-  added: Set<number>;
 }
 
-/**
- * One per changed Markdown file seen in a detail; an added line costs ~33 bytes in a `Set`
- * (measured in Node 24), and the weight is known once git answers.
- */
-const sectionCache = new Lru<string, { sig: string; result: Promise<SectionChanges> }>(200, 4 * 1024 * 1024);
-const ADDED_LINE_BYTES = 33;
+/** One per changed Markdown file seen in a detail. */
+const sectionCache = new Lru<string, { sig: string; result: Promise<SectionChanges> }>(200);
 
 /**
  * Where a changed Markdown file gained lines since the last commit. `sig` is the file's
@@ -173,9 +167,9 @@ export function sectionChanges(top: string, file: string, sig: string): Promise<
   const result = sectionChangesNow(top, file).then((changes) => {
     if (!changes) {
       sectionCache.delete(file);
-      return { sections: [], added: new Set<number>() };
+      return { sections: [] };
     }
-    if (sectionCache.get(file)?.result === result) sectionCache.set(file, { sig, result }, changes.added.size * ADDED_LINE_BYTES);
+    if (sectionCache.get(file)?.result === result) sectionCache.set(file, { sig, result });
     return changes;
   });
   sectionCache.set(file, { sig, result });
@@ -193,12 +187,10 @@ async function sectionChangesNow(top: string, file: string): Promise<SectionChan
   }
   const heads = sections(text);
   const counts = new Map<string, number>();
-  const added = new Set<number>();
   for (const match of diff.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
     const start = Number(match[1]) - 1;
     const length = match[2] === undefined ? 1 : Number(match[2]);
     for (let line = start; line < start + length; line++) {
-      added.add(line);
       let owner: (typeof heads)[number] | undefined;
       for (let index = heads.length - 1; index >= 0 && !owner; index--) if (heads[index].line <= line) owner = heads[index];
       const name = owner?.heading ?? "head";
@@ -207,7 +199,6 @@ async function sectionChangesNow(top: string, file: string): Promise<SectionChan
   }
   return {
     sections: heads.filter((section) => counts.has(section.heading)).map((section) => [section.heading, counts.get(section.heading)!]),
-    added,
   };
 }
 

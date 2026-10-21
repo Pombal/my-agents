@@ -2,7 +2,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Interactive } from "./interactive";
-import { Bar, Dot, Glyph, LABEL, type Palette } from "./marks";
+import { Bar, Glyph, LABEL, type Palette } from "./marks";
 
 function LegendRow({ c, sym, text }: { c: Palette; sym: ReactNode; text: string }) {
   return (
@@ -28,7 +28,18 @@ export function Legend({ c, global }: { c: Palette; global?: boolean }) {
       <LegendRow c={c} sym={<Glyph state="claimed" c={c} />} text="claimed (an agent is on it)" />
       <LegendRow c={c} sym={<Glyph state="parked" c={c} />} text="parked" />
       <LegendRow c={c} sym={<Glyph state="done" c={c} />} text="done (resolved / closed)" />
-      <LegendRow c={c} sym={<Dot c={c} />} text="changed here, not committed (Changes-tab amber)" />
+      {global ? null : (
+        <LegendRow
+          c={c}
+          sym={
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <Icon name="GitBranch" size={12} color={c.muted} />
+              <Text style={{ ...LABEL, color: c.amber }}>3</Text>
+            </View>
+          }
+          text="files & commits; amber: files not committed"
+        />
+      )}
       <LegendRow c={c} sym={<Bar done={4} total={12} c={c} width={30} />} text="share of tickets done" />
       <LegendRow
         c={c}

@@ -5,7 +5,8 @@ export type Page =
   | { kind: "ticket"; rel: string }
   | { kind: "doc"; rel: string; section?: string }
   | { kind: "folder"; rel: string }
-  | { kind: "switch" };
+  | { kind: "switch" }
+  | { kind: "git" };
 
 export interface ViewState {
   page: Page | null;

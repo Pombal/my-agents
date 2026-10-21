@@ -128,7 +128,6 @@ export function FoldHeader(props: {
   count?: string | number;
   open: boolean;
   onToggle(): void;
-  changed?: boolean;
   tail?: ReactNode;
   right?: ReactNode;
   first?: boolean;
@@ -147,7 +146,6 @@ export function FoldHeader(props: {
           {props.name}
         </Text>
         {props.count !== undefined ? <Text style={{ ...SMALL, color: c.muted, flexShrink: 0 }}>{props.count}</Text> : null}
-        {props.changed ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.amber }} /> : null}
         {!props.open && props.tail ? (
           <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, flex: 1, minWidth: 0 }}>
             {props.tail}

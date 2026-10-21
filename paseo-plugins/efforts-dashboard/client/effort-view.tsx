@@ -239,9 +239,8 @@ function Overview(props: InnerProps & { narrow: boolean }) {
   ];
 
   const leanTail = data.leansOn.map((related) => `${related.short} ${related.counts.done}/${related.counts.total}`).join(" · ");
-  const newestCommit = data.commits[0];
-  const uncommitted = data.uncommitted?.rows ?? [];
   const mapDoc = data.docs.find((doc) => doc.kind === "map");
+  const uncommitted = data.uncommitted?.rows.length ?? 0;
 
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
@@ -255,6 +254,17 @@ function Overview(props: InnerProps & { narrow: boolean }) {
             {summary.mapStatus && !narrow ? <Tag c={c} text={summary.mapStatus} /> : null}
             <View style={ui.grow} />
             {mode === "detail" && props.onClose ? <IconButton c={c} icon="X" label="Close" onPress={props.onClose} /> : null}
+            {data.uncommitted || data.commits.length ? (
+              <RowButton
+                c={c}
+                label={uncommitted ? `Files & commits: ${uncommitted} not committed` : "Files & commits"}
+                onPress={() => update({ page: { kind: "git" } })}
+                style={styles.gitButton}
+              >
+                <Icon name="GitBranch" size={13} color={c.muted} />
+                {uncommitted ? <Text style={{ ...SMALL, color: c.amber }}>{uncommitted}</Text> : null}
+              </RowButton>
+            ) : null}
             <IconButton c={c} icon="Ellipsis" label="Effort menu and legend" active={menu} onPress={() => setMenu(!menu)} />
           </View>
           {data.title && data.title !== summary.slug && !summary.hasMap ? (
@@ -317,41 +327,6 @@ function Overview(props: InnerProps & { narrow: boolean }) {
         ) : null}
 
         <View style={{ marginTop: 14 }}>
-          {uncommitted.length ? (
-            <>
-              <FoldHeader
-                c={c}
-                name="Not committed"
-                count={uncommitted.length}
-                open={fold("Not committed", true)}
-                onToggle={() => toggle("Not committed", true)}
-                right={
-                  <View style={{ paddingRight: 8 }}>
-                    <IconButton
-                      c={c}
-                      icon="Copy"
-                      label={`Copy the ${data.uncommitted!.paths.length} paths`}
-                      onPress={() => void copy(data.uncommitted!.paths.join("\n"), `${data.uncommitted!.paths.length} paths`)}
-                    />
-                  </View>
-                }
-              />
-              {fold("Not committed", true) ? (
-                <View style={styles.foldBody}>
-                  {uncommitted.map((row) => (
-                    <View key={row.label} style={styles.frow}>
-                      <Dot c={c} />
-                      <Text style={{ ...SMALL, color: c.fg, flexShrink: 0 }}>{row.label}</Text>
-                      <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, flex: 1, minWidth: 0 }}>
-                        {[row.mtimeMs ? stamp(row.mtimeMs) : "", row.detail].filter(Boolean).join(" · ")}
-                      </Text>
-                      <Text style={{ ...SMALL, color: c.green, flexShrink: 0, paddingLeft: 6 }}>{row.stat}</Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </>
-          ) : null}
           {data.sections.map((section) => (
             <SectionFold key={section.name} {...props} section={section} open={fold(section.name)} onToggle={() => toggle(section.name)} />
           ))}
@@ -374,31 +349,6 @@ function Overview(props: InnerProps & { narrow: boolean }) {
                       <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, paddingLeft: 42 }}>
                         {[related.why, related.next ? `next ${related.next.num} ${related.next.title}` : ""].filter(Boolean).join(" · ")}
                       </Text>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-            </>
-          ) : null}
-          {data.commits.length ? (
-            <>
-              <FoldHeader
-                c={c}
-                name="Commits"
-                count={`${data.commits.length}${data.moreCommits ? "+" : ""}`}
-                open={fold("Commits")}
-                onToggle={() => toggle("Commits")}
-                tail={newestCommit ? `${newestCommit.hash} ${newestCommit.subject.replace(/^[\w-]+:\s*/, "")} · ${shortDate(newestCommit.atMs)}` : undefined}
-              />
-              {fold("Commits") ? (
-                <View style={styles.foldBody}>
-                  {data.commits.slice(0, 30).map((commit) => (
-                    <View key={commit.hash} style={styles.frow}>
-                      <Text style={{ ...SMALL, color: c.muted, fontFamily: MONO }}>{commit.hash}</Text>
-                      <Text numberOfLines={1} style={{ ...SMALL, color: c.fg, flex: 1, minWidth: 0 }}>
-                        {commit.subject}
-                      </Text>
-                      <Text style={{ ...SMALL, color: c.muted }}>{shortDate(commit.atMs)}</Text>
                     </View>
                   ))}
                 </View>
@@ -429,7 +379,6 @@ function Overview(props: InnerProps & { narrow: boolean }) {
                     </Text>
                   ) : null}
                 </Text>
-                {doc.changed ? <Dot c={c} /> : null}
               </RowButton>
             ))}
           </View>
@@ -456,7 +405,7 @@ function SectionFold(props: InnerProps & { section: Section; open: boolean; onTo
   };
   return (
     <>
-      <FoldHeader c={c} name={section.name} count={section.count} changed={section.changed} open={props.open} onToggle={props.onToggle} tail={section.tail} />
+      <FoldHeader c={c} name={section.name} count={section.count} open={props.open} onToggle={props.onToggle} tail={section.tail} />
       {props.open ? (
         <View style={[styles.foldBody, { gap: isDecisions ? 0 : 6 }]}>
           {items.length === 0 ? <MarkdownView source={section.markdown} c={c} small onLink={onLink} /> : null}
@@ -469,18 +418,14 @@ function SectionFold(props: InnerProps & { section: Section; open: boolean; onTo
                 onPress={() => update({ page: { kind: "doc", rel: "map.md", section: section.heading } })}
                 style={styles.frow}
               >
-                {item.changed ? <Dot c={c} /> : <View style={{ width: 6 }} />}
                 <Text numberOfLines={1} style={{ ...SMALL, color: c.fg, flex: 1, minWidth: 0 }}>
                   {item.title}
                 </Text>
                 {item.date ? <Text style={{ ...SMALL, color: c.muted }}>{isoDay(item.date)}</Text> : null}
               </RowButton>
             ) : (
-              <View key={index} style={{ flexDirection: "row", gap: 6 }}>
-                {item.changed ? <View style={{ paddingTop: 6 }}><Dot c={c} /></View> : <View style={{ width: 6 }} />}
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <MarkdownView source={item.markdown.replace(/^\s*(?:[-*+]|\d{1,3}[.)])\s+/, "")} c={c} small onLink={onLink} />
-                </View>
+              <View key={index} style={{ minWidth: 0 }}>
+                <MarkdownView source={item.markdown.replace(/^\s*(?:[-*+]|\d{1,3}[.)])\s+/, "")} c={c} small onLink={onLink} />
               </View>
             ),
           )}
@@ -495,7 +440,65 @@ function PageView(props: InnerProps & { page: Page; visible: boolean }) {
   if (page.kind === "ticket") return <TicketPage {...props} rel={page.rel} />;
   if (page.kind === "folder") return <FolderPage {...props} rel={page.rel} />;
   if (page.kind === "doc") return <DocPage {...props} rel={page.rel} section={page.section} />;
+  if (page.kind === "git") return <GitPage {...props} />;
   return null;
+}
+
+/**
+ * Git state of the effort's files, kept apart from the planning view: what changed here and isn't
+ * committed yet, and the commits that touched the effort.
+ */
+function GitPage(props: InnerProps) {
+  const { c, data, update } = props;
+  const toast = useToast();
+  const rows = data.uncommitted?.rows ?? [];
+  const paths = data.uncommitted?.paths ?? [];
+  return (
+    <View style={{ flex: 1, minHeight: 0 }}>
+      <BackRow
+        c={c}
+        label={data.summary.slug}
+        onBack={() => update({ page: null })}
+        right={
+          paths.length ? (
+            <IconButton
+              c={c}
+              icon="Copy"
+              label={`Copy the ${paths.length} uncommitted paths`}
+              onPress={() => void copyText(paths.join("\n")).then(() => toast.show(`Copied ${paths.length} paths`), () => toast.error("Copying is not available here"))}
+            />
+          ) : undefined
+        }
+      />
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }}>
+        <GroupLabel c={c} text={rows.length ? `Not committed · ${rows.length}` : "Everything committed"} />
+        {rows.map((row) => (
+          <View key={row.label} style={[styles.frow, { paddingHorizontal: 12 }]}>
+            <Dot c={c} />
+            <Text style={{ ...SMALL, color: c.fg, flexShrink: 0 }}>{row.label}</Text>
+            <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, flex: 1, minWidth: 0 }}>
+              {[row.mtimeMs ? stamp(row.mtimeMs) : "", row.detail].filter(Boolean).join(" · ")}
+            </Text>
+            <Text style={{ ...SMALL, color: c.green, flexShrink: 0, paddingLeft: 6 }}>{row.stat}</Text>
+          </View>
+        ))}
+        {data.commits.length ? (
+          <View style={{ marginTop: 8 }}>
+            <GroupLabel c={c} text={`Commits · ${data.commits.length}${data.moreCommits ? "+" : ""}`} />
+            {data.commits.slice(0, 30).map((commit) => (
+              <View key={commit.hash} style={[styles.frow, { paddingHorizontal: 12 }]}>
+                <Text style={{ ...SMALL, color: c.muted, fontFamily: MONO }}>{commit.hash}</Text>
+                <Text numberOfLines={1} style={{ ...SMALL, color: c.fg, flex: 1, minWidth: 0 }}>
+                  {commit.subject}
+                </Text>
+                <Text style={{ ...SMALL, color: c.muted }}>{shortDate(commit.atMs)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
 }
 
 function TicketPage(props: InnerProps & { rel: string; visible: boolean }) {
@@ -603,7 +606,6 @@ function FolderPage(props: InnerProps & { rel: string }) {
             <Text numberOfLines={1} style={{ ...ROW, color: c.fg, flex: 1, minWidth: 0 }}>
               {file.name}
             </Text>
-            {file.changed ? <Dot c={c} /> : null}
             <Text style={{ ...SMALL, color: c.muted }}>{age(file.mtimeMs)}</Text>
           </RowButton>
         ))}
@@ -619,17 +621,11 @@ function DocPage(props: InnerProps & { rel: string; section?: string; visible: b
   const isMap = props.rel === "map.md";
   const [openSection, setOpenSection] = useState<string | null>(props.section ?? null);
   const name = props.rel.replace(/^\.artifacts\//, "").split("/").pop() ?? props.rel;
-  const changed = data.uncommitted?.rows.some((row) => row.rel === props.rel) ?? false;
   const onLink = (href: string) => {
     const page = linkPage(data.docs, props.rel, href);
     if (page) update({ page });
   };
-  const meta = [
-    doc.data ? `edited ${stamp(doc.data.mtimeMs)}` : "",
-    isMap && data.mapChanges.lines ? `${data.mapChanges.lines} lines not committed` : changed ? "not committed" : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const meta = doc.data ? `edited ${stamp(doc.data.mtimeMs)}` : "";
   let content: ReactNode;
   if (doc.isPending) content = <ActivityIndicator color={c.muted} />;
   else if (!doc.data) content = <Text style={{ ...SMALL, color: c.muted }}>Couldn't read {props.rel}.</Text>;
@@ -659,7 +655,6 @@ function DocPage(props: InnerProps & { rel: string; section?: string; visible: b
           <Text numberOfLines={1} style={{ fontSize: 14, lineHeight: 20, color: c.fg, fontWeight: "600", flexShrink: 1 }}>
             {name}
           </Text>
-          {changed ? <Dot c={c} /> : null}
         </View>
         <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, marginBottom: 8 }}>
           {[props.rel !== name ? props.rel : "", meta].filter(Boolean).join(" · ")}
@@ -685,7 +680,6 @@ function MapOutline(props: { c: Palette; text: string; data: EffortDetail; open:
     else head.push(line);
   }
   head = head.filter((line) => !/^#\s/.test(line));
-  const changes = new Map(props.data.mapChanges.sections.map((section) => [section.heading, section.added]));
   return (
     <View>
       {head.join("\n").trim() ? <MarkdownView source={head.join("\n").trim()} c={c} small onLink={props.onLink} /> : null}
@@ -693,17 +687,14 @@ function MapOutline(props: { c: Palette; text: string; data: EffortDetail; open:
         {parts.map((part) => {
           const items = part.body.split("\n").filter((line) => /^(?:[-*+]|\d{1,3}[.)])\s/.test(line)).length;
           const open = props.open === part.heading;
-          const added = changes.get(part.heading);
           return (
             <View key={part.heading}>
               <FoldHeader
                 c={c}
                 name={part.heading}
                 count={items || undefined}
-                changed={!!added}
                 open={open}
                 onToggle={() => props.onOpen(open ? null : part.heading)}
-                tail={added ? `+${added} not committed` : undefined}
               />
               {open ? (
                 <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
@@ -726,6 +717,7 @@ const styles = StyleSheet.create({
   frow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 22 },
   docs: { flexDirection: "row", flexWrap: "wrap", gap: 4, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth },
   chip: { flexDirection: "row", alignItems: "center", gap: 4, height: 22, paddingHorizontal: 7, borderRadius: 6, borderWidth: StyleSheet.hairlineWidth * 2 },
+  gitButton: { flexDirection: "row", alignItems: "center", gap: 4, height: 22, paddingHorizontal: 5, borderRadius: 4 },
   raw: { fontFamily: MONO, fontSize: 11.5, lineHeight: 16, padding: 8, borderRadius: 6, marginBottom: 10 },
   foot: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth },
 });

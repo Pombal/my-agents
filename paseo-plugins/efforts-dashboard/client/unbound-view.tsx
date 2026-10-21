@@ -183,7 +183,7 @@ export function SuggestionCard(props: {
 }) {
   const { c, effort } = props;
   return (
-    <View style={[props.flat ? { paddingHorizontal: 12 } : [styles.card, { backgroundColor: c.s1, borderColor: c.border }]]}>
+    <View style={[props.flat ? { paddingHorizontal: 6 } : [styles.card, { backgroundColor: c.s1, borderColor: c.border }]]}>
       <Text style={{ ...LABEL, color: c.muted }}>Suggested effort</Text>
       <View style={[ui.line, { gap: 6 }]}>
         {props.flat ? <Icon name="Map" size={13} color={c.muted} /> : null}
