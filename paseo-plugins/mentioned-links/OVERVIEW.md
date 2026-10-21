@@ -1,6 +1,6 @@
 # Mentioned links
 
-A **links** pill in each chat's composer, next to btw and the other pills. It counts the web links and images that you and the agent mentioned in this chat (`links 6`); with none it reads just `links` and its icon is dimmer. Open it for the list, newest mention first, one row per link: a type icon, the name, the host or folder in muted text, and how long ago it was last mentioned. On phones the list opens as a bottom sheet. The list scrolls inside the popover.
+A **links** pill in each chat's composer, next to btw and the other pills. It counts the web links and images that you and the agent mentioned in this chat, worded like Paseo's own pills (`6/6 tasks`, `5 subagents`): `6 links`, `1 link`, `0 links`, text only. Paseo requires an icon for plugin pills and keeps a 16 px slot for it; on web/desktop the plugin hides that slot, on the native apps it stays as a small blank gap. Open it for the list, newest mention first, one row per link: a type icon, the name, the host or folder in muted text, and how long ago it was last mentioned. On phones the list opens as a bottom sheet. The list scrolls inside the popover.
 
 ![Popover, dark](screenshots/desktop-dark.webp)
 
@@ -43,7 +43,8 @@ After editing the source, run `npm run typecheck` and `paseo plugin reload menti
 
 ## Proof (live web app, 2026-10-21, `screenshots/`)
 
-- `desktop-dark.webp`: the Links chat (index › Paseo Plugins), `links 28`, popover with images, webshare pages and `+5 files`.
+- `desktop-dark.webp` (re-shot 2026-10-21 after the label change): the Links chat (index › Paseo Plugins), pill `28 links` next to Paseo's `6 subagents` with the same height, padding and font (32 px, 12 px, 13.3 px measured), no icon; popover with images, webshare pages and `+6 files`.
+- The other screenshots predate the label change and show the old `links N` pill with an icon.
 - `desktop-dark-files.webp`: files shown (`hide 5 files`): a `.md` file and folders mixed in by time. Clicking `paseo-grievances.md` put `/home/cx/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318` on the clipboard and the row said "copied"; clicking the `mentioned-links-mocks` row opened `http://axalon:8080/pages/mentioned-links-mocks/` in a new tab and closed the popover.
 - `desktop-light.webp`: the same popover in Paseo's light theme.
 - `phone-dark.webp`, `phone-light.webp`: 390 px wide, the list as a bottom sheet.

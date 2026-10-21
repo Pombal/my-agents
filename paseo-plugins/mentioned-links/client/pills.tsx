@@ -1,9 +1,9 @@
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 import { View } from "react-native";
 import { linksForAgent } from "../shared/links";
 import { createLinksPopover } from "./popover";
+import { hideParentSlot } from "./web";
 import { countShown, LinksStore } from "./store";
 
 interface AgentSummary {
@@ -15,8 +15,8 @@ interface AgentSummary {
 }
 
 /**
- * One `links N` composer pill per chat. A chat's links are fetched when its pill first shows
- * (the pill's icon mounting is the signal), again when its agent finishes a turn while the pill
+ * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon.
+ * A chat's links are fetched when its pill first shows (the pill's icon slot mounting is the signal), again when its agent finishes a turn while the pill
  * shows, and on opening the popover. Nothing polls while agents are idle.
  */
 export function startPills(client: PluginClientContext): () => void {
@@ -31,15 +31,18 @@ export function startPills(client: PluginClientContext): () => void {
   const labelOf = (agentId: string) => {
     const links = store.get(agentId).links;
     const shown = links ? countShown(links) : 0;
-    return shown ? `links ${shown}` : "links";
+    return shown === 1 ? "1 link" : `${shown} links`;
   };
 
+  /**
+   * Paseo requires an icon and always draws a 16 px slot for it. This component draws nothing and,
+   * on web, hides that slot so the pill reads like Paseo's text-only pills. Native keeps an empty slot.
+   * It stays mounted because its mount tells us the chat is on screen.
+   */
   function PillIcon(props: PluginButtonIconProps) {
     const agentId = props.context === "agent" ? props.agentId : "";
-    const empty = useSyncExternalStore(
-      (listener) => store.subscribe(listener),
-      () => !store.get(agentId).links || labelOf(agentId) === "links",
-    );
+    const ref = useRef<View>(null);
+    useEffect(() => hideParentSlot(ref.current), []);
     useEffect(() => {
       if (!agentId) return;
       onScreen.set(agentId, (onScreen.get(agentId) ?? 0) + 1);
@@ -50,11 +53,7 @@ export function startPills(client: PluginClientContext): () => void {
         else onScreen.delete(agentId);
       };
     }, [agentId]);
-    return (
-      <View style={{ opacity: empty ? 0.6 : 1 }}>
-        <Icon name="Link" size={props.size} color={props.color} />
-      </View>
-    );
+    return <View ref={ref} />;
   }
   const Content = createLinksPopover(store);
 
