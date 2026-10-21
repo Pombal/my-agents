@@ -46,3 +46,29 @@ export const linksForAgent = defineRpc({
     subagentLinks: z.array(LinkSchema).optional(),
   }),
 });
+
+/** One tab (root agent) of a workspace and the links its chat mentioned. */
+export const WorkspaceTabSchema = z.object({
+  agentId: z.string(),
+  /** The agent's title, else the first 8 characters of its id. */
+  title: z.string(),
+  /** Provider id (`omp`, `claude`, `omp-nilo` …), for the tab's provider mark. */
+  provider: z.string(),
+  /** A closed (archived) tab. */
+  closed: z.boolean(),
+  /** The tab's own links, newest first. */
+  links: z.array(LinkSchema),
+  /** Asked for only: links its sub-agents mentioned and the tab didn't, newest first, each with `via`. */
+  subagentLinks: z.array(LinkSchema).optional(),
+});
+export type WorkspaceTab = z.infer<typeof WorkspaceTabSchema>;
+
+export const linksForWorkspace = defineRpc({
+  name: "links.for-workspace",
+  /** `subagents`: also each tab's sub-agent links (the links page asks, the header button doesn't). */
+  input: z.object({ workspaceId: z.string(), subagents: z.boolean().optional() }),
+  output: z.object({
+    /** The workspace's root agents, closed ones included; sub-agents are folded into their root. */
+    tabs: z.array(WorkspaceTabSchema),
+  }),
+});

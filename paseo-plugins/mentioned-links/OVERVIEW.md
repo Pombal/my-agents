@@ -4,6 +4,26 @@ A **links** pill in each chat's composer, next to btw and the other pills. It co
 
 ![Popover, dark](screenshots/desktop-dark.webp)
 
+## Workspace links page
+
+A **`434 links`** button in each workspace's header (Lucide link icon, same wording as the pill) opens that workspace's links as a tab in its main area, next to its chats. The count is the number of different links the workspace's tabs mentioned (closed tabs included, sub-agents not). Paseo shows plugin header buttons on wide layouts only: from 1100 px it shows three plugin buttons, below that one plus a `⋯` overflow, and its phone layout (below 720 px) has no plugin header buttons at all, so on phones the page can't be opened yet (see Limits). Settings → Plugins → mentioned-links → **Mentioned links** (route `/settings/hosts/<server>/plugins/mentioned-links/header`) → **Show header button**: on by default; turning it off removes the button from every workspace header at once, without a reload; the composer pill stays.
+
+![Links page, Flat, dark](screenshots/workspace-flat-dark.webp)
+
+The page (a workspace panel, `client/page.tsx`) is built from the popover's parts (`client/list-ui.tsx`): the same rows, type tabs and sub-agents switch.
+
+- **Top:** `Links` and the workspace name in muted text, a muted settings button (sliders icon) at the right, a search field (`Search 434 links`), then the popover's **type tabs** (`Web 40 · Images 157 · Files 237`, same rules: only present types, only with 2+ types, opens on Web, one at a time, kept per workspace until the app reloads) and the right-aligned faint **`+107 subagents`** switch (only when sub-agents mention links that no tab of the workspace mentioned itself).
+- **Search** matches every word against the name, the folder or host, the URL or path, the sentence and the sub-agent. While searching, the tab counts are the matches per type; an empty result reads `No links match “…”` (plus `in images` when other types do match).
+- **Settings menu:** one flat menu with settings under small muted headings; so far one heading, **Grouping**: **Flat** (default, checked), **By tab**, **By site**. The pick is kept per device (web: `localStorage`; the native apps keep it until the app reloads). On phones the menu is a bottom sheet.
+- **Flat:** one row per link across the workspace: type icon · name · muted folder or host (hover on desktop: the sentence, as in the popover) · the **tab** that mentioned it last, with that tab's provider mark (Paseo's built-in marks; Bot for others such as `omp-nilo`, and on the native apps) and a muted `+2` when two more tabs mention it too · time. Clicking the tab name opens that tab (`navigation.openAgent`). Clicking the row does what the popover does: web and images open in the browser, files copy their path and the row says `copied`. Missing files are struck through.
+- **By tab:** one group per tab with its count, open tabs first (newest link first), then a muted **Closed** separator and the closed tabs, which start folded. Rows show the folder or host (or `↳ <sub-agent>`), no tab column.
+- **By site:** Flat's rows grouped by host (`github.com/<owner>/<repo>` for GitHub, `axalon:8080` for the webshare) or, for files, by folder; newest group first. Rows show the tab instead of the folder.
+- Groups always fold (chevron, click the heading); the folding is kept per workspace until the app reloads.
+- **Scope:** the workspace's tabs (Paseo's root agents, closed ones included). Sub-agents fold into their tab behind the `+N subagents` switch: the tab's OMP or Claude Code sub-agents and every Paseo agent below it in the same workspace. **Closed tabs** (archived agents) count like open ones; their name and provider mark are faint, and their name can't be clicked (Paseo opens no tab for an archived agent).
+- **Empty states:** `No links in this workspace yet` with a one-line hint; `No links match “…”` for a search.
+
+![Links page, By tab, settings menu open](screenshots/workspace-by-tab-menu-dark.webp)
+
 ## Categories
 
 Links are sorted by what a click does.
@@ -45,12 +65,17 @@ The count is fetched when a chat's pill first shows, again when that chat's agen
 
 Sub-agent transcripts are read only while the list is open (the pill never asks), with the same incremental cache, at most 16 files at a time. Measured on the Links chat (34–36 links; 8 OMP sub-agent transcripts, 6.8 MB; 18 extra links from 7 of them): the list's request took 54 ms the first time after a plugin reload (59 ms with sentences and `missing` checks) and 2–4 ms after that, against 1.5–2.5 ms without sub-agents. The Paseo child lookup costs about 1 ms. Old OMP sessions can hold hundreds of MB of sub-agent transcripts; such a chat's first open would take seconds [estimate from the 320 ms per 100 MB parse rate].
 
+The links page asks `links.for-workspace` (`server/service.ts`): one `agents.list` (archived included, paged), Paseo's root rule (`server/workspace.ts`), then each tab's transcript through the same incremental cache, 16 at a time, and with the switch available each tab's sub-agent transcripts. It reads transcripts only, never Paseo's chat history, because most of a workspace's chats aren't loaded and a history fetch would start them; a tab of another provider lists no links. The page fetches when it becomes visible (switching to its tab, the app returning to the foreground) and every 3 seconds while any agent of the workspace is running; a hidden tab (Paseo keeps it mounted at width 0) fetches nothing. The header button's count is fetched when the button first shows, and again when one of the workspace's agents finishes a turn, is closed or is renamed while the button or the page is on screen (otherwise on the next show). Measured on index › Paseo Plugins (29 tabs, 17 of them closed, 34.8 MB of tab transcripts, 434 links, 107 more from sub-agents; machine load average 17): 0.5 s for the first request after a plugin reload (507 ms without sub-agents, 522 ms with them), then 18–28 ms without and 22–50 ms with sub-agents; the answer is 175 KB (226 KB with sub-agents).
+
 ## Limits
 
 - Files can't open in Paseo's file viewer: plugins have no API for that yet, so a click copies the path.
 - Images outside `~/www/webshare/` are Files (copy), since they have no URL.
 - `localhost` URLs opened from a phone point at the phone.
-- Sub-agents of Paseo child agents (grandchildren) are not included; OMP's own nested sub-agents are.
+- In the popover, sub-agents of Paseo child agents (grandchildren) are not included; OMP's own nested sub-agents are. The links page folds every Paseo agent below a tab into it.
+- The links page needs the header button: Paseo's phone layout shows no plugin header buttons, and the page has no other entry (no sidebar row or ⌘K item, by design), so phones can only show a links tab already open in that workspace.
+- A closed tab can't be opened from the page; reopening it is Paseo's History or the `past-sessions` plugin.
+- The page lists no links for chats of providers without a readable transcript (anything but OMP, Claude Code and Codex).
 - The webshare address (`http://axalon:8080`) is fixed in `server/links.ts`.
 
 After editing the source, run `npm run typecheck` and `paseo plugin reload mentioned-links`.
@@ -59,6 +84,13 @@ After editing the source, run `npm run typecheck` and `paseo plugin reload menti
 
 - `desktop-dark.webp` (re-shot 2026-10-21 after the label change): the Links chat (index › Paseo Plugins), pill `28 links` next to Paseo's `6 subagents` with the same height, padding and font (32 px, 12 px, 13.3 px measured), no icon; popover with images, webshare pages and `+6 files`.
 - The other screenshots predate the label change and show the old `links N` pill with an icon; the `types-*.webp` ones also show the old one-type-at-a-time chips with a `+N hidden` label and a `N links in this chat` title, both gone since 2026-10-21.
+- **Workspace page (2026-10-21)**, index › Paseo Plugins, desktop 1440 px and 390 px, T3 Chat Dark and Light themes:
+  - `header-button.webp`: `434 links` with the link icon, first of the three plugin header buttons; clicking it opened the Links tab for that workspace. At 800 px it is the one visible plugin button (the others in `⋯`); at 700 px and 390 px Paseo shows no plugin header buttons.
+  - **Show header button** off removed the button from the header, on brought it back, both without reloading the app (same document, checked); left on.
+  - `workspace-flat-dark.webp`: Flat by default, rows naming their tab (`Dispatcher +1`), closed tabs faint (`Status Dots`, `Diff Highlight`), `fold-tools-mocks` struck through as `missing`; hovering `session-tree-popout-alts` showed its sentence. Clicking the tab name `Tree` opened the Tree tab; `Status Dots` (closed) is not clickable since `openAgent` did nothing for it. A Files row copied its path and said `copied`.
+  - `workspace-by-tab-menu-dark.webp`: the settings menu with Grouping (By tab checked). By tab showed the open tabs, then `Closed` with 17 folded closed tabs; `Status Dots` unfolded to its 3 links and `Flicker` folded away. By site grouped files by folder (`~/…/.scratch/paseo-grievances 28`, `paseo-grievances.md` named `Links +18`). The grouping survived an app reload.
+  - `+107 subagents` turned Web 40 → 53 and the field to `Search 541 links`, with rows such as `images/ ↳ AgentCmdsFinalMock`. Searching `efforts mocks-4` left 2 rows (Web 2, Images 0, Files 0); the Images tab then read `No links match “efforts mocks-4”`.
+  - `workspace-phone.webp`: 390 px, one-line rows with name, folder, tab and time; the settings menu opened as a bottom sheet. The light theme was checked on desktop (rows, search field, menu).
 - `desktop-dark-files.webp`: files shown (`hide 5 files`): a `.md` file and folders mixed in by time. Clicking `paseo-grievances.md` put `/home/cx/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318` on the clipboard and the row said "copied"; clicking the `mentioned-links-mocks` row opened `http://axalon:8080/pages/mentioned-links-mocks/` in a new tab and closed the popover.
 - `desktop-light.webp`: the same popover in Paseo's light theme.
 - `phone-dark.webp`, `phone-light.webp`: 390 px wide, the list as a bottom sheet.

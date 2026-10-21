@@ -1,82 +1,103 @@
-import type { Link, LinkKind } from "../shared/links";
+import type { Link, LinkKind, WorkspaceTab } from "../shared/links";
 
-export interface ChatLinks {
+export interface Fetched<T> {
   /** null until the first answer arrives. */
-  links: Link[] | null;
-  /** Links only the chat's sub-agents mentioned; null until a popover asked for them. */
-  subagentLinks: Link[] | null;
+  data: T | null;
   error: string | null;
 }
 
-export interface Loaded {
+/** A chat's links; `subagentLinks` (links only its sub-agents mentioned) once a popover asked for them. */
+export interface ChatLinks {
   links: Link[];
   subagentLinks?: Link[];
 }
 
-const NOTHING_YET: ChatLinks = { links: null, subagentLinks: null, error: null };
+/** A workspace's tabs; each has `subagentLinks` once the links page asked for them. */
+export interface WorkspaceLinks {
+  tabs: WorkspaceTab[];
+}
+
+const NOTHING_YET: Fetched<never> = { data: null, error: null };
 
 /**
- * Each chat's links as last fetched; one request per chat at a time, a refresh asked for meanwhile
- * runs after it. Sub-agent links are fetched only while a popover of that chat is open.
+ * Each chat's or workspace's links as last fetched, by id; one request per id at a time, a refresh
+ * asked for meanwhile runs after it. Sub-agent links are fetched only while something watches them
+ * (an open popover or links page); `keep` carries the last ones over a fetch without them.
  */
-export class LinksStore {
-  private readonly chats = new Map<string, ChatLinks>();
+export class LinksStore<T> {
+  private readonly entries = new Map<string, Fetched<T>>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly again = new Set<string>();
-  private readonly listeners = new Set<(agentId: string) => void>();
-  /** Open popovers per chat. */
+  private readonly listeners = new Set<(id: string) => void>();
+  /** Open popovers or pages per id. */
   private readonly watchers = new Map<string, number>();
 
-  constructor(private readonly load: (agentId: string, subagents: boolean) => Promise<Loaded>) {}
+  constructor(
+    private readonly load: (id: string, subagents: boolean) => Promise<T>,
+    private readonly keep: (prev: T, next: T) => T,
+  ) {}
 
-  get(agentId: string): ChatLinks {
-    return this.chats.get(agentId) ?? NOTHING_YET;
+  get(id: string): Fetched<T> {
+    return this.entries.get(id) ?? NOTHING_YET;
   }
 
-  subscribe(listener: (agentId: string) => void): () => void {
+  subscribe(listener: (id: string) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /** While the returned function hasn't been called, refreshes of this chat include its sub-agents. */
-  watchSubagents(agentId: string): () => void {
-    this.watchers.set(agentId, (this.watchers.get(agentId) ?? 0) + 1);
+  /** While the returned function hasn't been called, refreshes of this id include sub-agents. */
+  watchSubagents(id: string): () => void {
+    this.watchers.set(id, (this.watchers.get(id) ?? 0) + 1);
     return () => {
-      const left = (this.watchers.get(agentId) ?? 1) - 1;
-      if (left) this.watchers.set(agentId, left);
-      else this.watchers.delete(agentId);
+      const left = (this.watchers.get(id) ?? 1) - 1;
+      if (left) this.watchers.set(id, left);
+      else this.watchers.delete(id);
     };
   }
 
-  refresh(agentId: string): Promise<void> {
-    const running = this.inFlight.get(agentId);
+  refresh(id: string): Promise<void> {
+    const running = this.inFlight.get(id);
     if (running) {
-      this.again.add(agentId);
+      this.again.add(id);
       return running;
     }
     const run = (async () => {
       try {
-        const loaded = await this.load(agentId, this.watchers.has(agentId));
-        this.set(agentId, { links: loaded.links, subagentLinks: loaded.subagentLinks ?? this.get(agentId).subagentLinks, error: null });
+        const next = await this.load(id, this.watchers.has(id));
+        const prev = this.get(id).data;
+        this.set(id, { data: prev ? this.keep(prev, next) : next, error: null });
       } catch (error) {
-        this.set(agentId, { ...this.get(agentId), error: error instanceof Error ? error.message : String(error) });
+        this.set(id, { ...this.get(id), error: error instanceof Error ? error.message : String(error) });
       } finally {
-        this.inFlight.delete(agentId);
-        if (this.again.delete(agentId)) void this.refresh(agentId);
+        this.inFlight.delete(id);
+        if (this.again.delete(id)) void this.refresh(id);
       }
     })();
-    this.inFlight.set(agentId, run);
+    this.inFlight.set(id, run);
     return run;
   }
 
-  forget(agentId: string): void {
-    this.chats.delete(agentId);
+  forget(id: string): void {
+    this.entries.delete(id);
   }
 
-  private set(agentId: string, chat: ChatLinks): void {
-    this.chats.set(agentId, chat);
-    for (const listener of this.listeners) listener(agentId);
+  private set(id: string, entry: Fetched<T>): void {
+    this.entries.set(id, entry);
+    for (const listener of this.listeners) listener(id);
   }
+}
+
+/** A chat fetch without sub-agents keeps the sub-agent links fetched last. */
+export function keepChatSubagents(prev: ChatLinks, next: ChatLinks): ChatLinks {
+  return next.subagentLinks || !prev.subagentLinks ? next : { ...next, subagentLinks: prev.subagentLinks };
+}
+
+/** A workspace fetch without sub-agents keeps each tab's sub-agent links fetched last. */
+export function keepWorkspaceSubagents(prev: WorkspaceLinks, next: WorkspaceLinks): WorkspaceLinks {
+  if (next.tabs.some((tab) => tab.subagentLinks)) return next;
+  const before = new Map(prev.tabs.map((tab) => [tab.agentId, tab.subagentLinks]));
+  return { tabs: next.tabs.map((tab) => ({ ...tab, subagentLinks: before.get(tab.agentId) })) };
 }
 
 /** Chip order in the popover. */
@@ -99,10 +120,10 @@ export function shownKind(links: readonly Link[], choice: LinkKind | undefined):
   return kinds.includes("web") ? "web" : (kinds[0] ?? null);
 }
 
-/** Each chat's picked type, for this app session only. */
+/** The picked type per chat (agent id) and per links page (workspace id), for this app session only. */
 export const typeChoices = new Map<string, LinkKind>();
 
-/** Chats whose popover shows sub-agent links, for this app session only. */
+/** Chats (agent ids) and links pages (workspace ids) that show sub-agent links, for this app session only. */
 export const subagentChoices = new Set<string>();
 
 /** The popover's rows before the type filter: the chat's links, plus its sub-agents' when shown, newest first. */

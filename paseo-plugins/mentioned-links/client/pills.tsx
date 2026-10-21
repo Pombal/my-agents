@@ -2,25 +2,24 @@ import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientConte
 import { useEffect, useRef } from "react";
 import { View } from "react-native";
 import { linksForAgent } from "../shared/links";
+import type { AgentListener, AgentSummary } from "./agents";
 import { createLinksPopover } from "./popover";
+import { keepChatSubagents, LinksStore, type ChatLinks } from "./store";
 import { hideParentSlot } from "./web";
-import { LinksStore } from "./store";
 
-interface AgentSummary {
-  id: string;
-  workspaceId?: string | null;
-  status: string;
-  archivedAt?: string | null;
-  internal?: boolean;
+/** `28 links`, `1 link`, `0 links`, worded like Paseo's own pills; `links` before the first count. */
+export function linksLabel(count: number | null): string {
+  if (count === null) return "links";
+  return count === 1 ? "1 link" : `${count} links`;
 }
 
 /**
  * One `N links` composer pill per chat, worded like Paseo's own pills (`5 subagents`), no icon.
  * A chat's links are fetched when its pill first shows (the pill's icon slot mounting is the signal), again when its agent finishes a turn while the pill
- * shows, and on opening the popover. Nothing polls while agents are idle.
+ * shows, and on opening the popover. Nothing polls while agents are idle. Fed by `followAgents`.
  */
-export function startPills(client: PluginClientContext): () => void {
-  const store = new LinksStore((agentId, subagents) => client.rpc(linksForAgent, { agentId, subagents }));
+export function startPills(client: PluginClientContext): { agents: AgentListener; stop(): void } {
+  const store = new LinksStore<ChatLinks>((agentId, subagents) => client.rpc(linksForAgent, { agentId, subagents }), keepChatSubagents);
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
   const statuses = new Map<string, string>();
   /** Mounted pill icons per chat: these chats are on screen. */
@@ -28,10 +27,7 @@ export function startPills(client: PluginClientContext): () => void {
   /** Chats whose agent finished a turn while their pill was hidden: refetch on next show. */
   const stale = new Set<string>();
 
-  const labelOf = (agentId: string) => {
-    const count = store.get(agentId).links?.length ?? 0;
-    return count === 1 ? "1 link" : `${count} links`;
-  };
+  const labelOf = (agentId: string) => linksLabel(store.get(agentId).data?.links.length ?? 0);
 
   /**
    * Paseo requires an icon and always draws a 16 px slot for it. This component draws nothing and,
@@ -45,7 +41,7 @@ export function startPills(client: PluginClientContext): () => void {
     useEffect(() => {
       if (!agentId) return;
       onScreen.set(agentId, (onScreen.get(agentId) ?? 0) + 1);
-      if (!store.get(agentId).links || stale.delete(agentId)) void store.refresh(agentId);
+      if (!store.get(agentId).data || stale.delete(agentId)) void store.refresh(agentId);
       return () => {
         const left = (onScreen.get(agentId) ?? 1) - 1;
         if (left) onScreen.set(agentId, left);
@@ -78,7 +74,7 @@ export function startPills(client: PluginClientContext): () => void {
     statuses.set(agent.id, agent.status);
     if (before === "running" && agent.status !== "running") {
       if (onScreen.has(agent.id)) void store.refresh(agent.id);
-      else if (store.get(agent.id).links) stale.add(agent.id);
+      else if (store.get(agent.id).data) stale.add(agent.id);
     }
     if (pills.has(agent.id)) return;
     const label = labelOf(agent.id);
@@ -91,35 +87,20 @@ export function startPills(client: PluginClientContext): () => void {
     pills.set(agent.id, { registration, label });
   };
 
-  const lifetime = new AbortController();
-  void client.paseo.agents
-    .list({ subscribe: {}, signal: lifetime.signal })
-    .then(({ entries, subscription }) => {
-      if (lifetime.signal.aborted) return;
-      const replace = (list: readonly { agent: AgentSummary }[]) => {
-        const ids = new Set(list.map(({ agent }) => agent.id));
+  return {
+    agents: {
+      replace(list) {
+        const ids = new Set(list.map((agent) => agent.id));
         for (const agentId of [...pills.keys()]) if (!ids.has(agentId)) remove(agentId);
-        for (const { agent } of list) observe(agent);
-      };
-      replace(entries);
-      subscription.subscribe({
-        snapshot: (snapshot) => replace(snapshot.entries),
-        update: (message) => {
-          if (message.type !== "agent_update") return;
-          const update = message.payload;
-          if (update.kind === "remove") remove(update.agentId);
-          else observe(update.agent);
-        },
-      });
-    })
-    .catch((error: unknown) => {
-      if (!lifetime.signal.aborted) console.warn("[mentioned-links] agent subscription failed", error);
-    });
-
-  return () => {
-    lifetime.abort();
-    offStore();
-    for (const pill of pills.values()) pill.registration.remove();
-    pills.clear();
+        for (const agent of list) observe(agent);
+      },
+      update: observe,
+      remove,
+    },
+    stop() {
+      offStore();
+      for (const pill of pills.values()) pill.registration.remove();
+      pills.clear();
+    },
   };
 }
