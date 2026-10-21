@@ -30,25 +30,37 @@ describe("flipbooks", () => {
     const copies = copiesIn(SPINNER_MARKUP[id].html);
     const books = Array.from({ length: copies }, (_, j) => keyframes(`${name}${j}`));
     expect(CATALOG_CSS).not.toContain(`@keyframes ${name}${copies}{`);
-    const slots = copies * 2;
-    // Slot boundaries as written in the CSS (two decimals).
-    const bounds = Array.from({ length: slots }, (_, k) => Number(((k * 100) / slots).toFixed(2)));
+    const slots = (copies - 1) * 2;
+    // Slot k is centred on k/slots of the cycle; its ends as written in the CSS (two decimals).
+    const ends = Array.from({ length: slots }, (_, k) => Number((((k + 0.5) * 100) / slots).toFixed(2)));
     for (const t of SAMPLES) {
       const shown = books.flatMap((book, j) => (steppedOpacity(book, t) === 1 ? [j] : []));
-      // Slot k shows the shape sampled for it; slots k and slots-1-k share one.
-      const slot = bounds.findLastIndex((bound) => bound <= t);
-      expect({ t, shown }).toEqual({ t, shown: [Math.min(slot, slots - 1 - slot)] });
+      // Slots k and slots-k show the same shape and share a copy.
+      const slot = ends.filter((end) => end <= t).length % slots;
+      expect({ t, shown }).toEqual({ t, shown: [Math.min(slot, slots - slot)] });
     }
   });
 
-  test("morph copies get rounder from the first to the last (the 50% keyframe's circle)", () => {
+  test.each([["morph", "spn-morph", 1600], ["starburst", "spn-burst", 2200]] as const)("%s switches copies only between 60 Hz frames", (id, name, cycle) => {
+    const copies = copiesIn(SPINNER_MARKUP[id].html);
+    const switches = Array.from({ length: copies }, (_, j) => keyframes(`${name}${j}`).map(([offset]) => (offset * cycle) / 100))
+      .flat().filter((ms) => ms > 0 && ms < cycle);
+    // A display frame at k × 16.67 ms from the start is never within 7 ms of a switch, so it never
+    // shows a copy twice or skips one.
+    for (let frame = 0; frame * (1000 / 60) < cycle; frame++) {
+      const nearest = Math.min(...switches.map((ms) => Math.abs(ms - (frame * 1000) / 60)));
+      expect({ frame, nearest: nearest > 7 }).toEqual({ frame, nearest: true });
+    }
+  });
+
+  test("morph goes from the rounded square (0% keyframe) to the circle (50%), rounder with every copy", () => {
     const radii = Array.from({ length: copiesIn(SPINNER_MARKUP.morph.html) }, (_, j) => {
       const match = new RegExp(`\\.spn-morph b i:nth-child\\(${j + 1}\\)\\{border-radius:calc\\(([\\d.]+)em \\+ ([\\d.]+)%\\)`).exec(CATALOG_CSS);
-      return Number(match![2]);
+      return [Number(match![1]), Number(match![2])] as const;
     });
-    expect(radii[0]).toBeGreaterThan(0);
-    expect(radii.at(-1)).toBeLessThan(50);
-    for (let j = 1; j < radii.length; j++) expect(radii[j]).toBeGreaterThan(radii[j - 1]!);
+    expect(radii[0]).toEqual([0.08, 0]);
+    expect(radii.at(-1)).toEqual([0, 50]);
+    for (let j = 1; j < radii.length; j++) expect(radii[j]![1]).toBeGreaterThan(radii[j - 1]![1]);
   });
 });
 

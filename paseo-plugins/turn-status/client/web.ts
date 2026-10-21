@@ -351,7 +351,7 @@ export class RollingTime {
     }
     const digits = text.replace(/\D/g, "");
     for (let i = 0; i < digits.length; i++) {
-      if (digits[i] !== this.digits[i]) this.columns[i]?.style.setProperty("transform", `translateY(calc(var(--spn-lh, 1.4em) * -${digits[i]}))`);
+      if (digits[i] !== this.digits[i]) this.columns[i]?.style.setProperty("transform", `translateY(calc(round(var(--spn-lh, 1.4em), 1px) * -${digits[i]}))`);
     }
     this.digits = digits;
   }

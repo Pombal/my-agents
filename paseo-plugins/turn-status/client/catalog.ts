@@ -57,27 +57,31 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number
 }
 
 /**
- * A shape change only the main thread can animate (border-radius, clip-path) as a flipbook: the
- * cycle is cut into `frames` slots, each shown by a copy of the shape sampled at the slot's middle
- * and switched on and off by a step-end opacity animation, so one copy is visible at any time.
+ * A shape change only the main thread can animate (border-radius, clip-path) as a flipbook: one
+ * pre-drawn copy of the shape per display frame, each switched on for its frame and off again by a
+ * step-end opacity animation, so exactly one copy is visible at any time. The cycle has `frames`
+ * slots; slot k shows the shape at k/frames of the cycle and is centred on that moment, so a
+ * display whose frames land on those moments (60 Hz for a cycle of `frames` × 16.7 ms, as the
+ * animation starts on a frame) shows each shape for one whole frame and never lands on a switch.
  * The shape goes out and back with one symmetric easing (keyframes 0% → 50% → 100%, as in the CSS
- * this replaces), so slots k and frames−1−k show the same shape and share a copy. `shape` gets the
- * eased progress (0 at the 0% keyframe, 1 at the 50% one) and returns that copy's declarations.
+ * this replaces), so slots k and frames−k show the same shape and share a copy: frames/2 + 1
+ * copies. `shape` gets the eased progress (0 at the 0% keyframe, 1 at the 50% one) and returns
+ * that copy's declarations.
  */
 function flipbook(name: string, copies: string, frames: number, ease: (x: number) => number, shape: (p: number) => string): string {
   const half = frames / 2;
   let css = "";
-  for (let j = 0; j < half; j++) {
-    const slots = j === half - 1 ? [[j, frames - j]] : [[j, j + 1], [frames - 1 - j, frames - j]];
-    let keys = j === 0 ? "" : "0%{opacity:0}";
-    for (const [from, to] of slots) keys += `${pct(from!, frames)}{opacity:1}${pct(to!, frames)}{opacity:0}`;
-    css += `@keyframes ${name}${j}{${keys}}${copies}:nth-child(${j + 1}){${shape(ease((j + 0.5) / half))};animation-name:${name}${j}}`;
+  for (let j = 0; j <= half; j++) {
+    const on = (k: number) => `${pct(k - 0.5, frames)}{opacity:1}${pct(k + 0.5, frames)}{opacity:0}`;
+    const keys = j === 0 ? `0%{opacity:1}${pct(0.5, frames)}{opacity:0}${pct(frames - 0.5, frames)}{opacity:1}100%{opacity:1}`
+      : `0%{opacity:0}${on(j)}${j < half ? on(frames - j) : ""}100%{opacity:0}`;
+    css += `@keyframes ${name}${j}{${keys}}${copies}:nth-child(${j + 1}){${shape(ease(j / half))};animation-name:${name}${j}}`;
   }
   return css;
 }
 
-/** Copies the flipbook of each shape-changing spinner needs (half its frames). */
-const MORPH_COPIES = 24, BURST_COPIES = 33;
+/** Flipbook slots per cycle: one per 60 Hz frame (morph 1.6 s, starburst 2.2 s). */
+const MORPH_FRAMES = 96, BURST_FRAMES = 132;
 
 function generated(): string {
   let css = "";
@@ -101,10 +105,10 @@ function generated(): string {
   css += loop("spn-elec", 36, (a) => `transform:translate(${f3(0.46 * Math.cos(a))}em,${f3(0.17 * Math.sin(a))}em) scale(${f3(0.75 + 0.35 * nearness(a))})`);
   css += depthSwap("spn-moon", 36) + depthSwap("spn-elec", 36);
   // Morph: a rounded square that turns into a circle and back while it spins.
-  css += flipbook("spn-morph", ".spn-morph b i", MORPH_COPIES * 2, cubicBezier(0.42, 0, 0.58, 1),
+  css += flipbook("spn-morph", ".spn-morph b i", MORPH_FRAMES, cubicBezier(0.42, 0, 0.58, 1),
     (p) => `border-radius:calc(${f3(0.08 * (1 - p))}em + ${(50 * p).toFixed(2)}%)`);
   // Starburst: 24 points, alternating radii; the inner ones pull in and out.
-  css += flipbook("spn-burst", ".spn-burst b i", BURST_COPIES * 2, cubicBezier(0.6, 0, 0.4, 1),
+  css += flipbook("spn-burst", ".spn-burst b i", BURST_FRAMES, cubicBezier(0.6, 0, 0.4, 1),
     (p) => `clip-path:${polygon(24, (j) => (j % 2 ? 0.92 + (0.36 - 0.92) * p : 1))}`);
   // Sliding tiles: the empty corner travels clockwise; 12 moves bring every tile home.
   const corners = [[0, 0], [0.6, 0], [0.6, 0.6], [0, 0.6]] as const;
@@ -343,7 +347,7 @@ const STATIC_CSS = `
 .spn-roll { display: inline-flex; white-space: pre; font-variant-numeric: tabular-nums; height: var(--spn-lh, 1.4em); line-height: var(--spn-lh, 1.4em); }
 .spn-roll .col { display: inline-block; height: var(--spn-lh, 1.4em); overflow: hidden; }
 .spn-roll .col > span { display: block; transition: transform .45s cubic-bezier(.3, 1.4, .5, 1); }
-.spn-roll .col > span > b { display: block; height: var(--spn-lh, 1.4em); font-weight: inherit; }
+.spn-roll .col > span > b { display: block; height: round(var(--spn-lh, 1.4em), 1px); font-weight: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   /* The footer's own elapsed-time sheen (.spn-stime) has always kept its speed here. */
@@ -374,8 +378,8 @@ export const SPINNER_MARKUP: Record<Exclude<SpinnerId, "off">, { cls: string; ht
   atom: { cls: "spn-atom", html: `<b class="orb"><i></i><i></i><b class="nuc"></b></b>` },
   eclipse: { cls: "spn-eclipse", html: dots(3) },
   "moon-phases": { cls: "spn-phase", html: "<i><b><b></b></b></i>" },
-  morph: { cls: "spn-morph", html: `<b>${dots(MORPH_COPIES)}</b>` },
-  starburst: { cls: "spn-burst", html: `<b>${dots(BURST_COPIES)}</b>` },
+  morph: { cls: "spn-morph", html: `<b>${dots(MORPH_FRAMES / 2 + 1)}</b>` },
+  starburst: { cls: "spn-burst", html: `<b>${dots(BURST_FRAMES / 2 + 1)}</b>` },
   constellation: { cls: "spn-constel", html: stars(5) },
   bounce: { cls: "spn-bounce", html: "" },
   "sideways-bounce": { cls: "spn-hbounce spn-wide", html: dots(1) },
