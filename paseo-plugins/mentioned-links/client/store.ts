@@ -1,5 +1,4 @@
-import type { Link } from "../shared/links";
-import { readShowFiles, writeShowFiles } from "./web";
+import type { Link, LinkKind } from "../shared/links";
 
 export interface ChatLinks {
   /** null until the first answer arrives. */
@@ -57,24 +56,29 @@ export class LinksStore {
   }
 }
 
-/** Web links and images: what the pill counts and the popover shows by default. */
-export function countShown(links: readonly Link[]): number {
-  return links.filter((link) => link.kind !== "file").length;
+/** A type to show alone, or every link. */
+export type TypeFilter = LinkKind | "all";
+
+/** Chip order in the popover. */
+export const KIND_ORDER: readonly LinkKind[] = ["web", "image", "file"];
+
+/** Each type present in `links`, in chip order, with its count. */
+export function kindCounts(links: readonly Link[]): { kind: LinkKind; count: number }[] {
+  return KIND_ORDER.map((kind) => ({ kind, count: links.filter((link) => link.kind === kind).length })).filter(
+    (entry) => entry.count > 0,
+  );
 }
 
-let showFiles = readShowFiles();
-const showFilesListeners = new Set<() => void>();
+/**
+ * The filter a chat's popover uses: the user's last choice in that chat if its type is still
+ * present, else Web alone when the chat has web links and something else, else everything.
+ */
+export function effectiveFilter(links: readonly Link[], choice: TypeFilter | undefined): TypeFilter {
+  const kinds = kindCounts(links).map((entry) => entry.kind);
+  if (kinds.length < 2) return "all";
+  if (choice && (choice === "all" || kinds.includes(choice))) return choice;
+  return kinds.includes("web") ? "web" : "all";
+}
 
-/** The popover's "+N files" toggle, remembered per browser. */
-export const filesToggle = {
-  get: (): boolean => showFiles,
-  set(show: boolean): void {
-    showFiles = show;
-    writeShowFiles(show);
-    for (const listener of showFilesListeners) listener();
-  },
-  subscribe(listener: () => void): () => void {
-    showFilesListeners.add(listener);
-    return () => showFilesListeners.delete(listener);
-  },
-};
+/** Each chat's chosen type, for this app session only. */
+export const typeChoices = new Map<string, TypeFilter>();

@@ -1,6 +1,6 @@
 # Mentioned links
 
-A **links** pill in each chat's composer, next to btw and the other pills. It counts the web links and images that you and the agent mentioned in this chat, worded like Paseo's own pills (`6/6 tasks`, `5 subagents`): `6 links`, `1 link`, `0 links`, text only. Paseo requires an icon for plugin pills and keeps a 16 px slot for it; on web/desktop the plugin hides that slot, on the native apps it stays as a small blank gap. Open it for the list, newest mention first, one row per link: a type icon, the name, the host or folder in muted text, and how long ago it was last mentioned. On phones the list opens as a bottom sheet. The list scrolls inside the popover.
+A **links** pill in each chat's composer, next to btw and the other pills. It counts every link that you and the agent mentioned in this chat, worded like Paseo's own pills (`6/6 tasks`, `5 subagents`): `6 links`, `1 link`, `0 links`, text only. Paseo requires an icon for plugin pills and keeps a 16 px slot for it; on web/desktop the plugin hides that slot, on the native apps it stays as a small blank gap. Open it for the list, newest mention first, one row per link: a type icon, the name, the host or folder in muted text, and how long ago it was last mentioned. On phones the list opens as a bottom sheet. The list scrolls inside the popover.
 
 ![Popover, dark](screenshots/desktop-dark.webp)
 
@@ -12,7 +12,9 @@ Links are sorted by what a click does.
 - **Images**: image URLs, and image files under `~/www/webshare/` (shown by their `http://axalon:8080/…` address). Click opens the image.
 - **Files**: every other local path, including images outside the webshare. Click copies the absolute path, with the `:line` or `:a-b` suffix of its newest mention, and the row briefly says "copied".
 
-Web and Images show by default. When the chat has files, the header shows a muted **+8 files** toggle; on, it reads **hide 8 files** and the files appear among the other rows. The choice is remembered per browser (web and desktop). The phone apps keep it until the app restarts.
+**Type chips.** Under the header, one chip per type the chat has, with its count (`Web 4 · Images 24 · Files 6`); a type with no links gets no chip, and the chip row appears only when the chat has at least two types. One type shows at a time. By default that's **Web** (when the chat has web links; otherwise everything). The rest is counted in a tiny, faint **+30 hidden** at the right of the header; clicking it shows every link (all chips then read as on), clicking a chip shows only that type. The choice is kept per chat until the app reloads.
+
+![Images chip selected](screenshots/types-images-dark.webp)
 
 A webshare path and its `http://axalon:8080` URL are one row. Non-image files in the webshare (for example `~/www/webshare/pages/x.html`) are Web rows. The same path with different line suffixes is one row.
 

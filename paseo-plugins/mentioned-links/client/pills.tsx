@@ -4,7 +4,7 @@ import { View } from "react-native";
 import { linksForAgent } from "../shared/links";
 import { createLinksPopover } from "./popover";
 import { hideParentSlot } from "./web";
-import { countShown, LinksStore } from "./store";
+import { LinksStore } from "./store";
 
 interface AgentSummary {
   id: string;
@@ -29,9 +29,8 @@ export function startPills(client: PluginClientContext): () => void {
   const stale = new Set<string>();
 
   const labelOf = (agentId: string) => {
-    const links = store.get(agentId).links;
-    const shown = links ? countShown(links) : 0;
-    return shown === 1 ? "1 link" : `${shown} links`;
+    const count = store.get(agentId).links?.length ?? 0;
+    return count === 1 ? "1 link" : `${count} links`;
   };
 
   /**

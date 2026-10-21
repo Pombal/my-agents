@@ -2,8 +2,10 @@ import { openExternalUrl, useAgent, type PluginButtonContentProps } from "@getpa
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
-import type { Link } from "../shared/links";
-import { countShown, filesToggle, type LinksStore } from "./store";
+import type { Link, LinkKind } from "../shared/links";
+import { effectiveFilter, kindCounts, typeChoices, type LinksStore, type TypeFilter } from "./store";
+
+const KIND_LABEL: Record<LinkKind, string> = { web: "Web", image: "Images", file: "Files" };
 
 /** While the chat's agent runs, an open popover refetches this often. */
 const RUNNING_REFRESH_MS = 3_000;
@@ -28,7 +30,14 @@ export function createLinksPopover(store: LinksStore) {
     const { theme, layout, close } = props;
     const agentId = props.context === "agent" ? props.agentId : "";
     const chat = useSyncExternalStore(subscribe, () => store.get(agentId));
-    const showFiles = useSyncExternalStore(filesToggle.subscribe, filesToggle.get);
+    const [choice, setChoice] = useState<TypeFilter | undefined>(() => typeChoices.get(agentId));
+    const choose = useCallback(
+      (filter: TypeFilter) => {
+        typeChoices.set(agentId, filter);
+        setChoice(filter);
+      },
+      [agentId],
+    );
     const status = useAgent(agentId, (agent) => agent.status);
     const toast = useToast();
     const [copied, setCopied] = useState<string | null>(null);
@@ -53,10 +62,23 @@ export function createLinksPopover(store: LinksStore) {
       () => ({
         // The surface is 280–420 px wide and sizes to its content; rows want all of it.
         list: layout.compact ? {} : { width: 396 },
-        header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, minHeight: 20, marginBottom: 2 },
+        header: { flexDirection: "row" as const, alignItems: "baseline" as const, gap: 12, minHeight: 20, marginBottom: 2 },
         headerText: { flex: 1, fontSize: 12, color: muted },
-        toggle: { fontSize: 12, color: muted },
-        toggleHover: { fontSize: 12, color: theme.colors.foreground },
+        hidden: { fontSize: 11, color: muted, opacity: 0.6 },
+        hiddenHover: { fontSize: 11, color: muted },
+        chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 4, marginBottom: 4 },
+        chip: {
+          flexDirection: "row" as const,
+          alignItems: "center" as const,
+          gap: 4,
+          height: layout.compact ? 28 : 22,
+          paddingHorizontal: 8,
+          borderRadius: 11,
+        },
+        chipOn: { backgroundColor: theme.colors.surface2 },
+        chipText: { fontSize: 12, color: muted },
+        chipTextOn: { fontSize: 12, color: theme.colors.foreground },
+        chipCount: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
         line: { fontSize: 12, color: muted },
         row: {
           flexDirection: "row" as const,
@@ -103,26 +125,43 @@ export function createLinksPopover(store: LinksStore) {
       );
     }
 
-    const shown = countShown(links);
-    const files = links.length - shown;
-    const rows = showFiles ? links : links.filter((link) => link.kind !== "file");
+    const kinds = kindCounts(links);
+    const filter = effectiveFilter(links, choice);
+    const rows = filter === "all" ? links : links.filter((link) => link.kind === filter);
+    const hidden = links.length - rows.length;
     const now = Date.now();
     return (
       <View style={styles.list}>
         <View style={styles.header}>
           <Text numberOfLines={1} style={styles.headerText}>
-            {shown ? `${shown} ${shown === 1 ? "link" : "links"} in this chat` : "No links in this chat yet"}
+            {`${links.length} ${links.length === 1 ? "link" : "links"} in this chat`}
           </Text>
-          {files ? (
-            <Pressable accessibilityRole="button" onPress={() => filesToggle.set(!showFiles)} hitSlop={6}>
-              {({ hovered }: PressState) => (
-                <Text style={hovered ? styles.toggleHover : styles.toggle}>
-                  {showFiles ? `hide ${files} ${files === 1 ? "file" : "files"}` : `+${files} ${files === 1 ? "file" : "files"}`}
-                </Text>
-              )}
+          {hidden ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Show all ${links.length} links`} onPress={() => choose("all")} hitSlop={6}>
+              {({ hovered }: PressState) => <Text style={hovered ? styles.hiddenHover : styles.hidden}>{`+${hidden} hidden`}</Text>}
             </Pressable>
           ) : null}
         </View>
+        {kinds.length > 1 ? (
+          <View style={styles.chips}>
+            {kinds.map(({ kind, count }) => {
+              const on = filter === "all" || filter === kind;
+              return (
+                <Pressable
+                  key={kind}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: filter === kind }}
+                  accessibilityLabel={`Show only ${KIND_LABEL[kind].toLowerCase()}`}
+                  onPress={() => choose(kind)}
+                  style={({ hovered }: PressState) => [styles.chip, (on || hovered) && styles.chipOn]}
+                >
+                  <Text style={on ? styles.chipTextOn : styles.chipText}>{KIND_LABEL[kind]}</Text>
+                  <Text style={styles.chipCount}>{count}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         {rows.map((link) => (
           <Pressable
             key={link.key}
