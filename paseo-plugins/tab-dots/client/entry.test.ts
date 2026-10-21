@@ -37,8 +37,11 @@ function fakeClient(writes: WriteResult[]) {
 const flush = async () => { for (let i = 0; i < 20; i += 1) await Promise.resolve(); };
 
 let stop: (() => void) | null = null;
-beforeEach(() => { document.body.innerHTML = ""; });
-afterEach(() => { stop?.(); stop = null; });
+beforeEach(() => {
+  document.body.innerHTML = "";
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+});
+afterEach(() => { stop?.(); stop = null; vi.unstubAllGlobals(); });
 
 describe("⌘K Toggle tab dots", () => {
   // A save that lost a revision race with another window used to do nothing, silently.

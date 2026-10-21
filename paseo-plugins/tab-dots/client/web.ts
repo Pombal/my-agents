@@ -27,7 +27,15 @@ interface El {
   appendChild(node: El): void;
   remove(): void;
   getBoundingClientRect(): Rect;
+  animate(keyframes: readonly PulseKeyframe[], options: { duration: number; iterations: number }): PulseAnimation;
   style: { left: string; top: string };
+}
+interface PulseKeyframe { offset: number; opacity: number; transform: string; easing?: string }
+interface PulseAnimation { startTime: number | null; cancel(): void }
+interface MediaQueryLike {
+  readonly matches: boolean;
+  addEventListener(type: "change", listener: () => void): void;
+  removeEventListener(type: "change", listener: () => void): void;
 }
 interface PointerLike { target: El | null; relatedTarget: El | null }
 declare const document: {
@@ -45,6 +53,7 @@ declare const window: {
   addEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
   removeEventListener(type: PressEvent, listener: (event: PressLike) => void, capture: true): void;
   getComputedStyle(element: El): { color: string };
+  matchMedia(query: string): MediaQueryLike;
 };
 const PRESS_EVENTS = ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "click"] as const;
 type PressEvent = (typeof PRESS_EVENTS)[number];
@@ -76,13 +85,32 @@ const PULSE_MS = 1800;
 const WAVE_STEP_MS = 200;
 
 /**
- * Negative delay that puts a running dot at the phase of a wave tied to the page clock: dot `index`
- * trails dot `index - 1` by one step, wherever it sits in the row. Rows drawn at different times
- * and dots redrawn later stay in the same wave.
+ * The running pulse. Spark + swell, wide: resting small and dim; a soft flash grows each dot to
+ * full size and brightness. Row dots play it as a Web Animation, the tooltip's swatch as the CSS
+ * `tab-dots-pulse` built from it. `ease-in-out` sits on each keyframe because CSS
+ * `animation-timing-function` applies per keyframe interval.
+ *
+ * Row dots don't use the CSS animation: React listens for `animationiteration` on the page, and
+ * with such a listener Blink wakes the main thread at every iteration of every CSS animation to
+ * fire the event, even a composited one. Each wake-up is a full main frame (style, paint) of the
+ * whole app. Web Animations have no iteration events, so a composited pulse runs on the
+ * compositor alone.
  */
-function waveDelay(index: number): number {
-  const phase = (performance.now() - index * WAVE_STEP_MS) % PULSE_MS;
-  return -((phase + PULSE_MS) % PULSE_MS);
+const PULSE_KEYFRAMES: readonly PulseKeyframe[] = [
+  { offset: 0, opacity: 0.3, transform: "scale(.6)", easing: "ease-in-out" },
+  { offset: 0.2, opacity: 1, transform: "scale(1)", easing: "ease-in-out" },
+  { offset: 0.6, opacity: 0.3, transform: "scale(.6)", easing: "ease-in-out" },
+  { offset: 1, opacity: 0.3, transform: "scale(.6)" },
+];
+
+/**
+ * Start time that puts a running dot on a wave tied to the page clock: dot `index` trails dot
+ * `index - 1` by one step, wherever it sits in the row. Rows drawn at different times and dots
+ * redrawn later stay in the same wave. At most one period back, so a dot drawn right after page
+ * load is already mid-pulse instead of waiting for its turn.
+ */
+function waveStart(index: number): number {
+  return ((index * WAVE_STEP_MS) % PULSE_MS) - PULSE_MS;
 }
 
 const LABEL: Record<DotState, string> = {
@@ -107,12 +135,13 @@ const CSS = `
 [${DOTS}] > i[data-state="finished"], [data-tab-dots-tip] i[data-state="finished"] { background: var(--td-ok); }
 [${DOTS}] > i[data-state="error"], [data-tab-dots-tip] i[data-state="error"] { background: var(--td-err); }
 [${DOTS}] > i[data-state="permission"], [data-tab-dots-tip] i[data-state="permission"] { background: var(--td-warn); }
-[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); animation: tab-dots-pulse ${PULSE_MS}ms ease-in-out infinite; }
+[${DOTS}] > i[data-state="running"], [data-tab-dots-tip] i[data-state="running"] { background: var(--td-run); }
+/* Row dots pulse through Web Animations (PULSE_KEYFRAMES); the tooltip's swatch lives only while hovered. */
+[data-tab-dots-tip] i[data-state="running"] { animation: tab-dots-pulse ${PULSE_MS}ms ease-in-out infinite; }
 [${DOTS}] > i[data-state="read"], [data-tab-dots-tip] i[data-state="read"] { background: currentColor; opacity: .35; }
 [${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
-/* Spark + swell, wide: resting small and dim; a soft flash grows each dot to full size and brightness. */
-@keyframes tab-dots-pulse { 0%, 60%, 100% { opacity: .3; transform: scale(.6); } 20% { opacity: 1; transform: scale(1); } }
-@media (prefers-reduced-motion: reduce) { [${DOTS}] > i, [data-tab-dots-tip] i { animation: none !important; } }
+@keyframes tab-dots-pulse { ${PULSE_KEYFRAMES.map(({ offset, opacity, transform }) => `${offset * 100}% { opacity: ${opacity}; transform: ${transform}; }`).join(" ")} }
+@media (prefers-reduced-motion: reduce) { [data-tab-dots-tip] i { animation: none !important; } }
 /* Right edge: the time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
 [${REPLACE}] [data-testid="sidebar-workspace-timestamp"] { display: none !important; }
 [${REPLACE}][${ALIGN}="edge"]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
@@ -188,6 +217,17 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   let hovered: El | null = null;
   // The dot whose tooltip is showing.
   let shownDot: El | null = null;
+  // Running row dots and their pulse. A Web Animation outlives its element's removal (and would
+  // keep it alive), so each is cancelled once its dot leaves the page.
+  const pulses = new Map<El, PulseAnimation>();
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const dropDetachedPulses = () => {
+    for (const [dot, animation] of pulses) {
+      if (dot.isConnected) continue;
+      animation.cancel();
+      pulses.delete(dot);
+    }
+  };
 
   const style = document.createElement("style");
   style.setAttribute("data-plugin", "tab-dots");
@@ -220,7 +260,9 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     const existing = row.querySelector(`[${DOTS}]`);
     if (!titleRow || dots.length === 0) return { row, titleRow: null, dots, more, color: "", tone: "dark", signature: "", existing };
     const { color, tone } = inkOf(titleRow.firstElementChild as El);
-    return { row, titleRow, dots, more, color, tone, signature: JSON.stringify([color, preferences.size, more, dots]), existing };
+    // Reduced motion is part of the signature: switching it redraws the dots with or without pulse.
+    const signature = JSON.stringify([color, preferences.size, more, dots, reducedMotion.matches]);
+    return { row, titleRow, dots, more, color, tone, signature, existing };
   };
 
   /** Writes only. */
@@ -249,7 +291,11 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       element.setAttribute("data-state", dot.state);
       element.setAttribute("data-title", dot.title);
       element.setAttribute("data-agent", dot.agentId);
-      if (dot.state === "running") element.setAttribute("style", `animation-delay: ${waveDelay(index)}ms`);
+      if (dot.state === "running" && !reducedMotion.matches) {
+        const animation = element.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
+        animation.startTime = waveStart(index);
+        pulses.set(element, animation);
+      }
       container.appendChild(element);
     });
     if (more > 0) {
@@ -274,6 +320,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     if (preferences.enabled) mine.map(planRow).forEach(applyRow);
     else mine.forEach(clearRow);
     if (shownDot && !shownDot.isConnected) hideTip();
+    dropDetachedPulses();
   };
   const schedule = () => {
     if (!frame && !disposed) frame = requestAnimationFrame(render);
@@ -308,7 +355,9 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     schedule();
   };
 
-  // Same-window layout writes fire no `storage` event, so poll the raw string as well.
+  // Same-window layout writes fire no `storage` event, and nothing else tells a plugin, so poll
+  // the raw string as well. A tick reads and compares one string and touches no DOM or style
+  // unless it changed: it costs no frame.
   const reloadLayout = () => {
     const raw = localStorage.getItem(LAYOUT_KEY);
     if (raw === layoutRaw) return;
@@ -319,6 +368,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   reloadLayout();
   const poll = setInterval(reloadLayout, 2000);
   window.addEventListener("storage", reloadLayout);
+  reducedMotion.addEventListener("change", schedule);
 
   // Paseo remounts rows (plugin load, grouping switch, expanding a project); re-add dots then.
   // Only changes that add rows or touch a row's inside count; the plugin's own writes and the
@@ -327,6 +377,8 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   const observer = new MutationObserver((records) => {
     if (shownDot && !shownDot.isConnected) hideTip();
     if (hovered && !hovered.isConnected) hovered = null;
+    // Paseo unmounting a row takes its dots along.
+    dropDetachedPulses();
     for (const { target, addedNodes, removedNodes } of records) {
       if (target === tip || target.closest(`[${DOTS}]`)) continue;
       const added = Array.from(addedNodes);
@@ -436,11 +488,14 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       clearTimeout(readSoonTimer);
       clearInterval(poll);
       window.removeEventListener("storage", reloadLayout);
+      reducedMotion.removeEventListener("change", schedule);
       for (const type of PRESS_EVENTS) window.removeEventListener(type, onPress, true);
       observer.disconnect();
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
       document.querySelectorAll(ROWS).forEach((row) => { if (isMine(row)) clearRow(row); });
+      for (const animation of pulses.values()) animation.cancel();
+      pulses.clear();
       tip.remove();
       style.remove();
     },

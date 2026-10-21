@@ -25,6 +25,22 @@ function unread(id: string, workspaceId: string, extra: Partial<AgentInfo> = {})
   };
 }
 const agentsOf = (...list: AgentInfo[]) => new Map(list.map((agent) => [agent.id, agent]));
+const running = (id: string, workspaceId: string): AgentInfo =>
+  unread(id, workspaceId, { status: "running", requiresAttention: false, attentionReason: null });
+
+/** `Element.animate` and the reduced-motion query, both missing from jsdom. */
+interface FakeAnimation { dot: Element; options: { duration: number; iterations: number }; startTime: number | null; cancelled: boolean; cancel(): void }
+let animations: FakeAnimation[] = [];
+let reduceMotion = false;
+let motionListeners = new Set<() => void>();
+const setReducedMotion = (value: boolean) => {
+  reduceMotion = value;
+  for (const listener of motionListeners) listener();
+};
+/** Agent ids of the dots in `row` with a live pulse, and each pulse's start time. */
+const pulses = (row: Element) => Object.fromEntries(animations
+  .filter((animation) => !animation.cancelled && row.contains(animation.dot))
+  .map((animation) => [animation.dot.getAttribute("data-agent"), animation.startTime]));
 
 const dotsIn = (row: Element) => [...row.querySelectorAll("[data-tab-dots] > i")].map((dot) => dot.getAttribute("data-agent"));
 const tip = () => document.querySelector<HTMLElement>("[data-tab-dots-tip]")!;
@@ -50,11 +66,29 @@ beforeEach(() => {
   document.body.innerHTML = "";
   localStorage.clear();
   openTab = vi.fn();
+  animations = [];
+  reduceMotion = false;
+  motionListeners = new Set();
+  vi.stubGlobal("matchMedia", () => ({
+    get matches() { return reduceMotion; },
+    addEventListener: (_type: string, listener: () => void) => motionListeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => motionListeners.delete(listener),
+  }));
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    value(this: Element, _keyframes: unknown, options: FakeAnimation["options"]) {
+      const animation: FakeAnimation = { dot: this, options, startTime: null, cancelled: false, cancel() { this.cancelled = true; } };
+      animations.push(animation);
+      return animation;
+    },
+  });
 });
 afterEach(() => {
   for (const dots of started) dots.dispose();
   started = [];
   vi.useRealTimers();
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(Element.prototype, "animate");
 });
 
 describe("two hosts in one window", () => {
@@ -173,5 +207,71 @@ describe("rows Paseo mounts later", () => {
     document.body.appendChild(list);
     await frames();
     expect(dotsIn(nested)).toEqual(["b1"]);
+  });
+});
+
+describe("running pulse", () => {
+  const SHOW_RUNNING: Preferences = { ...PREFS, show: "unread-running" };
+
+  test("every row keeps one beat: each next dot trails by 200 ms, rows drawn later join in step", async () => {
+    const rowA = addRow("srv_A:wks_a");
+    const rowB = addRow("srv_A:wks_b");
+    const dots = start(agentsOf(running("a1", "wks_a"), running("a2", "wks_a"), running("b1", "wks_b")), SHOW_RUNNING);
+    await frames();
+    const [firstA, secondA] = dotsIn(rowA);
+    const a = pulses(rowA);
+    const b = pulses(rowB);
+    expect(Object.keys(a).sort()).toEqual(["a1", "a2"]);
+    expect(a[secondA!]! - a[firstA!]!).toBe(200);
+    expect(b.b1).toBe(a[firstA!]);
+    // Already mid-pulse on the page clock, not waiting to start.
+    expect(a[secondA!]).toBeLessThanOrEqual(0);
+    expect(animations.every(({ options }) => options.iterations === Infinity && options.duration === 1800)).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(2500);
+    const rowC = addRow("srv_A:wks_c");
+    dots.setAgents(agentsOf(running("a1", "wks_a"), running("a2", "wks_a"), running("b1", "wks_b"), running("c1", "wks_c")));
+    await frames();
+    expect(pulses(rowC)).toEqual({ c1: a[firstA!] });
+  });
+
+  test("a pulse ends with its dot: the row unmounts, the tab finishes, or the plugin stops", async () => {
+    const rowA = addRow("srv_A:wks_a");
+    const rowB = addRow("srv_A:wks_b");
+    const dots = start(agentsOf(running("a1", "wks_a"), running("b1", "wks_b"), running("b2", "wks_b")), SHOW_RUNNING);
+    await frames();
+    expect(animations.filter((animation) => !animation.cancelled)).toHaveLength(3);
+
+    // Paseo unmounts the row; a live animation would keep the detached dot alive and ticking.
+    rowA.remove();
+    await frames();
+    expect(animations.find(({ dot }) => dot.getAttribute("data-agent") === "a1")!.cancelled).toBe(true);
+
+    dots.setAgents(agentsOf(running("b1", "wks_b"), unread("b2", "wks_b")));
+    await frames();
+    expect(Object.keys(pulses(rowB))).toEqual(["b1"]);
+    expect(dotsIn(rowB).sort()).toEqual(["b1", "b2"]);
+
+    dots.dispose();
+    started = [];
+    expect(animations.filter((animation) => !animation.cancelled)).toEqual([]);
+  });
+
+  test("reduced motion keeps the dots still, and switching it applies at once", async () => {
+    reduceMotion = true;
+    const row = addRow("srv_A:wks_a");
+    start(agentsOf(running("a1", "wks_a")), SHOW_RUNNING);
+    await frames();
+    expect(dotsIn(row)).toEqual(["a1"]);
+    expect(pulses(row)).toEqual({});
+
+    setReducedMotion(false);
+    await frames();
+    expect(Object.keys(pulses(row))).toEqual(["a1"]);
+
+    setReducedMotion(true);
+    await frames();
+    expect(dotsIn(row)).toEqual(["a1"]);
+    expect(pulses(row)).toEqual({});
   });
 });

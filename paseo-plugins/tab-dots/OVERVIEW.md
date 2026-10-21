@@ -37,6 +37,7 @@ Measured on Paseo 0.12.0 in the web app (40 sidebar rows, about 100 agents, 10 o
 - Drawing every row that has dots: under 2 ms.
 - Streaming chats, terminals and other page changes outside the sidebar cost the plugin nothing; it redraws only when rows appear or agents change something a dot shows.
 - With several hosts connected, each host's copy draws only that host's rows.
+- Running dots pulse on the GPU compositor alone. As a CSS animation each pulse woke the page once per beat (React listens for the animation's iteration event, so the browser has to stop and fire it), and each of those wake-ups restyled and repainted the whole app; the dots now play the same pulse as a Web Animation, which has no such event. The look and the left-to-right wave are unchanged.
 
 ## Limits
 
