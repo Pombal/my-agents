@@ -5,6 +5,7 @@ import type {
 } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
+import { startHeaderButtons } from "./client/header-buttons";
 import { PastSessionsList } from "./client/past-sessions-list";
 import { lastScreenParams, PastSessionsScreen } from "./client/screen";
 import { startFocusModality } from "./client/web";
@@ -73,6 +74,7 @@ export default function contribute(client: PluginClientContext) {
         await rpc(starAndArchive, { agentId: agent.id });
       },
     }),
+    startHeaderButtons(client, PANEL_ID),
   ];
   return () => {
     for (const cleanup of cleanups) void cleanup();

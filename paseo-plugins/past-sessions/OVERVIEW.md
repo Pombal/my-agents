@@ -71,11 +71,20 @@ terminal section alike. Where a session shows is unchanged.
   `workspaceId` and `scope`, so links and reloads keep them.
 - In a workspace, Command Center (⌘K / Ctrl+K) → **Past sessions for this workspace** opens the
   list as a tab for exactly that workspace (Explorer location allowed too).
+- Every workspace header has an icon-only clock button (**Past sessions**, `client/header-buttons.ts`)
+  that opens the list in the **explorer sidebar** for that workspace, next to the chat. Header buttons
+  are per workspace, so the plugin follows the daemon's workspace directory (`workspaces.list`
+  subscription, paged) and adds/removes buttons as workspaces come and go. A panel lives in one
+  place: if the list is already open as a tab, the button moves it to the sidebar. A second click
+  doesn't close it (the plugin API can't close panels); close it as any explorer tab. Phones show
+  no header buttons and their explorer has only Changes/Files, so there the way in stays the
+  sidebar row and the Command Center.
 
 ## Toolbar
 
 Scope buttons, search (its placeholder counts the listed sessions, "Search 141 sessions"), the
-density toggle, refresh. On phones the search box gets its own line. What a scope covers ("Archived
+density toggle, refresh. On phones, and wherever the list is narrower than 480 px (the explorer
+sidebar), the search box gets its own line; in the sidebar rows keep their desktop hover behaviour. What a scope covers ("Archived
 agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, not a line of text.
 Hovering (or pressing) a scope button loads that scope in the background, so the click usually
 finds it ready (37 ms measured).

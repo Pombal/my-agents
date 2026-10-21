@@ -47,6 +47,9 @@ const NEXT_DENSITY: Record<Density, { value: Density; icon: string; label: strin
   compact: { value: "comfortable", icon: "Rows2", label: "Switch to comfortable: two lines of the last reply" },
 };
 
+/** Below this the toolbar can't fit the scope switch, the search box and both icon buttons. */
+const NARROW_WIDTH = 480;
+
 // Paseo's default type ramp (Interface size 14): 14/20 for titles, 12/17 for everything else.
 const BASE = { fontSize: 14, lineHeight: 20 } as const;
 const SMALL = { fontSize: 12, lineHeight: 17 } as const;
@@ -617,6 +620,10 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const [density, setDensity] = useDensity();
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  // The explorer sidebar is narrower than the inline search needs; it then gets its own line,
+  // as on phones, while rows keep their desktop (hover) behaviour.
+  const [narrow, setNarrow] = useState(false);
+  const ownSearchLine = compact || narrow;
   const [sameFolderOpen, setSameFolderOpen] = useState(false);
   const muted = theme.colors.foregroundMuted;
   const listExternal = useRpc(listExternalSessions);
@@ -828,7 +835,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   );
 
   const search = (
-    <View style={[styles.search, compact ? null : styles.searchInline, searchFocused ? styles.searchFocused : null]}>
+    <View style={[styles.search, ownSearchLine ? null : styles.searchInline, searchFocused ? styles.searchFocused : null]}>
       <Icon name="Search" size={14} color={muted} />
       <TextInput
         testID="past-sessions-search"
@@ -889,11 +896,11 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     <View style={styles.header}>
       <View style={styles.toolbar}>
         {segments}
-        {compact ? <View style={styles.spacer} /> : search}
+        {ownSearchLine ? <View style={styles.spacer} /> : search}
         {densityToggle}
         {refresh}
       </View>
-      {compact ? <View style={styles.searchRow}>{search}</View> : null}
+      {ownSearchLine ? <View style={styles.searchRow}>{search}</View> : null}
       {data?.warnings.map((warning) => (
         <Text key={warning} style={styles.warning} numberOfLines={2}>
           {warning}
@@ -1003,7 +1010,13 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   }
 
   return (
-    <View style={styles.root}>
+    <View
+      style={styles.root}
+      onLayout={(event) => {
+        const next = event.nativeEvent.layout.width < NARROW_WIDTH;
+        if (next !== narrow) setNarrow(next);
+      }}
+    >
       {header}
       {body}
     </View>
