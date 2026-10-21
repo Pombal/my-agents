@@ -67,6 +67,9 @@ folder, so it only shows up while listed under extra folders).
   Docs; picking a ticket or doc binds and opens it; `/` focuses on web); "Recent in <project> · 6";
   "All efforts in <project>". New effort starts a chat that charts the map and binds at once.
 - Below 260 px the bar, the status pill and `· blocks 04` give way.
+- Every clickable thing shows hover (web) and press: a fill one step from what it rests on
+  (`hover` / `press` / `hoverHot` in `marks.tsx`: 6 % / 12 % toward the text colour, about
+  Paseo's own sidebar step; surface1 alone was ~5 levels and invisible). Links underline on hover.
 
 ## Data rules
 - Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so nilo's worktrees count as

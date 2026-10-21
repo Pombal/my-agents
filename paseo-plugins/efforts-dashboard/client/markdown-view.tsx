@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { StyleSheet, Text, type TextStyle, View } from "react-native";
 import { type Block, parseMarkdown, type Span } from "./markdown";
 import { MONO, type Palette } from "./marks";
+import { underlineOnHover } from "./web";
 
 /** Copied from omp-slash-aliases (plain React Native: the SDK has no Markdown component). */
 const HEADING_SIZE = [16, 15, 14, 13, 13, 13];
@@ -33,8 +34,12 @@ function Spans({ spans, c, onLink }: { spans: Span[]; c: Palette; onLink?(href: 
           else onLink?.(url);
         }
       : undefined;
-    return (
-      <Text key={index} style={style} onPress={press}>
+    return press ? (
+      <Text key={index} ref={underlineOnHover} style={style} onPress={press}>
+        {span.text}
+      </Text>
+    ) : (
+      <Text key={index} style={style}>
         {span.text}
       </Text>
     );

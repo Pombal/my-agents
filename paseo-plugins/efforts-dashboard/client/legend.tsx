@@ -83,7 +83,7 @@ export function Menu(props: { c: Palette; items: MenuItem[]; legend?: "panel" | 
               props.onClose();
               item.onPress();
             }}
-            style={({ hovered }) => [styles.item, hovered ? { backgroundColor: c.s1 } : null]}
+            style={({ hovered, pressed }) => [styles.item, pressed ? { backgroundColor: c.press } : hovered ? { backgroundColor: c.hover } : null]}
           >
             <Icon name={item.icon} size={13} color={c.muted} />
             <Text numberOfLines={1} style={{ fontSize: 13, color: item.muted ? c.muted : c.fg, flexShrink: 1 }}>

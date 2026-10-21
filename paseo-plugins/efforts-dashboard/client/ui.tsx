@@ -1,6 +1,6 @@
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, StyleSheet, Text, View, type StyleProp, type TextInput as NativeTextInput, type ViewStyle } from "react-native";
+import { Platform, StyleSheet, Text, View, type StyleProp, type TextInput as NativeTextInput, type ViewStyle } from "react-native";
 import { Interactive } from "./interactive";
 import { Bar, Glyph, LABEL, ROW, SMALL, type Palette } from "./marks";
 import { onSlash, tooltip } from "./web";
@@ -28,12 +28,14 @@ export function RowButton(props: {
       onPress={props.onPress}
       onHoverIn={props.onHoverIn}
       onHoverOut={props.onHoverOut}
-      style={({ hovered, pressed, focused }) => [
-        props.style,
-        props.hot ? { backgroundColor: c.s2 } : hovered ? { backgroundColor: c.s1 } : null,
-        pressed ? { backgroundColor: c.s2 } : null,
-        focused ? { outlineColor: c.accent, outlineStyle: "solid", outlineWidth: 2, outlineOffset: -2 } : null,
-      ]}
+      style={({ hovered, pressed, focused }) => {
+        const live = !!props.onPress;
+        return [
+          props.style,
+          props.hot ? { backgroundColor: live && (hovered || pressed) ? c.hoverHot : c.s2 } : live && pressed ? { backgroundColor: c.press } : live && hovered ? { backgroundColor: c.hover } : null,
+          focused ? { outlineColor: c.accent, outlineStyle: "solid", outlineWidth: 2, outlineOffset: -2 } : null,
+        ];
+      }}
     >
       {props.children}
     </Interactive>
@@ -51,7 +53,7 @@ export function IconButton(props: { c: Palette; icon: string; label: string; onP
       hitSlop={6}
       style={({ hovered, pressed }) => [
         styles.iconButton,
-        props.active || pressed ? { backgroundColor: c.s2 } : hovered ? { backgroundColor: c.s1 } : null,
+        props.active || pressed ? { backgroundColor: c.press } : hovered ? { backgroundColor: c.hover } : null,
       ]}
     >
       <View style={props.flip ? { transform: [{ scaleX: -1 }] } : undefined}>
@@ -88,8 +90,8 @@ export function Button(props: {
         kind === "primary"
           ? { backgroundColor: c.accent, borderColor: c.accent, opacity: pressed || props.busy ? 0.75 : hovered ? 0.9 : 1 }
           : kind === "ghost"
-            ? { borderColor: "transparent", backgroundColor: hovered ? c.s1 : "transparent" }
-            : { borderColor: c.border, backgroundColor: pressed ? c.s2 : hovered ? c.s1 : c.s0 },
+            ? { borderColor: "transparent", backgroundColor: pressed ? c.press : hovered ? c.hover : "transparent" }
+            : { borderColor: c.border, backgroundColor: pressed ? c.press : hovered ? c.hover : c.s0 },
       ]}
     >
       {props.icon ? <Icon name={props.icon} size={13} color={color} /> : null}
@@ -108,7 +110,7 @@ export function BackRow({ c, label, onBack, right }: { c: Palette; label: string
         accessibilityRole="button"
         accessibilityLabel={`Back to ${label}`}
         onPress={onBack}
-        style={({ hovered }) => [styles.backButton, hovered ? { backgroundColor: c.s1 } : null]}
+        style={({ hovered, pressed }) => [styles.backButton, pressed ? { backgroundColor: c.press } : hovered ? { backgroundColor: c.hover } : null]}
       >
         <Icon name="ChevronLeft" size={14} color={c.muted} />
         <Text numberOfLines={1} style={{ ...SMALL, color: c.muted, flexShrink: 1 }}>
@@ -139,7 +141,7 @@ export function FoldHeader(props: {
         accessibilityRole="button"
         accessibilityState={{ expanded: props.open }}
         onPress={props.onToggle}
-        style={({ hovered }) => [styles.foldPress, hovered ? { backgroundColor: c.s1 } : null]}
+        style={({ hovered, pressed }) => [styles.foldPress, pressed ? { backgroundColor: c.press } : hovered ? { backgroundColor: c.hover } : null]}
       >
         <Icon name={props.open ? "ChevronDown" : "ChevronRight"} size={11} color={c.muted} />
         <Text numberOfLines={1} style={{ ...ROW, color: c.fg, flexShrink: 0 }}>
@@ -229,9 +231,15 @@ export function SearchField(props: {
         style={[styles.searchInput, { color: c.fg }, Platform.OS === "web" ? ({ outlineWidth: 0 } as object) : null]}
       />
       {props.value ? (
-        <Pressable accessibilityLabel="Clear search" onPress={() => props.onChange("")} hitSlop={6}>
+        <Interactive
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+          onPress={() => props.onChange("")}
+          hitSlop={6}
+          style={({ hovered, pressed }) => [styles.clear, pressed ? { backgroundColor: c.press } : hovered ? { backgroundColor: c.hoverS1 } : null]}
+        >
           <Icon name="X" size={13} color={c.muted} />
-        </Pressable>
+        </Interactive>
       ) : props.slash && Platform.OS === "web" && !props.compact ? (
         <Text style={[styles.kbd, { color: c.muted, borderColor: c.border, backgroundColor: c.s0 }]}>/</Text>
       ) : null}
@@ -308,5 +316,6 @@ export const styles = StyleSheet.create({
   search: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, borderRadius: 7, borderWidth: StyleSheet.hairlineWidth * 2 },
   searchInput: { flex: 1, minWidth: 0, fontSize: 13, paddingVertical: 0 },
   kbd: { fontSize: 11, lineHeight: 15, paddingHorizontal: 5, borderRadius: 4, borderWidth: StyleSheet.hairlineWidth * 2 },
+  clear: { width: 20, height: 20, borderRadius: 4, alignItems: "center", justifyContent: "center", marginRight: -4 },
   ticket: { flexDirection: "row", alignItems: "center", gap: 8, height: 26, paddingHorizontal: 12 },
 });

@@ -47,6 +47,22 @@ export function tooltip(text: string): (node: unknown) => void {
   };
 }
 
+interface HoverableElement {
+  addEventListener(type: "mouseenter" | "mouseleave", listener: () => void): void;
+  style: { textDecorationLine: string };
+}
+
+/**
+ * A ref callback that underlines the element while the pointer is over it. react-native-web's Text
+ * fires no hover events, so links get it here; web-only, a no-op elsewhere.
+ */
+export function underlineOnHover(node: unknown): void {
+  if (Platform.OS !== "web" || !node || typeof node !== "object" || !("addEventListener" in node) || !("style" in node)) return;
+  const element = node as HoverableElement; // react-native-web refs are DOM elements
+  element.addEventListener("mouseenter", () => (element.style.textDecorationLine = "underline"));
+  element.addEventListener("mouseleave", () => (element.style.textDecorationLine = ""));
+}
+
 declare const window: {
   addEventListener(type: "keydown", listener: (event: SlashEvent) => void): void;
   removeEventListener(type: "keydown", listener: (event: SlashEvent) => void): void;

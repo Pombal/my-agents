@@ -27,6 +27,15 @@ export interface Palette {
   amber: string;
   accent: string;
   accentFg: string;
+  /**
+   * Hover and press fills, each one step from what the thing rests on: `hover` / `press` on the
+   * panel (surface0), `hoverS1` on surface1 (doc chips), `hoverHot` on surface2 (the next row,
+   * workspace chips). Paseo's own rows step ~12 levels on hover; surface1 alone is only ~5.
+   */
+  hover: string;
+  press: string;
+  hoverS1: string;
+  hoverHot: string;
 }
 
 /**
@@ -47,7 +56,22 @@ export function colorsOf(theme: PluginTheme): Palette {
     amber: colors.statusWarning,
     accent: colors.accent,
     accentFg: colors.accentForeground,
+    hover: toward(colors.surface0, colors.foreground, HOVER) ?? colors.surface2,
+    press: toward(colors.surface0, colors.foreground, PRESS) ?? colors.surface2,
+    hoverS1: toward(colors.surface1, colors.foreground, HOVER) ?? colors.surface2,
+    hoverHot: toward(colors.surface2, colors.foreground, HOVER) ?? colors.surface2,
   };
+}
+
+const HOVER = 0.06;
+const PRESS = 0.12;
+
+/** `base` moved `share` of the way to `target`; null when either colour can't be parsed. */
+function toward(base: string, target: string, share: number): string | null {
+  const b = rgbOf(base);
+  const t = rgbOf(target);
+  if (!b || !t) return null;
+  return `rgb(${b.map((v, i) => Math.round(v + (t[i]! - v) * share)).join(", ")})`;
 }
 
 function rgbOf(color: string): [number, number, number] | null {
@@ -120,14 +144,14 @@ export function Dot({ c }: { c: Palette }) {
 }
 
 /** Workspace name chip; `suggested` = outlined with a `?`, not bound; `hot` = on a highlighted (surface2) row. */
-export function WsChip({ name, prefix, suggested, hot, c }: { name: string; prefix?: string; suggested?: boolean; hot?: boolean; c: Palette }) {
+export function WsChip({ name, prefix, suggested, hot, hovered, c }: { name: string; prefix?: string; suggested?: boolean; hot?: boolean; hovered?: boolean; c: Palette }) {
   return (
     <View
       style={[
         styles.chip,
         suggested
-          ? { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, backgroundColor: "transparent" }
-          : { backgroundColor: hot ? c.s0 : c.s2 },
+          ? { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, backgroundColor: hovered ? (hot ? c.hoverHot : c.hover) : "transparent" }
+          : { backgroundColor: hot ? (hovered ? c.hover : c.s0) : hovered ? c.hoverHot : c.s2 },
       ]}
     >
       <Text numberOfLines={1} style={{ ...SMALL, color: suggested ? c.muted : c.fg, flexShrink: 1 }}>

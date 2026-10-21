@@ -2,11 +2,12 @@ import type { PluginScreenProps, PluginSidebarItemProps } from "@getpaseo/plugin
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { EffortSummary, Overview, Root, WorkspaceInfo } from "../shared/rpc";
 import { usePrefetch, useOverview, useSearch, useVisible } from "./data";
 import { EffortView } from "./effort-view";
 import { age, openWords } from "./format";
+import { Interactive } from "./interactive";
 import { Menu } from "./legend";
 import { Bar, colorsOf, LABEL, SMALL, Tag, WsChip } from "./marks";
 import { chipPrefix, nextText, WEEK_MS, workspacesOf } from "./model";
@@ -157,9 +158,15 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
     const { bound, suggested } = workspacesOf(data, effort);
     const next = nextText(effort);
     const chips = [...bound, ...suggested].slice(0, 2).map((workspace) => (
-      <Pressable key={workspace.id} accessibilityRole="button" accessibilityLabel={`Open ${workspace.name} with its Efforts panel`} onPress={() => openPanel(workspace.id)} style={{ flexShrink: 1, minWidth: 0 }}>
-        <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} suggested={!bound.includes(workspace)} hot={hot} />
-      </Pressable>
+      <Interactive
+        key={workspace.id}
+        accessibilityRole="button"
+        accessibilityLabel={`Open ${workspace.name} with its Efforts panel`}
+        onPress={() => openPanel(workspace.id)}
+        style={() => ({ flexShrink: 1, minWidth: 0 })}
+      >
+        {({ hovered }) => <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} suggested={!bound.includes(workspace)} hot={hot} hovered={hovered} />}
+      </Interactive>
     ));
     if (compact) {
       return (
@@ -261,26 +268,29 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
         {data.roots.map((root) => {
           const on = shown.has(root.root);
           return (
-            <Pressable
+            <Interactive
               key={root.root}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
               onPress={() => setChosen(toggleIn(shown, root.root))}
-              style={[styles.pchip, on ? { backgroundColor: c.s2 } : { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border }]}
+              style={({ hovered, pressed }) => [
+                styles.pchip,
+                on ? { backgroundColor: hovered || pressed ? c.hoverHot : c.s2 } : { borderWidth: StyleSheet.hairlineWidth * 2, borderColor: c.border, backgroundColor: pressed ? c.press : hovered ? c.hover : "transparent" },
+              ]}
             >
               <Text style={{ fontSize: 12, color: on ? c.fg : c.muted }}>
                 {root.label} <Text style={{ opacity: 0.8 }}>{root.efforts.length}</Text>
               </Text>
-            </Pressable>
+            </Interactive>
           );
         })}
         {from && !chosen ? (
-          <Text style={{ fontSize: 12, color: c.muted, marginLeft: 6 }}>
-            showing {from.name}'s project ·{" "}
-            <Text style={{ textDecorationLine: "underline" }} onPress={() => setChosen(new Set(data.roots.map((root) => root.root)))}>
-              show all
-            </Text>
-          </Text>
+          <View style={[ui.line, { gap: 0, marginLeft: 6 }]}>
+            <Text style={{ fontSize: 12, color: c.muted }}>showing {from.name}'s project · </Text>
+            <Interactive accessibilityRole="button" onPress={() => setChosen(new Set(data.roots.map((root) => root.root)))} style={() => null}>
+              {({ hovered }) => <Text style={{ fontSize: 12, color: hovered ? c.fg : c.muted, textDecorationLine: "underline" }}>show all</Text>}
+            </Interactive>
+          </View>
         ) : null}
       </View>
       {data.warnings.length ? (
@@ -350,9 +360,9 @@ export function GlobalScreen({ theme, layout, params, navigation }: PluginScreen
                           () => (
                             <View style={[styles.chips, { paddingHorizontal: gutter + 18, paddingTop: 2, paddingBottom: 6 }]}>
                               {group.idle.map((workspace) => (
-                                <Pressable key={workspace.id} accessibilityRole="button" onPress={() => openPanel(workspace.id)}>
-                                  <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} />
-                                </Pressable>
+                                <Interactive key={workspace.id} accessibilityRole="button" onPress={() => openPanel(workspace.id)} style={() => null}>
+                                  {({ hovered }) => <WsChip c={c} name={workspace.name} prefix={chipPrefix(workspace, group.root)} hovered={hovered} />}
+                                </Interactive>
                               ))}
                             </View>
                           ),
