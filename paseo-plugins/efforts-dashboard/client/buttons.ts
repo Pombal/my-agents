@@ -47,7 +47,7 @@ export function startButtons(client: PluginClientContext): () => void {
       headers.delete(id);
     }
     for (const workspace of overview.workspaces) {
-      const label = headerLabel(workspace);
+      const label = overview.showHeaderButton ? headerLabel(workspace) : null;
       // The popover is sized on its first frame, so its effort is read before it opens.
       if (workspace.binding?.kind === "effort") warmDetail(workspace.binding);
       const current = headers.get(workspace.id);

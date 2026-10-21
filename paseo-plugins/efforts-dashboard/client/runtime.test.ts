@@ -42,6 +42,7 @@ const overview = (slug: string | null, etag: string): Overview => ({
     },
   ],
   warnings: [],
+  showHeaderButton: true,
   etag,
 });
 const bound = (value: Overview | null) => {

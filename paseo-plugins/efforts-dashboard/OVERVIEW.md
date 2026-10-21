@@ -37,8 +37,9 @@ folder, so it only shows up while listed under extra folders).
   layouts only (< 720 px); tap → sheet with all rows; a row opens in place with its Question,
   status line, the chat button and Read.
 - Settings → Plugins → efforts-dashboard's menu → **Efforts** (route
-  `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): extra folders. Not in the
-  settings sidebar.
+  `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): **Show header button** (the
+  header pill, on by default; off removes it from every workspace header, the Efforts tab and
+  sidebar row stay) and extra folders. Not in the settings sidebar.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at
