@@ -1,0 +1,93 @@
+# Session tree
+
+OMP's `/tree` inside Paseo: go back to any earlier message and continue from there as a new
+branch. The old branch stays in the same OMP session file and can be switched back to,
+summarized, or opened in its own tab. Design: variant 1 "Instant, offer after"
+(`~/www/webshare/pages/session-tree-popout-alts/`), overall UI from
+`~/www/webshare/pages/session-tree-demo/`. OMP chats only (provider `omp` or a provider that
+`extends` it in `~/.paseo/config.json`); every other chat shows nothing.
+
+Needs the companion OMP extension `~/workspace/my-agents/.omp/extensions/session-tree/`
+(linked as `~/.omp/agent/extensions/session-tree`). A chat whose OMP process started before the
+extension existed is reloaded once automatically on its first branch move.
+
+## What you see
+
+**Web and desktop**
+- A quiet branch icon in each reply's footer next to Copy/Fork: **Continue from here** (not on
+  the newest reply). In each of your messages' hover row after Rewind: **Re-ask from here** — goes
+  back to just before that message and copies its text ("Copied — paste to re-ask"; a plugin
+  cannot fill the composer).
+- Right-click on a message: Continue from here / Re-ask from here, **Open in new tab**, **Show
+  branches**. Shift+right-click, a text selection, links and inputs keep the browser's menu.
+- A click goes back at once: the chat dims with "Switching branch…" (about 1–3 s: the chat is
+  reloaded from its session file). Then a slim strip above the composer:
+  `↩ N messages set aside · Summarize them · Undo · ×`. It stays until you send a message or press
+  × (no timer: a fade could cost the summary chance).
+  - **Summarize them** opens an optional focus field → "Summarizing what you left…" (with Cancel)
+    → OMP writes a real `branch_summary` at the branch point → "Summary added at the branch point".
+  - **Undo** returns to where you were.
+- The summary shows in the chat as a muted folded row **Summary of the branch you left · focus: …**;
+  unfolding shows the text. The agent sees it (proven: it answered from it).
+- A muted composer pill **Tree · N** when the chat has more than one branch (the empty branch you
+  are on after going back counts). It opens the branch list: one row per branch with its first
+  diverging message, time, message count, "summarized", "you are here". A click switches, with the
+  same strip afterwards. `/tree` opens the list in any OMP chat.
+- Open in new tab copies the path root → that reply (or → just before that message) into a new
+  OMP session file and imports it as a new agent "‹title› · branch", child of the original
+  (`paseo.parent-agent-id`), same model/mode/thinking. The original is untouched.
+
+**Phones** (native apps and Paseo's compact web layout): no message icons (no DOM / no pane to
+match rows to a chat). Every OMP chat gets the **Tree** pill; after going back it reads
+`↩ N set aside`. Its sheet has the offer (Summarize them with focus field, Undo, ×, progress with
+Cancel), the branch list, and **Go back to** (your own messages, newest first; restarts before that
+message and copies it).
+
+Busy agents are refused ("The agent is busy. Try again when it has finished.").
+
+## How it works
+
+- `server/session-file.ts` reads the chat's OMP JSONL (`persistence.nativeHandle`) as a tree:
+  current path, turns (user entry id + last reply/tool entry id), branches, the "set aside" offer,
+  and Paseo's numbering of replayed rows. Leaf = last line (a `model_usage` line points elsewhere).
+- Moves run inside the chat's OMP process via the extension (file requests under
+  `~/.paseo/omp-session-tree/<agentId>/`, see `server/link.ts`), which calls the live
+  `AgentSession.navigateTree(target, {summarize, customInstructions})` and appends a hidden
+  `custom` marker `paseo-session-tree` ({op, kind, from, fork, …}) so the move survives restarts and
+  the offer is derived from the file (it ends when a message follows the marker). × is stored in
+  `dismissed.json` there.
+- Summarize = in one request: back to the left branch, then `navigateTree(fork, {summarize, focus})`
+  while the new branch is still empty → `branch_summary` at the fork. Cancel = `abortBranchSummary()`.
+- After each move the server reloads the chat (`DaemonClient.refreshAgent`, the same as
+  `paseo agent reload`), because Paseo does not see in-place moves.
+- Web DOM (`client/web.ts`): icons after `assistant-fork-menu-trigger` / `rewind-menu-trigger`,
+  strip, menu, toasts, Paseo's `--colors-*` CSS variables. Rows are matched to entries by text and
+  repeat index against the server's path; if ambiguous the branch list opens instead.
+- Timeline transformer: Paseo's replayed `[branch_summary]` row becomes the summary row;
+  `[credential_pin]`/`[model_usage]` "Unsupported history record" rows (which appear only after a
+  reload, i.e. after every move) are hidden.
+
+## Limits
+
+- Each move reloads the chat (1–3 s; a summary adds one model call, ~5–15 s on Haiku).
+- Per-message icons are web/desktop only and rely on Paseo's private testIDs; a Paseo update can
+  move them (then only the pill and `/tree` remain). Rows with identical text that are not all
+  mounted (long chats) fall back to the branch list.
+- Summarize works only while the new branch is still empty (OMP puts the summary at the fork).
+- Branch summaries made in OMP's own TUI aren't tagged "summarized" (the tag comes from the marker).
+- Turn durations in Paseo can look long after a summary ("Worked for 17m") because Paseo groups the
+  summary entry into the turn.
+- Re-ask copies; it cannot put the text into the composer (no plugin API).
+
+## Files
+
+`index.server.ts`, `server/` (tree model + test, extension link, daemon client, branch copy),
+`index.client.tsx`, `client/` (store, web DOM layer, RN sheet + pill, summary row, clipboard),
+`shared/tree.ts` (RPC contracts). Typecheck `npm run typecheck`, tests `npm test`.
+Apply edits with `paseo plugin reload session-tree`.
+
+Screenshots (`screenshots/`, live on a throwaway Haiku OMP agent, 2026-10-21): 00 icons,
+01 switching, 02 strip, 03 focus field, 04 summarizing, 05 summary added, 06 summary row,
+07 agent recalls the summary, 08 branch list, 09 switched, 10–11 re-ask, 12 right-click menu,
+13 open in new tab, 14 busy refusal, 15–20 phone (390 px): sheet, pill offer, offer in sheet,
+focus, summarizing, summary row.
