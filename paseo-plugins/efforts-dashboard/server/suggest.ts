@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Suggestion } from "../shared/rpc";
 import { nameMatch } from "../shared/parse";
 import type { EffortScan } from "./scan";
+import { Lru } from "./lru";
 
 export interface AgentTranscript {
   title: string | null;
@@ -11,7 +12,8 @@ export interface AgentTranscript {
 }
 
 const TAIL_BYTES = 256 * 1024;
-const tails = new Map<string, { mtimeMs: number; size: number; counts: Map<string, number> }>();
+/** One per transcript of the last 3 days in an unbound workspace: 57 on 2026-10-21. */
+const tails = new Lru<string, { mtimeMs: number; size: number; counts: Map<string, number> }>(500);
 
 /** `.scratch/<slug>/` mentions in the last 256 KB of a transcript, cached by mtime and size. */
 async function mentions(file: string): Promise<Map<string, number>> {

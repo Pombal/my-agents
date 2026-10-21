@@ -16,6 +16,7 @@ import {
   type BlockedBy,
   type Bucket,
 } from "../shared/parse";
+import { Lru } from "./lru";
 
 /** Folders inside an effort that never hold planning docs. */
 const SKIP_DIRS = new Set(["node_modules", "dist", "build", "out", "coverage"]);
@@ -55,7 +56,13 @@ interface CachedText {
   size: number;
   text: string;
 }
-const texts = new Map<string, CachedText>();
+/**
+ * Sized from Stefan's folders (2026-10-21): an overview reads 266 files (1.2 M characters), and
+ * parsed tickets and heads are cached separately, so this mostly holds the docs a surface shows.
+ * Opening every listed doc and artefact once would hold 2,205 files, 206 M characters.
+ */
+export const TEXTS_CAP = { entries: 400, bytes: 32 * 1024 * 1024 };
+const texts = new Lru<string, CachedText>(TEXTS_CAP.entries, TEXTS_CAP.bytes);
 
 /**
  * File text, cached by mtime and size; capped at 512 KB. Stats are synchronous throughout the scan:
@@ -81,7 +88,9 @@ export async function readText(file: string): Promise<{ text: string; mtimeMs: n
   } else {
     text = await readFile(file, "utf8");
   }
-  texts.set(file, { mtimeMs: info.mtimeMs, size: info.size, text });
+  // V8 keeps a string with any character above U+00FF at 2 bytes per character; over Stefan's
+  // docs the heap grew 2.07 bytes per cached character.
+  texts.set(file, { mtimeMs: info.mtimeMs, size: info.size, text }, text.length * 2);
   return { text, mtimeMs: info.mtimeMs, truncated: info.size > MAX_TEXT };
 }
 
@@ -99,7 +108,8 @@ export interface ParsedTicket {
   mtimeMs: number;
 }
 
-const ticketCache = new Map<string, { mtimeMs: number; ticket: ParsedTicket }>();
+/** Every overview parses every ticket of every root (197 today), so this must stay well above that. */
+const ticketCache = new Lru<string, { mtimeMs: number; ticket: ParsedTicket }>(2_000);
 
 /** Some titles repeat the number: `# 04 — Slice-1 spec`, or `# 01 Pick a colour` (own number only). */
 function withoutNumber(title: string, num: string): string {
@@ -342,7 +352,8 @@ interface EffortHead {
   title: string | null;
   destination: string | null;
 }
-const headCache = new Map<string, { mtimeMs: number; head: EffortHead }>();
+/** One per effort: 69 today. */
+const headCache = new Lru<string, { mtimeMs: number; head: EffortHead }>(500);
 
 /**
  * Title, Status and Destination from map.md; without a map, the title is the first `# ` of the

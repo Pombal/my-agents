@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { sections } from "../shared/parse";
+import { Lru } from "./lru";
 import { readText } from "./scan";
 
 const run = promisify(execFile);
@@ -12,7 +13,8 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-const tops = new Map<string, { at: number; top: Promise<string | null> }>();
+/** Counts below are for Stefan's folders on 2026-10-21: 69 efforts in 3 `.scratch` folders. */
+const tops = new Lru<string, { at: number; top: Promise<string | null> }>(500);
 /** "Not in a repo" is re-checked after a minute, so a later `git init` shows up; a found top is kept. */
 const NO_REPO_MS = 60_000;
 
@@ -48,7 +50,8 @@ interface StatusEntry {
   record: string;
 }
 
-const statusCache = new Map<string, { at: number; result: Promise<Map<string, StatusEntry>> }>();
+/** One per `.scratch` folder: 3 today. */
+const statusCache = new Lru<string, { at: number; result: Promise<Map<string, StatusEntry>> }>(50);
 
 /** Where the path starts in a v2 record that has `fields` space-separated fields before it. */
 function pathStart(record: string, fields: number): number {
@@ -116,7 +119,7 @@ export async function effortChanges(effortDir: string, root: string): Promise<{ 
 }
 
 type LineCounts = Map<string, { added: number; removed: number }>;
-const numstatCache = new Map<string, { key: string; result: Promise<LineCounts> }>();
+const numstatCache = new Lru<string, { key: string; result: Promise<LineCounts> }>(500);
 
 /**
  * Added/removed line counts of tracked changes under the effort, by path relative to it. Reused
@@ -153,7 +156,12 @@ export interface SectionChanges {
   added: Set<number>;
 }
 
-const sectionCache = new Map<string, { sig: string; result: Promise<SectionChanges> }>();
+/**
+ * One per changed Markdown file seen in a detail; an added line costs ~33 bytes in a `Set`
+ * (measured in Node 24), and the weight is known once git answers.
+ */
+const sectionCache = new Lru<string, { sig: string; result: Promise<SectionChanges> }>(200, 4 * 1024 * 1024);
+const ADDED_LINE_BYTES = 33;
 
 /**
  * Where a changed Markdown file gained lines since the last commit. `sig` is the file's
@@ -163,9 +171,12 @@ export function sectionChanges(top: string, file: string, sig: string): Promise<
   const cached = sectionCache.get(file);
   if (cached?.sig === sig) return cached.result;
   const result = sectionChangesNow(top, file).then((changes) => {
-    if (changes) return changes;
-    sectionCache.delete(file);
-    return { sections: [], added: new Set<number>() };
+    if (!changes) {
+      sectionCache.delete(file);
+      return { sections: [], added: new Set<number>() };
+    }
+    if (sectionCache.get(file)?.result === result) sectionCache.set(file, { sig, result }, changes.added.size * ADDED_LINE_BYTES);
+    return changes;
   });
   sectionCache.set(file, { sig, result });
   return result;
@@ -200,7 +211,7 @@ async function sectionChangesNow(top: string, file: string): Promise<SectionChan
   };
 }
 
-const logCache = new Map<string, { at: number; result: Promise<{ hash: string; atMs: number; subject: string }[]> }>();
+const logCache = new Lru<string, { at: number; result: Promise<{ hash: string; atMs: number; subject: string }[]> }>(500);
 
 /** Newest commits touching the effort (100 at most), cached for 20 s. */
 export function commits(top: string, effortDir: string): Promise<{ hash: string; atMs: number; subject: string }[]> {
