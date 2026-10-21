@@ -1,33 +1,28 @@
-import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginButtonRegistration, PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useSettings } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { settingsRpc } from "@getpaseo/plugin";
-import { useEffect } from "react";
 import { AppState, Text } from "react-native";
 import { linksForWorkspace } from "../shared/links";
 import { headerSettings } from "../shared/settings";
 import type { AgentListener, AgentSummary } from "./agents";
 import { createLinksPage } from "./page";
-import { linksLabel } from "./pills";
 import { keepWorkspaceSubagents, LinksStore, type WorkspaceLinks } from "./store";
-import { flatRows } from "./workspace";
 
 export const PANEL_ID = "links";
 
 /**
  * The workspace links page (a workspace panel, opened as a tab in the workspace's main area) and
- * a header button per workspace that opens it, labelled `N links` like the composer pill (Paseo
- * shows header buttons icon-only on phones). Settings → **Show header button** turns the buttons
- * off and on at once, on every workspace.
+ * an icon-only header button per workspace that opens it. Settings → **Show header button** turns
+ * the buttons off and on at once, on every workspace.
  *
- * A workspace's links are fetched when its header button first shows (its icon mounting is the
- * signal) and when its links page becomes visible; again when one of its agents finishes a turn,
- * is closed or renamed while either is on screen, else on next show. Nothing polls while idle.
+ * A workspace's links are fetched when its links page becomes visible; again when one of its agents
+ * finishes a turn, is closed or renamed while the page is on screen, else on next show. Nothing
+ * polls while idle, and the header button itself fetches nothing.
  */
 export function startWorkspaceLinks(client: PluginClientContext) {
   const store = new LinksStore<WorkspaceLinks>((workspaceId, subagents) => client.rpc(linksForWorkspace, { workspaceId, subagents }), keepWorkspaceSubagents);
-  /** Header icons and visible links pages per workspace. */
+  /** Visible links pages per workspace. */
   const onScreen = new Map<string, number>();
   /** Workspaces whose agents changed while nothing of theirs was on screen: refetch on next show. */
   const stale = new Set<string>();
@@ -47,57 +42,37 @@ export function startWorkspaceLinks(client: PluginClientContext) {
     else if (store.get(workspaceId).data) stale.add(workspaceId);
   };
 
-  /** The Link icon; mounted while the workspace's header (or its overflow menu) shows the button. */
-  function HeaderIcon(props: PluginButtonIconProps) {
-    const { workspaceId } = props;
-    useEffect(() => show(workspaceId, false), [workspaceId]);
-    return <Icon name="Link" size={props.size} color={props.color} />;
-  }
-
   // Header buttons, one per workspace, following the daemon's workspace directory.
-  const buttons = new Map<string, { registration: PluginButtonRegistration; label: string }>();
+  const buttons = new Map<string, PluginButtonRegistration>();
   let visible = true;
-  const labelOf = (workspaceId: string) => {
-    const tabs = store.get(workspaceId).data?.tabs;
-    return linksLabel(tabs ? flatRows(tabs, false).length : null);
-  };
   const add = (workspaceId: string) => {
     if (buttons.has(workspaceId)) return;
-    const label = labelOf(workspaceId);
     try {
       const registration = client.addHeaderButton({
         id: "links",
         workspaceId,
         button: {
           title: "Links in this workspace",
-          icon: HeaderIcon,
-          label,
+          icon: "Link",
           visible,
           behavior: { kind: "action", onPress: () => client.openPanel(PANEL_ID, { workspaceId }) },
         },
       });
-      buttons.set(workspaceId, { registration, label });
+      buttons.set(workspaceId, registration);
     } catch (error) {
       console.warn("[mentioned-links] header button failed", error);
     }
   };
   const removeButton = (workspaceId: string) => {
-    buttons.get(workspaceId)?.registration.remove();
+    buttons.get(workspaceId)?.remove();
     buttons.delete(workspaceId);
     stale.delete(workspaceId);
     store.forget(workspaceId);
   };
-  const offStore = store.subscribe((workspaceId) => {
-    const button = buttons.get(workspaceId);
-    const label = labelOf(workspaceId);
-    if (!button || button.label === label) return;
-    button.registration.update({ label });
-    button.label = label;
-  });
   const setVisible = (next: boolean) => {
     if (next === visible) return;
     visible = next;
-    for (const { registration } of buttons.values()) registration.update({ visible });
+    for (const registration of buttons.values()) registration.update({ visible });
   };
 
   const lifetime = new AbortController();
@@ -201,7 +176,6 @@ export function startWorkspaceLinks(client: PluginClientContext) {
     stop() {
       lifetime.abort();
       appState.remove();
-      offStore();
       for (const id of [...buttons.keys()]) removeButton(id);
     },
   };
