@@ -30,8 +30,9 @@ export default function contribute(client: PluginClientContext) {
       const sourcePane = Platform.OS === "web" ? capturePane(agent.id) : null;
       const child = await rpc(createSide, { parentId: agent.id, task, mode });
       if (Platform.OS === "web") {
+        // Placement is best effort; public navigation still opens the child.
         try { await prepareRightPane(sourcePane); }
-        catch { /* Placement is best effort; public navigation still opens the child. */ }
+        catch (error) { console.warn("side-agent: could not place the side agent in a right pane.", error); }
       }
       openScreen({ screenId: "open", params: { agentId: child.agentId } });
     },
