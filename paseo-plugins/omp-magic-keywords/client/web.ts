@@ -29,9 +29,9 @@ const COMPOSER = "textarea[data-composer-input]";
 const PREFIX = "omp-magic-keywords";
 /** How long rules outlive the last keyword in view, so a prompt at the viewport edge does not flip the sheet per frame. */
 const RULES_OFF_MS = 300;
-/** Sent messages this close to the viewport (and to their scroller's visible part) already count as in view
- *  for the rules, so a keyword scrolled in is coloured on its first frame. */
-const NEAR_MARGIN = "50% 0px";
+/** Sent messages within this fraction of the viewport height above or below it keep their words' rules, so a
+ *  keyword scrolled in is coloured on its first frame. */
+const NEAR_FRACTION = 0.5;
 /** How far up React's tree to look for the chat's agent before giving up. */
 const FIBER_DEPTH = 80;
 /** Bit `i` set: keyword `i` of {@link MAGIC_KEYWORDS} may be coloured. */
@@ -106,6 +106,8 @@ interface Source {
   runs: Run[];
   /** All glyphs of all runs, for unpainting and counting. */
   glyphs: Glyph[];
+  /** A sent message's nearest scrolling ancestor, which clips it; unset for the viewport. */
+  scroller?: HTMLElement;
   overlay?: Overlay;
 }
 
@@ -349,33 +351,66 @@ export function startKeywordShimmer(): Engine {
   };
   reducedMotion.addEventListener("change", schedule);
 
-  // Sources and composers in the viewport. A composer's edges also replace the old poll: Paseo hides
-  // the composers of inactive tabs with display: none, which leaves them no box to intersect.
-  const intersections = new IntersectionObserver((entries) => {
-    if (disposed) return;
-    for (const { target, isIntersecting } of entries) {
-      const element = target as HTMLElement;
-      const composer = composers.has(element as HTMLTextAreaElement);
-      if (isIntersecting && (composer || sources.has(element))) visible.add(element);
+  // No IntersectionObserver anywhere: while one has an observation, Chromium turns every frame of a
+  // composited animation (Paseo's status rings, all day while agents run) into a main-thread frame
+  // (measured: 0.1 → 60 main frames/s). Sent sources are placed by reading their boxes in a frame after
+  // scrolls, resizes and DOM changes; a ResizeObserver, which has no such effect, reports the boxes that
+  // appear or vanish when Paseo switches tabs (inactive tabs are display: none).
+  let viewFrame: number | undefined;
+  const pending = new Set<HTMLElement>();
+  const hasSent = (): boolean => {
+    for (const source of sources.values()) if (source.kind === "sent") return true;
+    return false;
+  };
+  /** Places every sent source: in view (its scroller's visible part) animates, near keeps its rules. */
+  const checkView = () => {
+    const height = window.innerHeight;
+    const margin = height * NEAR_FRACTION;
+    for (const [element, source] of sources) {
+      if (source.kind !== "sent") continue;
+      const rect = element.getBoundingClientRect();
+      // display: none (a hidden tab) leaves an empty box at 0, 0.
+      const rendered = rect.width > 0 || rect.height > 0;
+      const clip = source.scroller?.getBoundingClientRect();
+      const top = Math.max(0, clip?.top ?? 0);
+      const bottom = Math.min(height, clip?.bottom ?? height);
+      if (rendered && rect.bottom > top && rect.top < bottom) visible.add(element);
       else visible.delete(element);
-      if (!composer) continue;
-      if (isIntersecting) dirty.add(element as HTMLTextAreaElement);
-      else clear(element);
-    }
-    schedule();
-  });
-
-  // Sent sources near the viewport, for the rules only. scrollMargin (Chromium 120+) widens the chat's
-  // scroller too; rootMargin alone widens only the viewport.
-  const nearby = new IntersectionObserver((entries) => {
-    if (disposed) return;
-    for (const { target, isIntersecting } of entries) {
-      const element = target as HTMLElement;
-      if (isIntersecting && sources.has(element)) near.add(element);
+      if (rendered && rect.bottom > -margin && rect.top < height + margin) near.add(element);
       else near.delete(element);
     }
     syncRules();
-  }, { rootMargin: NEAR_MARGIN, scrollMargin: NEAR_MARGIN } as IntersectionObserverInit);
+    schedule();
+  };
+  const updateView = () => {
+    viewFrame = undefined;
+    if (disposed) return;
+    for (const element of pending) processSent(element);
+    pending.clear();
+    checkView();
+  };
+  const scheduleView = () => {
+    if (!disposed) viewFrame ??= requestAnimationFrame(updateView);
+  };
+
+  // Composers from the moment they mount, sent sources while they are sources. A composer whose box
+  // vanished is in a hidden tab: its overlay goes. One that has a box again is rebuilt.
+  const sizes = new ResizeObserver((entries) => {
+    if (disposed) return;
+    for (const { target, contentRect } of entries) {
+      const element = target as HTMLElement;
+      if (!composers.has(element as HTMLTextAreaElement)) continue;
+      if (contentRect.width > 0 || contentRect.height > 0) {
+        visible.add(element);
+        dirty.add(element as HTMLTextAreaElement);
+      } else {
+        visible.delete(element);
+        clear(element);
+      }
+    }
+    schedule();
+    scheduleView();
+  });
 
   const clear = (element: HTMLElement) => {
     const source = sources.get(element);
@@ -386,9 +421,8 @@ export function startKeywordShimmer(): Engine {
     // A composer stays observed for as long as it is on the page.
     if (source.kind === "sent") {
       visible.delete(element);
-      intersections.unobserve(element);
       near.delete(element);
-      nearby.unobserve(element);
+      sizes.unobserve(element);
     }
     syncRules();
   };
@@ -401,7 +435,7 @@ export function startKeywordShimmer(): Engine {
   const track = (textarea: HTMLTextAreaElement) => {
     if (composers.has(textarea)) return;
     composers.set(textarea, hookValue(textarea, onValueSet));
-    intersections.observe(textarea);
+    sizes.observe(textarea);
   };
   const forget = (textarea: HTMLTextAreaElement) => {
     clear(textarea);
@@ -409,7 +443,7 @@ export function startKeywordShimmer(): Engine {
     composers.delete(textarea);
     dirty.delete(textarea);
     visible.delete(textarea);
-    intersections.unobserve(textarea);
+    sizes.unobserve(textarea);
   };
 
   const processSent = (element: HTMLElement) => {
@@ -437,15 +471,14 @@ export function startKeywordShimmer(): Engine {
       offset += textNode.data.length;
     }
     const runs = runsFor(matches, nodes, starts);
-    const source: Source = { kind: "sent", text, words, present: wordsIn(runs), nodes, runs, glyphs: flat(runs) };
+    const source: Source = {
+      kind: "sent", text, words, present: wordsIn(runs), nodes, runs, glyphs: flat(runs), scroller: scrollerOf(element),
+    };
     sources.set(element, source);
     syncScheme(element);
     paint(source);
-    intersections.observe(element);
-    // Near until the observer's first report says otherwise: it arrives after this frame is drawn.
-    near.add(element);
-    nearby.observe(element);
-    syncRules();
+    sizes.observe(element);
+    // Placed, and its words' rules written, by the checkView() that ends every batch calling this.
   };
 
   /** Lays the overlay over its textarea and shows it only while it has as many lines as the textarea. */
@@ -549,9 +582,10 @@ export function startKeywordShimmer(): Engine {
     schedule();
   };
 
-  const onComposerEvent = ({ target }: Event) => {
-    if (disposed || !preferences || !(target instanceof HTMLElement)) return;
-    if (target.matches(COMPOSER)) {
+  const onComposerEvent = ({ type, target }: Event) => {
+    if (disposed || !preferences) return;
+    if (type === "scroll" && hasSent()) scheduleView();
+    if (target instanceof HTMLElement && target.matches(COMPOSER)) {
       dirty.add(target as HTMLTextAreaElement);
       schedule();
     }
@@ -571,6 +605,7 @@ export function startKeywordShimmer(): Engine {
       track(element);
       processComposer(element);
     }
+    checkView();
     // A switch between moving and still colours keeps the glyphs and only repaints them.
     for (const source of sources.values()) paint(source);
     schedule();
@@ -580,10 +615,9 @@ export function startKeywordShimmer(): Engine {
   };
 
   // The chat list is virtualized: messages mount and unmount as it scrolls. Changes are collected
-  // and handled once per frame. Composers are tracked from the moment they mount, and sources and
-  // composers that left the page are dropped as soon as a removal is seen.
-  let mutationFrame: number | undefined;
-  const pending = new Set<HTMLElement>();
+  // and handled once per frame, which also places the sent sources again, since a DOM change can move
+  // them. Composers are tracked from the moment they mount, and sources and composers that left the
+  // page are dropped as soon as a removal is seen.
   const mutations = new MutationObserver((records) => {
     if (disposed || !preferences) return;
     const sent = styleOf("sent") !== "off";
@@ -610,13 +644,7 @@ export function startKeywordShimmer(): Engine {
       for (const element of [...sources.keys()]) if (!element.isConnected) clear(element);
       for (const textarea of [...composers.keys()]) if (!textarea.isConnected) forget(textarea);
     }
-    if (pending.size === 0) return;
-    mutationFrame ??= requestAnimationFrame(() => {
-      mutationFrame = undefined;
-      if (disposed) return;
-      for (const element of pending) processSent(element);
-      pending.clear();
-    });
+    if (pending.size > 0 || hasSent()) scheduleView();
   });
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
 
@@ -639,11 +667,12 @@ export function startKeywordShimmer(): Engine {
   colorScheme.addEventListener("change", retone);
 
   // Back in the window or tab, or resized (Paseo's breakpoints change the text style): re-read the
-  // composers in view and the theme.
+  // composers in view and the theme, and place the sent sources again.
   const onReturn = () => {
     if (disposed || !preferences || document.visibilityState === "hidden") return;
     for (const textarea of composers.keys()) if (visible.has(textarea)) dirty.add(textarea);
     schedule();
+    scheduleView();
     retone();
   };
   window.addEventListener("focus", onReturn);
@@ -667,8 +696,7 @@ export function startKeywordShimmer(): Engine {
       clearTimeout(offTimer);
       mutations.disconnect();
       themes.disconnect();
-      intersections.disconnect();
-      nearby.disconnect();
+      sizes.disconnect();
       document.removeEventListener("input", onComposerEvent, true);
       document.removeEventListener("scroll", onComposerEvent, true);
       window.removeEventListener("focus", onReturn);
@@ -676,7 +704,7 @@ export function startKeywordShimmer(): Engine {
       document.removeEventListener("visibilitychange", onReturn);
       reducedMotion.removeEventListener("change", schedule);
       colorScheme.removeEventListener("change", retone);
-      for (const handle of [frame, mutationFrame, rescanFrame, themeFrame]) if (handle !== undefined) cancelAnimationFrame(handle);
+      for (const handle of [frame, viewFrame, rescanFrame, themeFrame]) if (handle !== undefined) cancelAnimationFrame(handle);
       clearTimeout(stopTimer);
       for (const element of [...sources.keys()]) clear(element);
       for (const textarea of [...composers.keys()]) forget(textarea);
@@ -684,6 +712,15 @@ export function startKeywordShimmer(): Engine {
       style.remove();
     },
   };
+}
+
+/** The nearest ancestor that scrolls, and so clips `element`; read once per sent source. */
+function scrollerOf(element: HTMLElement): HTMLElement | undefined {
+  for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if (overflow === "auto" || overflow === "scroll" || overflow === "overlay") return parent;
+  }
+  return undefined;
 }
 
 /** The words that occur in `runs`, as a bit mask over {@link MAGIC_KEYWORDS}. */
