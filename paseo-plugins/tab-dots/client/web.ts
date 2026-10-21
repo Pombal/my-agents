@@ -72,9 +72,9 @@ declare class MutationObserver {
   observe(target: El, options: { childList: boolean; subtree: boolean }): void;
   disconnect(): void;
 }
-interface IntersectionEntryLike { target: El; isIntersecting: boolean }
-declare class IntersectionObserver {
-  constructor(callback: (entries: IntersectionEntryLike[]) => void);
+interface ResizeEntryLike { target: El; contentRect: { width: number; height: number } }
+declare class ResizeObserver {
+  constructor(callback: (entries: ResizeEntryLike[]) => void);
   observe(target: El): void;
   unobserve(target: El): void;
   disconnect(): void;
@@ -230,14 +230,17 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   // A Web Animation on an element that isn't rendered (Paseo's collapsed sidebar is
   // `display: none`) leaves the compositor and is ticked on the main thread every frame, where a
-  // CSS animation would simply stop. Pulses of dots off screen are paused, and rejoin the wave
-  // when their dot shows again.
-  const onScreen = new IntersectionObserver((entries) => {
-    for (const { target, isIntersecting } of entries) {
+  // CSS animation would simply stop. So a pulse plays only while its dot has a size: it starts
+  // paused, and a ResizeObserver plays it on the wave when the dot is laid out (before that first
+  // paint) and pauses it when the dot drops to 0×0. Not an IntersectionObserver: while one is
+  // active, Chromium turns every frame of a composited transform animation (Paseo's status rings
+  // too) into a main-thread frame.
+  const sized = new ResizeObserver((entries) => {
+    for (const { target, contentRect } of entries) {
       const pulse = pulses.get(target);
       if (!pulse) continue;
-      if (!isIntersecting) pulse.animation.pause();
-      // Setting a start time resumes a paused animation.
+      if (contentRect.width === 0) pulse.animation.pause();
+      // Setting a start time plays a paused animation.
       else if (pulse.animation.playState === "paused") pulse.animation.startTime = waveStart(pulse.index);
     }
   });
@@ -245,7 +248,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     for (const [dot, { animation }] of pulses) {
       if (dot.isConnected) continue;
       animation.cancel();
-      onScreen.unobserve(dot);
+      sized.unobserve(dot);
       pulses.delete(dot);
     }
   };
@@ -314,9 +317,9 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       element.setAttribute("data-agent", dot.agentId);
       if (dot.state === "running" && !reducedMotion.matches) {
         const animation = element.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
-        animation.startTime = waveStart(index);
+        animation.pause();
         pulses.set(element, { animation, index });
-        onScreen.observe(element);
+        sized.observe(element);
       }
       container.appendChild(element);
     });
@@ -513,7 +516,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       reducedMotion.removeEventListener("change", schedule);
       for (const type of PRESS_EVENTS) window.removeEventListener(type, onPress, true);
       observer.disconnect();
-      onScreen.disconnect();
+      sized.disconnect();
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
       document.querySelectorAll(ROWS).forEach((row) => { if (isMine(row)) clearRow(row); });

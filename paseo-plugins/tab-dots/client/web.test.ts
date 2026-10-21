@@ -28,7 +28,7 @@ const agentsOf = (...list: AgentInfo[]) => new Map(list.map((agent) => [agent.id
 const running = (id: string, workspaceId: string): AgentInfo =>
   unread(id, workspaceId, { status: "running", requiresAttention: false, attentionReason: null });
 
-/** `Element.animate`, `IntersectionObserver` and the reduced-motion query, all missing from jsdom. */
+/** `Element.animate`, `ResizeObserver` and the reduced-motion query, all missing from jsdom. */
 class FakeAnimation {
   cancelled = false;
   playState: "running" | "paused" = "running";
@@ -53,13 +53,23 @@ const setReducedMotion = (value: boolean) => {
   reduceMotion = value;
   for (const listener of motionListeners) listener();
 };
-type Intersections = (entries: { target: Element; isIntersecting: boolean }[]) => void;
-let intersectionObservers: { callback: Intersections; targets: Set<Element> }[] = [];
-/** What the browser reports when `dots` leave or enter the screen. */
-const setOnScreen = (dots: Element[], isIntersecting: boolean) => {
-  for (const { callback, targets } of intersectionObservers) {
-    const seen = dots.filter((dot) => targets.has(dot));
-    if (seen.length > 0) callback(seen.map((target) => ({ target, isIntersecting })));
+type Resizes = (entries: { target: Element; contentRect: { width: number; height: number } }[]) => void;
+let resizeObservers: { callback: Resizes; sizes: Map<Element, number> }[] = [];
+/**
+ * What the browser reports after layout: an observed dot is 5 px wide, or 0 when it isn't
+ * rendered (detached, or under a `hidden` ancestor, i.e. `display: none`). Like the real
+ * observer, it reports a size only when it changed, starting from 0.
+ */
+const layout = () => {
+  for (const { callback, sizes } of resizeObservers) {
+    const entries: Parameters<Resizes>[0] = [];
+    for (const [target, last] of sizes) {
+      const width = target.isConnected && !target.closest("[hidden]") ? 5 : 0;
+      if (width === last) continue;
+      sizes.set(target, width);
+      entries.push({ target, contentRect: { width, height: width } });
+    }
+    if (entries.length > 0) callback(entries);
   }
 };
 /** Agent ids of the dots in `row` with a playing pulse, and each pulse's start time. */
@@ -74,8 +84,13 @@ const hover = (target: Element, from: Element | null = null) =>
   target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: from }));
 const leave = (target: Element, to: Element | null) =>
   target.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: to }));
-/** Runs pending animation frames and MutationObserver callbacks. */
-const frames = async (count = 3) => { for (let i = 0; i < count; i += 1) await vi.advanceTimersByTimeAsync(20); };
+/** Runs pending animation frames and MutationObserver callbacks, each frame followed by layout. */
+const frames = async (count = 3) => {
+  for (let i = 0; i < count; i += 1) {
+    await vi.advanceTimersByTimeAsync(20);
+    layout();
+  }
+};
 
 let started: TabDots[] = [];
 let openTab = vi.fn();
@@ -94,21 +109,21 @@ beforeEach(() => {
   animations = [];
   reduceMotion = false;
   motionListeners = new Set();
-  intersectionObservers = [];
+  resizeObservers = [];
   vi.stubGlobal("matchMedia", () => ({
     get matches() { return reduceMotion; },
     addEventListener: (_type: string, listener: () => void) => motionListeners.add(listener),
     removeEventListener: (_type: string, listener: () => void) => motionListeners.delete(listener),
   }));
-  vi.stubGlobal("IntersectionObserver", class {
-    #entry: { callback: Intersections; targets: Set<Element> };
-    constructor(callback: Intersections) {
-      this.#entry = { callback, targets: new Set() };
-      intersectionObservers.push(this.#entry);
+  vi.stubGlobal("ResizeObserver", class {
+    #entry: { callback: Resizes; sizes: Map<Element, number> };
+    constructor(callback: Resizes) {
+      this.#entry = { callback, sizes: new Map() };
+      resizeObservers.push(this.#entry);
     }
-    observe(target: Element) { this.#entry.targets.add(target); }
-    unobserve(target: Element) { this.#entry.targets.delete(target); }
-    disconnect() { this.#entry.targets.clear(); }
+    observe(target: Element) { this.#entry.sizes.set(target, 0); }
+    unobserve(target: Element) { this.#entry.sizes.delete(target); }
+    disconnect() { this.#entry.sizes.clear(); }
   });
   Object.defineProperty(Element.prototype, "animate", {
     configurable: true,
@@ -294,21 +309,32 @@ describe("running pulse", () => {
   });
 
   // A Web Animation on a `display: none` dot (Paseo's collapsed sidebar) is ticked on the main
-  // thread every frame; measured 60 main frames/s for five dots.
-  test("a dot off screen holds its pulse, and rejoins the wave when it shows again", async () => {
-    const row = addRow("srv_A:wks_a");
-    start(agentsOf(running("a1", "wks_a"), running("a2", "wks_a")), SHOW_RUNNING);
+  // thread every frame: measured 60 main frames/s for five dots.
+  test("dots in a hidden sidebar hold their pulse, and join the wave when it shows", async () => {
+    const sidebar = document.createElement("div");
+    sidebar.hidden = true;
+    document.body.appendChild(sidebar);
+    const hiddenRow = addRow("srv_A:wks_a", sidebar);
+    const shownRow = addRow("srv_A:wks_b");
+    start(agentsOf(running("a1", "wks_a"), running("a2", "wks_a"), running("b1", "wks_b"), running("b2", "wks_b")), SHOW_RUNNING);
     await frames();
-    const wave = pulses(row);
-    const dots = [...row.querySelectorAll("[data-tab-dots] > i")];
+    expect(dotsIn(hiddenRow)).toHaveLength(2);
+    expect(pulses(hiddenRow)).toEqual({});
+    const wave = Object.values(pulses(shownRow));
+    expect(wave).toHaveLength(2);
 
-    setOnScreen(dots, false);
-    expect(pulses(row)).toEqual({});
-    expect(animations.every(({ cancelled }) => !cancelled)).toBe(true);
+    sidebar.hidden = false;
+    await frames();
+    expect(Object.values(pulses(hiddenRow))).toEqual(wave);
 
     await vi.advanceTimersByTimeAsync(2500);
-    setOnScreen(dots, true);
-    expect(pulses(row)).toEqual(wave);
+    sidebar.hidden = true;
+    await frames();
+    expect(pulses(hiddenRow)).toEqual({});
+    expect(animations.every(({ cancelled }) => !cancelled)).toBe(true);
+    sidebar.hidden = false;
+    await frames();
+    expect(Object.values(pulses(hiddenRow))).toEqual(wave);
   });
 
   test("reduced motion keeps the dots still, and switching it applies at once", async () => {
