@@ -22,6 +22,63 @@ function polygon(points: number, radius: (index: number) => number): string {
   }).join(",")})`;
 }
 
+/** How near an orbiting body is (0 far, 1 near) at an angle of its loop. */
+const nearness = (angle: number) => (Math.sin(angle) + 1) / 2;
+
+/**
+ * A body that passes behind and in front of another is two copies, one stacked below it and one
+ * above, each shown by a step-end opacity animation: name-b while the loop is on the far side,
+ * name-f while near (nearness > 0.5 at the loop's samples). The switch lands where a z-index
+ * keyframe would flip, halfway between two samples. Opacity keeps it on the compositor; z-index
+ * would put the whole animation on the main thread.
+ */
+function depthSwap(name: string, steps: number): string {
+  const near = (k: number) => nearness((2 * Math.PI * k) / steps) > 0.5;
+  const frames = (shown: boolean) => {
+    let out = `0%{opacity:${near(0) === shown ? 1 : 0}}`;
+    for (let k = 0; k < steps; k++) if (near(k) !== near(k + 1)) out += `${pct(k + 0.5, steps)}{opacity:${near(k + 1) === shown ? 1 : 0}}`;
+    return `${out}100%{opacity:${near(steps) === shown ? 1 : 0}}`;
+  };
+  return `@keyframes ${name}-f{${frames(true)}}@keyframes ${name}-b{${frames(false)}}`;
+}
+
+/** CSS cubic-bezier(x1, y1, x2, y2) as a function of input progress 0–1. */
+function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number) => number {
+  const curve = (a: number, b: number, t: number) => 3 * a * t * (1 - t) ** 2 + 3 * b * t ** 2 * (1 - t) + t ** 3;
+  return (x) => {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 40; i++) {
+      const t = (lo + hi) / 2;
+      if (curve(x1, x2, t) < x) lo = t;
+      else hi = t;
+    }
+    return curve(y1, y2, (lo + hi) / 2);
+  };
+}
+
+/**
+ * A shape change only the main thread can animate (border-radius, clip-path) as a flipbook: the
+ * cycle is cut into `frames` slots, each shown by a copy of the shape sampled at the slot's middle
+ * and switched on and off by a step-end opacity animation, so one copy is visible at any time.
+ * The shape goes out and back with one symmetric easing (keyframes 0% → 50% → 100%, as in the CSS
+ * this replaces), so slots k and frames−1−k show the same shape and share a copy. `shape` gets the
+ * eased progress (0 at the 0% keyframe, 1 at the 50% one) and returns that copy's declarations.
+ */
+function flipbook(name: string, copies: string, frames: number, ease: (x: number) => number, shape: (p: number) => string): string {
+  const half = frames / 2;
+  let css = "";
+  for (let j = 0; j < half; j++) {
+    const slots = j === half - 1 ? [[j, frames - j]] : [[j, j + 1], [frames - 1 - j, frames - j]];
+    let keys = j === 0 ? "" : "0%{opacity:0}";
+    for (const [from, to] of slots) keys += `${pct(from!, frames)}{opacity:1}${pct(to!, frames)}{opacity:0}`;
+    css += `@keyframes ${name}${j}{${keys}}${copies}:nth-child(${j + 1}){${shape(ease((j + 0.5) / half))};animation-name:${name}${j}}`;
+  }
+  return css;
+}
+
+/** Copies the flipbook of each shape-changing spinner needs (half its frames). */
+const MORPH_COPIES = 24, BURST_COPIES = 33;
+
 function generated(): string {
   let css = "";
   // Paseo's own 2×3 grid (app synced-loader-state.ts): the same six opacity frames over 950 ms,
@@ -38,15 +95,17 @@ function generated(): string {
   [0, 1, 2, 5, 8, 7, 6, 3].forEach((cell, k) => { css += `.spn-snake i:nth-child(${cell + 1}){animation-delay:${f3(-1 + k * 0.125)}s}`; });
   for (let c = 0; c < 9; c++) css += `.spn-ripple i:nth-child(${c + 1}){animation-delay:${(-1.3 + (Math.floor(c / 3) + (c % 3)) * 0.12).toFixed(2)}s}`;
   // Orbits with depth: the far side of the path is smaller, dimmer, or behind.
-  css += loop("spn-pair", 24, (a) => { const near = (Math.sin(a) + 1) / 2;
-    return `transform:translateX(${f3(0.32 * Math.cos(a))}em) scale(${f3(0.6 + 0.4 * near)});opacity:${f3(0.4 + 0.6 * near)};z-index:${near > 0.5 ? 2 : 1}`; });
-  css += loop("spn-moon", 36, (a) => { const near = (Math.sin(a) + 1) / 2;
-    return `transform:translate(${f3(0.42 * Math.cos(a))}em,${f3(0.1 * Math.sin(a))}em) scale(${f3(0.6 + 0.5 * near)});z-index:${near > 0.5 ? 3 : 1}`; });
-  css += loop("spn-elec", 36, (a) => { const near = (Math.sin(a) + 1) / 2;
-    return `transform:translate(${f3(0.46 * Math.cos(a))}em,${f3(0.17 * Math.sin(a))}em) scale(${f3(0.75 + 0.35 * near)});z-index:${near > 0.5 ? 3 : 1}`; });
+  // Binary pair: both dots are the same colour, so which one is drawn on top never shows.
+  css += loop("spn-pair", 24, (a) => `transform:translateX(${f3(0.32 * Math.cos(a))}em) scale(${f3(0.6 + 0.4 * nearness(a))});opacity:${f3(0.4 + 0.6 * nearness(a))}`);
+  css += loop("spn-moon", 36, (a) => `transform:translate(${f3(0.42 * Math.cos(a))}em,${f3(0.1 * Math.sin(a))}em) scale(${f3(0.6 + 0.5 * nearness(a))})`);
+  css += loop("spn-elec", 36, (a) => `transform:translate(${f3(0.46 * Math.cos(a))}em,${f3(0.17 * Math.sin(a))}em) scale(${f3(0.75 + 0.35 * nearness(a))})`);
+  css += depthSwap("spn-moon", 36) + depthSwap("spn-elec", 36);
+  // Morph: a rounded square that turns into a circle and back while it spins.
+  css += flipbook("spn-morph", ".spn-morph b i", MORPH_COPIES * 2, cubicBezier(0.42, 0, 0.58, 1),
+    (p) => `border-radius:calc(${f3(0.08 * (1 - p))}em + ${(50 * p).toFixed(2)}%)`);
   // Starburst: 24 points, alternating radii; the inner ones pull in and out.
-  const burst = (inner: number) => polygon(24, (j) => (j % 2 ? inner : 1));
-  css += `@keyframes spn-burst{0%{clip-path:${burst(0.92)};transform:rotate(0) scale(.7)}50%{clip-path:${burst(0.36)};transform:rotate(90deg) scale(1)}100%{clip-path:${burst(0.92)};transform:rotate(180deg) scale(.7)}}`;
+  css += flipbook("spn-burst", ".spn-burst b i", BURST_COPIES * 2, cubicBezier(0.6, 0, 0.4, 1),
+    (p) => `clip-path:${polygon(24, (j) => (j % 2 ? 0.92 + (0.36 - 0.92) * p : 1))}`);
   // Sliding tiles: the empty corner travels clockwise; 12 moves bring every tile home.
   const corners = [[0, 0], [0.6, 0], [0.6, 0.6], [0, 0.6]] as const;
   const at = [0, 1, 2];
@@ -129,29 +188,41 @@ const STATIC_CSS = `
 .spn-atom .orb { position: absolute; inset: 0; transform: rotate(-25deg); }
 .spn-atom .orb::before { content: ""; position: absolute; left: .02em; right: .02em; top: calc(50% - .19em); height: .38em;
   border-radius: 50%; border: max(1.3px, .085em) solid currentColor; opacity: .45; box-sizing: border-box; }
+/* The electron is two copies: one under the nucleus (the far side of its orbit), one over it. */
 .spn-atom .orb i { position: absolute; left: calc(50% - .12em); top: calc(50% - .12em); width: .24em; height: .24em;
-  border-radius: 50%; background: currentColor; animation: spn-elec 1.3s linear infinite; }
+  border-radius: 50%; background: currentColor; z-index: 1; animation: spn-elec 1.3s linear infinite, spn-elec-b 1.3s step-end infinite; }
+.spn-atom .orb i + i { z-index: 3; animation-name: spn-elec, spn-elec-f; }
 .spn-atom .nuc { position: absolute; left: calc(50% - .17em); top: calc(50% - .17em); width: .34em; height: .34em; border-radius: 50%;
   background: currentColor; z-index: 2; box-shadow: 0 0 0 .06em var(--spn-bg, transparent); }
 
 .spn-eclipse i { position: absolute; border-radius: 50%; background: currentColor; }
 .spn-eclipse i:nth-child(1) { left: calc(50% - .21em); top: calc(50% - .21em); width: .42em; height: .42em; z-index: 2;
   box-shadow: 0 0 0 .05em var(--spn-bg, transparent); }
-.spn-eclipse i:nth-child(2) { left: calc(50% - .09em); top: calc(50% - .09em); width: .18em; height: .18em; animation: spn-moon 1.6s linear infinite; }
+/* The moon is two copies: one behind the planet (the far side of its orbit), one in front. */
+.spn-eclipse i:nth-child(n + 2) { left: calc(50% - .09em); top: calc(50% - .09em); width: .18em; height: .18em; z-index: 1;
+  animation: spn-moon 1.6s linear infinite, spn-moon-b 1.6s step-end infinite; }
+.spn-eclipse i:nth-child(3) { z-index: 3; animation-name: spn-moon, spn-moon-f; }
 
-/* Moon phases: a 3em mask image with a moon-sized hole slides across the moon. */
+/* Moon phases: a 3em-wide mask with a moon-sized hole slides across the moon. The mask sits still
+   on its own element (b), which slides, while the moon inside it slides back by the same amount. */
 .spn-phase::before { content: ""; position: absolute; inset: .15em; border-radius: 50%; border: max(1px, .05em) solid currentColor; opacity: .22; box-sizing: border-box; }
-.spn-phase i { position: absolute; inset: .15em; border-radius: 50%; background: currentColor;
-  -webkit-mask: radial-gradient(circle at 50% 50%, transparent .345em, #000 .36em) no-repeat -1.9em 0 / 3em 100%;
-          mask: radial-gradient(circle at 50% 50%, transparent .345em, #000 .36em) no-repeat -1.9em 0 / 3em 100%;
+.spn-phase i { position: absolute; inset: .15em; }
+.spn-phase i > b { position: absolute; left: 0; top: 0; width: 3em; height: 100%;
+  -webkit-mask: radial-gradient(circle at 50% 50%, transparent .345em, #000 .36em) no-repeat;
+          mask: radial-gradient(circle at 50% 50%, transparent .345em, #000 .36em) no-repeat;
   animation: spn-phase 3.2s ease-in-out infinite; }
-@keyframes spn-phase { 0% { -webkit-mask-position: -1.9em 0; mask-position: -1.9em 0 } 50% { -webkit-mask-position: -1.15em 0; mask-position: -1.15em 0 }
-  100% { -webkit-mask-position: -.4em 0; mask-position: -.4em 0 } }
+.spn-phase i > b > b { position: absolute; left: 0; top: 0; width: .7em; height: 100%; border-radius: 50%; background: currentColor;
+  animation: spn-phase-moon 3.2s ease-in-out infinite; }
+@keyframes spn-phase { 0% { transform: translateX(-1.9em) } 50% { transform: translateX(-1.15em) } 100% { transform: translateX(-.4em) } }
+@keyframes spn-phase-moon { 0% { transform: translateX(1.9em) } 50% { transform: translateX(1.15em) } 100% { transform: translateX(.4em) } }
 
-.spn-morph::after { content: ""; position: absolute; inset: .2em; background: currentColor; animation: spn-morph 1.6s ease-in-out infinite; }
-@keyframes spn-morph { 0% { transform: rotate(0) scale(.85); border-radius: .08em } 50% { transform: rotate(180deg) scale(.6); border-radius: 50% }
-  100% { transform: rotate(360deg) scale(.85); border-radius: .08em } }
-.spn-burst::after { content: ""; position: absolute; inset: .04em; background: currentColor; animation: spn-burst 2.2s cubic-bezier(.6, 0, .4, 1) infinite; }
+/* Morph and starburst: b spins; the shape change inside is a flipbook (see flipbook()). */
+.spn-morph b { position: absolute; inset: .2em; animation: spn-morph 1.6s ease-in-out infinite; }
+.spn-morph b i { position: absolute; inset: 0; background: currentColor; opacity: 0; animation: 1.6s step-end infinite; }
+@keyframes spn-morph { 0% { transform: rotate(0) scale(.85) } 50% { transform: rotate(180deg) scale(.6) } 100% { transform: rotate(360deg) scale(.85) } }
+.spn-burst b { position: absolute; inset: .04em; animation: spn-burst 2.2s cubic-bezier(.6, 0, .4, 1) infinite; }
+.spn-burst b i { position: absolute; inset: 0; background: currentColor; opacity: 0; animation: 2.2s step-end infinite; }
+@keyframes spn-burst { 0% { transform: rotate(0) scale(.7) } 50% { transform: rotate(90deg) scale(1) } 100% { transform: rotate(180deg) scale(.7) } }
 
 .spn-constel .spn-star { transform: scale(0); animation: spn-pop 2s ease-in-out infinite; }
 .spn-constel .spn-star:nth-child(1) { left: .05em; top: .1em; width: .42em; height: .42em; animation-duration: 1.9s }
@@ -271,7 +342,7 @@ const STATIC_CSS = `
 
 .spn-roll { display: inline-flex; white-space: pre; font-variant-numeric: tabular-nums; height: var(--spn-lh, 1.4em); line-height: var(--spn-lh, 1.4em); }
 .spn-roll .col { display: inline-block; height: var(--spn-lh, 1.4em); overflow: hidden; }
-.spn-roll .col > span { display: block; transition: margin-top .45s cubic-bezier(.3, 1.4, .5, 1); }
+.spn-roll .col > span { display: block; transition: transform .45s cubic-bezier(.3, 1.4, .5, 1); }
 .spn-roll .col > span > b { display: block; height: var(--spn-lh, 1.4em); font-weight: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -297,11 +368,11 @@ export const SPINNER_MARKUP: Record<Exclude<SpinnerId, "off">, { cls: string; ht
   "twin-comets": { cls: "spn-orbit spn-twin", html: "<b><i></i></b>" },
   "comet-arc": { cls: "spn-comet", html: "" },
   "binary-pair": { cls: "spn-pair", html: dots(2) },
-  atom: { cls: "spn-atom", html: `<b class="orb"><i></i><b class="nuc"></b></b>` },
-  eclipse: { cls: "spn-eclipse", html: dots(2) },
-  "moon-phases": { cls: "spn-phase", html: dots(1) },
-  morph: { cls: "spn-morph", html: "" },
-  starburst: { cls: "spn-burst", html: "" },
+  atom: { cls: "spn-atom", html: `<b class="orb"><i></i><i></i><b class="nuc"></b></b>` },
+  eclipse: { cls: "spn-eclipse", html: dots(3) },
+  "moon-phases": { cls: "spn-phase", html: "<i><b><b></b></b></i>" },
+  morph: { cls: "spn-morph", html: `<b>${dots(MORPH_COPIES)}</b>` },
+  starburst: { cls: "spn-burst", html: `<b>${dots(BURST_COPIES)}</b>` },
   constellation: { cls: "spn-constel", html: stars(5) },
   bounce: { cls: "spn-bounce", html: "" },
   "sideways-bounce": { cls: "spn-hbounce spn-wide", html: dots(1) },

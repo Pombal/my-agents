@@ -65,6 +65,18 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   repainted on the main thread every frame while a turn was in view. Same 100° band, 300 % width
   and 1.8 s sweep as before. The shimmer time style now hides Paseo's elapsed text and shows our
   copy in the same font (as rolling always did); the icon style's one band covers icon and text.
+- **Spinners** that animated main-thread properties now use transform/opacity only, same look:
+  binary pair drops its `z-index` keyframes (both dots are one colour, so stacking never showed);
+  atom and eclipse draw the orbiting body twice, under and over the centre body, and swap the two
+  with step-end opacity where the `z-index` used to flip (`depthSwap()`); moon phases slides the
+  masked element and counter-slides the moon inside it (the old `mask-position` sweep); morph
+  (`border-radius`) and starburst (`clip-path`) spin a wrapper and change shape as a flipbook of
+  pre-drawn copies, one shown per slot by step-end opacity (`flipbook()`: 48 and 66 slots per cycle,
+  about 30 shape steps a second, sampled with the old easing; rotation stays continuous). Rolling
+  time digits slide by `transform` instead of `margin-top`.
+- `client/web.test.ts` checks that the injected CSS animates and transitions nothing but
+  `transform` and `opacity`; `client/catalog.test.ts` that each flipbook and depth swap shows
+  exactly one copy at every moment.
 
 ## Limits
 

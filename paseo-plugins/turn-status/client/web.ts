@@ -239,10 +239,13 @@ export class LiveLabel {
 
 const DIGITS = `<span>${Array.from({ length: 10 }, (_, d) => `<b>${d}</b>`).join("")}</span>`;
 
-/** Elapsed time whose digits roll into place like an odometer. */
+/** Elapsed time whose digits roll into place like an odometer (each digit strip slides by transform). */
 export class RollingTime {
   readonly el: El;
   private shape = "";
+  private columns: ArrayLike<El> = [];
+  /** The digit each column shows, so an unchanged column is not written again. */
+  private digits = "";
 
   constructor() {
     this.el = document.createElement("span");
@@ -256,13 +259,14 @@ export class RollingTime {
       // New layout ("59s" → "1m"): rebuild without animating.
       this.shape = shape;
       this.el.innerHTML = [...text].map((ch) => (/\d/.test(ch) ? `<span class="col">${DIGITS}</span>` : ch)).join("");
+      this.columns = this.el.querySelectorAll(".col > span");
+      this.digits = "";
     }
-    const columns = this.el.querySelectorAll(".col > span");
-    let column = 0;
-    for (const ch of text) {
-      if (!/\d/.test(ch)) continue;
-      columns[column++]?.style.setProperty("margin-top", `calc(var(--spn-lh, 1.4em) * -${ch})`);
+    const digits = text.replace(/\D/g, "");
+    for (let i = 0; i < digits.length; i++) {
+      if (digits[i] !== this.digits[i]) this.columns[i]?.style.setProperty("transform", `translateY(calc(var(--spn-lh, 1.4em) * -${digits[i]}))`);
     }
+    this.digits = digits;
   }
 }
 
