@@ -3,7 +3,7 @@ import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import type { Link, LinkKind } from "../shared/links";
-import { effectiveFilter, kindCounts, typeChoices, type LinksStore, type TypeFilter } from "./store";
+import { effectiveFilter, kindCounts, subagentChoices, typeChoices, whereLabel, withSubagents, type LinksStore, type TypeFilter } from "./store";
 
 const KIND_LABEL: Record<LinkKind, string> = { web: "Web", image: "Images", file: "Files" };
 
@@ -38,10 +38,18 @@ export function createLinksPopover(store: LinksStore) {
       },
       [agentId],
     );
+    const [subagentsShown, setSubagentsShown] = useState(() => subagentChoices.has(agentId));
+    const toggleSubagents = useCallback(() => {
+      if (subagentsShown) subagentChoices.delete(agentId);
+      else subagentChoices.add(agentId);
+      setSubagentsShown(!subagentsShown);
+    }, [agentId, subagentsShown]);
     const status = useAgent(agentId, (agent) => agent.status);
     const toast = useToast();
     const [copied, setCopied] = useState<string | null>(null);
 
+    // Registered before the refresh below, so the popover's own fetch already includes sub-agents.
+    useEffect(() => store.watchSubagents(agentId), [agentId]);
     useEffect(() => {
       void store.refresh(agentId);
     }, [agentId]);
@@ -115,8 +123,9 @@ export function createLinksPopover(store: LinksStore) {
     );
 
     const links = chat.links;
+    const extra = chat.subagentLinks?.length ?? 0;
     // One width for every state: the surface keeps the width it first measured.
-    const message = !links ? (chat.error ? `Couldn't read this chat: ${chat.error}` : "Loading…") : links.length ? null : "No links in this chat yet";
+    const message = !links ? (chat.error ? `Couldn't read this chat: ${chat.error}` : "Loading…") : links.length || extra ? null : "No links in this chat yet";
     if (!links || message) {
       return (
         <View style={styles.list}>
@@ -125,19 +134,33 @@ export function createLinksPopover(store: LinksStore) {
       );
     }
 
-    const kinds = kindCounts(links);
-    const filter = effectiveFilter(links, choice);
-    const rows = filter === "all" ? links : links.filter((link) => link.kind === filter);
-    const hidden = links.length - rows.length;
+    const all = withSubagents(links, chat.subagentLinks, subagentsShown);
+    const kinds = kindCounts(all);
+    const filter = effectiveFilter(all, choice);
+    const rows = filter === "all" ? all : all.filter((link) => link.kind === filter);
+    const hidden = all.length - rows.length;
     const now = Date.now();
     return (
       <View style={styles.list}>
         <View style={styles.header}>
           <Text numberOfLines={1} style={styles.headerText}>
-            {`${links.length} ${links.length === 1 ? "link" : "links"} in this chat`}
+            {links.length ? `${links.length} ${links.length === 1 ? "link" : "links"} in this chat` : "No links in this chat yet"}
           </Text>
+          {extra ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: subagentsShown }}
+              accessibilityLabel={subagentsShown ? "Hide links from subagents" : `Show ${extra} more ${extra === 1 ? "link" : "links"} from subagents`}
+              onPress={toggleSubagents}
+              hitSlop={6}
+            >
+              {({ hovered }: PressState) => (
+                <Text style={hovered ? styles.hiddenHover : styles.hidden}>{subagentsShown ? "hide subagents" : `+${extra} from subagents`}</Text>
+              )}
+            </Pressable>
+          ) : null}
           {hidden ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Show all ${links.length} links`} onPress={() => choose("all")} hitSlop={6}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Show all ${all.length} links`} onPress={() => choose("all")} hitSlop={6}>
               {({ hovered }: PressState) => <Text style={hovered ? styles.hiddenHover : styles.hidden}>{`+${hidden} hidden`}</Text>}
             </Pressable>
           ) : null}
@@ -175,7 +198,7 @@ export function createLinksPopover(store: LinksStore) {
               {link.title}
             </Text>
             <Text numberOfLines={1} style={styles.where}>
-              {link.where}
+              {whereLabel(link)}
             </Text>
             {copied === link.key ? <Text style={styles.copied}>copied</Text> : <Text style={styles.time}>{ago(link.lastAt, now)}</Text>}
           </Pressable>

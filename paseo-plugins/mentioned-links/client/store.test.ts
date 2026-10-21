@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Link, LinkKind } from "../shared/links";
-import { effectiveFilter, kindCounts } from "./store";
+import { effectiveFilter, kindCounts, whereLabel, withSubagents } from "./store";
 
 const link = (kind: LinkKind, n: number): Link => ({ key: `${kind}:${n}`, kind, title: `${kind} ${n}`, where: "", glyph: "File", lastAt: n });
 
@@ -26,5 +26,26 @@ describe("type filter", () => {
     expect(effectiveFilter(chat, "image")).toBe("image");
     expect(effectiveFilter(chat, "all")).toBe("all");
     expect(effectiveFilter(chat, "file")).toBe("web");
+  });
+});
+
+describe("sub-agent links", () => {
+  it("merge into the chat's links newest first only when shown, marked with their sub-agent", () => {
+    const chat = [link("web", 9), link("image", 3)];
+    const extra: Link[] = [{ ...link("web", 5), via: "LinksPillBuild" }, { ...link("file", 1), via: "Scout" }];
+    expect(withSubagents(chat, extra, false)).toBe(chat);
+    const shown = withSubagents(chat, extra, true);
+    expect(shown.map((row) => [row.lastAt, whereLabel({ ...row, where: "host" })])).toEqual([
+      [9, "host"],
+      [5, "↳ LinksPillBuild"],
+      [3, "host"],
+      [1, "↳ Scout"],
+    ]);
+    // They obey the type filter like any other link: Web alone now has two rows.
+    expect(kindCounts(shown)).toEqual([
+      { kind: "web", count: 2 },
+      { kind: "image", count: 1 },
+      { kind: "file", count: 1 },
+    ]);
   });
 });

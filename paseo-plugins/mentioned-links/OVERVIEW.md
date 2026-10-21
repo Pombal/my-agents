@@ -18,9 +18,15 @@ Links are sorted by what a click does.
 
 A webshare path and its `http://axalon:8080` URL are one row. Non-image files in the webshare (for example `~/www/webshare/pages/x.html`) are Web rows. The same path with different line suffixes is one row.
 
+**Sub-agent links.** When the chat's sub-agents mentioned links that the chat itself never did, a second faint label appears in the header, left of `+N hidden`: **+18 from subagents**. Clicking it merges those links into the list by time, each marked `↳ <sub-agent>` in the muted host/folder column, and the label becomes **hide subagents**. They count in the type chips and `+N hidden` like any other link; the header and the pill keep counting only the chat's own links. A link the chat also mentioned stays a plain row, so a chat with no sub-agents, or whose sub-agents only repeated its links, shows no label at all. The choice is kept per chat until the app reloads.
+
+![Sub-agent links shown](screenshots/subagents-dark.webp)
+
+Sub-agents are: OMP task sub-agents (`<session>/<Name>.jsonl`, nested ones and advisors included; named by file), Claude Code sub-agents (`<session>/subagents/agent-*.jsonl`; named by their task description), and Paseo child agents (label `paseo.parent-agent-id`, archived ones included; named by their title, read from their own transcripts, never through Paseo's history). The same rules as for the chat apply to their messages. When one link was mentioned by several sub-agents, the row names the one that mentioned it last.
+
 ## What counts as a link
 
-Only what you and the agent wrote in the chat: tool calls, tool output and sub-agents are left out.
+Only what you and the agent wrote in the chat: tool calls and tool output are left out. Sub-agents' messages are shown only on request (above).
 
 - Image embeds `![alt](…)`, Markdown links `[text](…)`, autolinks `<https://…>`, bare http(s) URLs, and code spans holding exactly a URL or an absolute or `~/` path (with `:12`, `:12-20`, `:12:3` or `#L12-L20`).
 - Fenced code blocks are skipped. Harness wrappers in user messages (`<system-notice>`, `<paseo-system>` and the like) and OMP `[ran …; recover: …]` records are removed first.
@@ -33,12 +39,14 @@ The plugin's daemon side reads each chat's transcript: OMP and its profiles (`om
 
 The count is fetched when a chat's pill first shows, again when that chat's agent finishes a turn, and when you open the list. While the list is open and the agent is working, it refreshes every 3 seconds. Nothing polls while agents are idle. A chat's first read takes about 15 ms for a 600 KB OMP transcript; later reads cost a file `stat` plus the new bytes.
 
+Sub-agent transcripts are read only while the list is open (the pill never asks), with the same incremental cache, at most 16 files at a time. Measured on the Links chat (34 links; 8 OMP sub-agent transcripts, 6.8 MB; 18 extra links from 7 of them): the list's request took 54 ms the first time after a plugin reload and 2–4 ms after that, against 1.5–2.5 ms without sub-agents. The Paseo child lookup costs about 1 ms. Old OMP sessions can hold hundreds of MB of sub-agent transcripts; such a chat's first open would take seconds [estimate from the 320 ms per 100 MB parse rate].
+
 ## Limits
 
 - Files can't open in Paseo's file viewer: plugins have no API for that yet, so a click copies the path.
 - Images outside `~/www/webshare/` are Files (copy), since they have no URL.
 - `localhost` URLs opened from a phone point at the phone.
-- Mentions by sub-agents are not included.
+- Sub-agents of Paseo child agents (grandchildren) are not included; OMP's own nested sub-agents are.
 - The webshare address (`http://axalon:8080`) is fixed in `server/links.ts`.
 
 After editing the source, run `npm run typecheck` and `paseo plugin reload mentioned-links`.
@@ -51,3 +59,4 @@ After editing the source, run `npm run typecheck` and `paseo plugin reload menti
 - `desktop-light.webp`: the same popover in Paseo's light theme.
 - `phone-dark.webp`, `phone-light.webp`: 390 px wide, the list as a bottom sheet.
 - `empty-dark.webp`, `after-turn-dark.webp`: a throwaway Claude Code (Haiku) chat, deleted afterwards. Empty state first; a turn whose reply held a URL, a webshare image embed and a backticked file path turned the pill from `links` to `links 2` (with `+1 file`) about 4 seconds after sending, without reloading. A second turn with the list open added a GitHub row and `links 3` while the list stayed open.
+- `subagents-dark.webp` (2026-10-21): the Links chat with 7 OMP sub-agents. The header read `+18 from subagents` next to `+30 hidden`; after a click, `hide subagents`, Web went from 4 to 14 with rows such as `pill.html ↳ LinksPillR2` between the chat's own, the pill stayed `34 links`, and the choice survived closing and reopening the list. Clicking `hide subagents` brought back 34 links and no `↳` rows. The Dispatcher chat (no sub-agents) showed no label. Over the RPC, the Grill chat with 9 Paseo children gave 6 extra links (`↳ Grill: …`) and two Claude Code chats in nilo-observatory and nilo-wayfinder gave 7 each, named by task description.

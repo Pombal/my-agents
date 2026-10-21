@@ -20,7 +20,7 @@ interface AgentSummary {
  * shows, and on opening the popover. Nothing polls while agents are idle.
  */
 export function startPills(client: PluginClientContext): () => void {
-  const store = new LinksStore(async (agentId) => (await client.rpc(linksForAgent, { agentId })).links);
+  const store = new LinksStore((agentId, subagents) => client.rpc(linksForAgent, { agentId, subagents }));
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
   const statuses = new Map<string, string>();
   /** Mounted pill icons per chat: these chats are on screen. */

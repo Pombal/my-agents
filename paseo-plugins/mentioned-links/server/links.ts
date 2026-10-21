@@ -161,3 +161,19 @@ export function listLinks(links: LinkMap): Link[] {
     .sort((a, b) => b.lastAt - a.lastAt)
     .map(({ titled: _titled, file, line, ...link }) => (file ? { ...link, copy: `${file}${line ?? ""}` } : link));
 }
+
+/**
+ * What the chat's sub-agents add: their links whose key the chat itself never mentioned, one row
+ * per link, marked `via` the sub-agent that mentioned it last. Newest first.
+ */
+export function subagentLinks(chat: LinkMap, subagents: readonly { name: string; links: LinkMap }[]): Link[] {
+  const added = new Map<string, Link>();
+  for (const subagent of subagents) {
+    for (const link of listLinks(subagent.links)) {
+      if (chat.has(link.key)) continue;
+      const prev = added.get(link.key);
+      if (!prev || link.lastAt > prev.lastAt) added.set(link.key, { ...link, via: subagent.name });
+    }
+  }
+  return [...added.values()].sort((a, b) => b.lastAt - a.lastAt);
+}

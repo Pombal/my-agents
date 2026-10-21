@@ -6,6 +6,7 @@ import type { Prose } from "./links";
 export type ProseReader = (line: string) => Prose | null;
 
 export interface Transcript {
+  kind: "omp" | "claude" | "codex";
   file: string;
   read: ProseReader;
 }
@@ -56,14 +57,20 @@ export const readOmpLine: ProseReader = (line) => {
   return message ? prose(message.role, message.content, record?.timestamp) : null;
 };
 
-/** Claude Code: `type` user/assistant records of the main chain; tool results arrive as user records without text. */
-export const readClaudeLine: ProseReader = (line) => {
+/** Claude Code: `type` user/assistant records; tool results arrive as user records without text. */
+function readClaude(line: string, sidechain: boolean): Prose | null {
   if (!HAS_TEXT.test(line) && !line.includes('"content":"')) return null;
   const record = parse(line);
-  if (!record || (record.type !== "user" && record.type !== "assistant") || record.isSidechain === true || record.isMeta === true) return null;
+  if (!record || (record.type !== "user" && record.type !== "assistant") || (record.isSidechain === true) !== sidechain || record.isMeta === true) return null;
   const message = record.message as { role?: unknown; content?: unknown } | undefined;
   return message ? prose(message.role, message.content, record.timestamp) : null;
-};
+}
+
+/** The main chain of a Claude Code session. */
+export const readClaudeLine: ProseReader = (line) => readClaude(line, false);
+
+/** A Claude Code sub-agent transcript, whose records are all `isSidechain`. */
+export const readClaudeSubagentLine: ProseReader = (line) => readClaude(line, true);
 
 /** Codex: `item_completed` events of `UserMessage` (what was typed) and `AgentMessage`. */
 export const readCodexLine: ProseReader = (line) => {
@@ -122,19 +129,19 @@ export async function findTranscript(agent: AgentRecord, home: string): Promise<
   if (!persistence) return null;
   const handle = persistence.nativeHandle;
   if (handle && path.isAbsolute(handle) && handle.endsWith(".jsonl")) {
-    return (await isFile(handle)) ? { file: handle, read: readOmpLine } : null;
+    return (await isFile(handle)) ? { kind: "omp", file: handle, read: readOmpLine } : null;
   }
   const provider = persistence.provider || agent.provider;
   if (provider === "claude" && persistence.sessionId) {
     const file = path.join(home, ".claude", "projects", agent.cwd.replace(/[^a-zA-Z0-9]/g, "-"), `${persistence.sessionId}.jsonl`);
-    return (await isFile(file)) ? { file, read: readClaudeLine } : null;
+    return (await isFile(file)) ? { kind: "claude", file, read: readClaudeLine } : null;
   }
   if (provider === "codex" && persistence.sessionId) {
     const known = codexFiles.get(persistence.sessionId);
     const file = known && (await isFile(known)) ? known : await codexRollout(persistence.sessionId, home);
     if (!file) return null;
     codexFiles.set(persistence.sessionId, file);
-    return { file, read: readCodexLine };
+    return { kind: "codex", file, read: readCodexLine };
   }
   return null;
 }

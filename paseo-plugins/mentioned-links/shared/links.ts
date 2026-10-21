@@ -24,16 +24,21 @@ export const LinkSchema = z.object({
   copy: z.string().optional(),
   /** Epoch ms of the newest message that mentioned it. */
   lastAt: z.number(),
+  /** Sub-agent links only: the sub-agent whose message mentioned it last. */
+  via: z.string().optional(),
 });
 export type Link = z.infer<typeof LinkSchema>;
 
 export const linksForAgent = defineRpc({
   name: "links.for-agent",
-  input: z.object({ agentId: z.string() }),
+  /** `subagents`: also list what the chat's sub-agents mentioned (costlier; the popover asks, the pill doesn't). */
+  input: z.object({ agentId: z.string(), subagents: z.boolean().optional() }),
   output: z.object({
     /** `transcript`: read from the provider's file; `timeline`: fetched from the daemon. */
     source: z.enum(["transcript", "timeline", "none"]),
     /** Newest mention first, one row per link. */
     links: z.array(LinkSchema),
+    /** Asked for only: links the sub-agents mentioned and this chat didn't, newest first, each with `via`. */
+    subagentLinks: z.array(LinkSchema).optional(),
   }),
 });
