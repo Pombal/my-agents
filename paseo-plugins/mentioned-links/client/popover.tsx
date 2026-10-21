@@ -3,7 +3,7 @@ import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View, type PressableStateCallbackType } from "react-native";
 import type { Link, LinkKind } from "../shared/links";
-import { effectiveFilter, kindCounts, subagentChoices, typeChoices, whereLabel, withSubagents, type LinksStore, type TypeFilter } from "./store";
+import { kindCounts, shownKinds, subagentChoices, toggleKind, typeChoices, whereLabel, withSubagents, type LinksStore } from "./store";
 
 const KIND_LABEL: Record<LinkKind, string> = { web: "Web", image: "Images", file: "Files" };
 
@@ -30,11 +30,11 @@ export function createLinksPopover(store: LinksStore) {
     const { theme, layout, close } = props;
     const agentId = props.context === "agent" ? props.agentId : "";
     const chat = useSyncExternalStore(subscribe, () => store.get(agentId));
-    const [choice, setChoice] = useState<TypeFilter | undefined>(() => typeChoices.get(agentId));
+    const [choice, setChoice] = useState<readonly LinkKind[] | undefined>(() => typeChoices.get(agentId));
     const choose = useCallback(
-      (filter: TypeFilter) => {
-        typeChoices.set(agentId, filter);
-        setChoice(filter);
+      (kinds: readonly LinkKind[]) => {
+        typeChoices.set(agentId, kinds);
+        setChoice(kinds);
       },
       [agentId],
     );
@@ -70,10 +70,6 @@ export function createLinksPopover(store: LinksStore) {
       () => ({
         // The surface is 280–420 px wide and sizes to its content; rows want all of it.
         list: layout.compact ? {} : { width: 396 },
-        header: { flexDirection: "row" as const, alignItems: "baseline" as const, gap: 12, minHeight: 20, marginBottom: 2 },
-        headerText: { flex: 1, fontSize: 12, color: muted },
-        hidden: { fontSize: 11, color: muted, opacity: 0.6 },
-        hiddenHover: { fontSize: 11, color: muted },
         chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 4, marginBottom: 4 },
         chip: {
           flexDirection: "row" as const,
@@ -84,9 +80,12 @@ export function createLinksPopover(store: LinksStore) {
           borderRadius: 11,
         },
         chipOn: { backgroundColor: theme.colors.surface2 },
+        // A little apart: it adds rows, the type chips pick among them.
+        subagentChip: { marginLeft: 4 },
         chipText: { fontSize: 12, color: muted },
         chipTextOn: { fontSize: 12, color: theme.colors.foreground },
         chipCount: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
+        chipCountOff: { fontSize: 11, color: muted, opacity: 0.7, fontVariant: ["tabular-nums" as const] },
         line: { fontSize: 12, color: muted },
         row: {
           flexDirection: "row" as const,
@@ -99,7 +98,10 @@ export function createLinksPopover(store: LinksStore) {
         },
         rowActive: { backgroundColor: theme.colors.surface2 },
         name: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: theme.colors.foreground },
+        nameMissing: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: muted, textDecorationLine: "line-through" as const },
         where: { flex: 1, minWidth: 0, fontSize: 12, color: muted },
+        // Two lines fit the 28 px desktop row.
+        snippet: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 13, color: muted },
         time: { flexShrink: 0, minWidth: 28, textAlign: "right" as const, fontSize: 12, color: muted, fontVariant: ["tabular-nums" as const] },
         copied: { flexShrink: 0, minWidth: 28, textAlign: "right" as const, fontSize: 12, color: theme.colors.foreground },
       }),
@@ -136,55 +138,44 @@ export function createLinksPopover(store: LinksStore) {
 
     const all = withSubagents(links, chat.subagentLinks, subagentsShown);
     const kinds = kindCounts(all);
-    const filter = effectiveFilter(all, choice);
-    const rows = filter === "all" ? all : all.filter((link) => link.kind === filter);
-    const hidden = all.length - rows.length;
+    const shown = shownKinds(all, choice);
+    const rows = all.filter((link) => shown.includes(link.kind));
     const now = Date.now();
     return (
       <View style={styles.list}>
-        <View style={styles.header}>
-          <Text numberOfLines={1} style={styles.headerText}>
-            {links.length ? `${links.length} ${links.length === 1 ? "link" : "links"} in this chat` : "No links in this chat yet"}
-          </Text>
-          {extra ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: subagentsShown }}
-              accessibilityLabel={subagentsShown ? "Hide links from subagents" : `Show ${extra} more ${extra === 1 ? "link" : "links"} from subagents`}
-              onPress={toggleSubagents}
-              hitSlop={6}
-            >
-              {({ hovered }: PressState) => (
-                <Text style={hovered ? styles.hiddenHover : styles.hidden}>{subagentsShown ? "hide subagents" : `+${extra} from subagents`}</Text>
-              )}
-            </Pressable>
-          ) : null}
-          {hidden ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={`Show all ${all.length} links`} onPress={() => choose("all")} hitSlop={6}>
-              {({ hovered }: PressState) => <Text style={hovered ? styles.hiddenHover : styles.hidden}>{`+${hidden} hidden`}</Text>}
-            </Pressable>
-          ) : null}
-        </View>
-        {kinds.length > 1 ? (
+        {kinds.length > 1 || extra ? (
           <View style={styles.chips}>
             {kinds.map(({ kind, count }) => {
-              const on = filter === "all" || filter === kind;
+              const on = shown.includes(kind);
               return (
                 <Pressable
                   key={kind}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: filter === kind }}
-                  accessibilityLabel={`Show only ${KIND_LABEL[kind].toLowerCase()}`}
-                  onPress={() => choose(kind)}
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${on ? "Hide" : "Show"} ${KIND_LABEL[kind].toLowerCase()}`}
+                  onPress={() => choose(toggleKind(shown, kind))}
                   style={({ hovered }: PressState) => [styles.chip, (on || hovered) && styles.chipOn]}
                 >
                   <Text style={on ? styles.chipTextOn : styles.chipText}>{KIND_LABEL[kind]}</Text>
-                  <Text style={styles.chipCount}>{count}</Text>
+                  <Text style={on ? styles.chipCount : styles.chipCountOff}>{count}</Text>
                 </Pressable>
               );
             })}
+            {extra ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: subagentsShown }}
+                accessibilityLabel={subagentsShown ? "Hide links from subagents" : `Show ${extra} more ${extra === 1 ? "link" : "links"} from subagents`}
+                onPress={toggleSubagents}
+                style={({ hovered }: PressState) => [styles.chip, styles.subagentChip, (subagentsShown || hovered) && styles.chipOn]}
+              >
+                <Text style={subagentsShown ? styles.chipTextOn : styles.chipText}>↳ Subagents</Text>
+                <Text style={subagentsShown ? styles.chipCount : styles.chipCountOff}>{extra}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
+        {rows.length ? null : <Text style={styles.line}>No links in this chat yet</Text>}
         {rows.map((link) => (
           <Pressable
             key={link.key}
@@ -193,14 +184,25 @@ export function createLinksPopover(store: LinksStore) {
             onPress={() => press(link)}
             style={({ hovered, pressed }: PressState) => [styles.row, (hovered || pressed) && styles.rowActive]}
           >
-            <Icon name={link.glyph} size={14} color={muted} />
-            <Text numberOfLines={1} style={styles.name}>
-              {link.title}
-            </Text>
-            <Text numberOfLines={1} style={styles.where}>
-              {whereLabel(link)}
-            </Text>
-            {copied === link.key ? <Text style={styles.copied}>copied</Text> : <Text style={styles.time}>{ago(link.lastAt, now)}</Text>}
+            {({ hovered }: PressState) => (
+              <>
+                <Icon name={link.glyph} size={14} color={muted} />
+                <Text numberOfLines={1} style={link.missing ? styles.nameMissing : styles.name}>
+                  {link.title}
+                </Text>
+                {/* Desktop only: phones have no hover, so they never see snippets. */}
+                {hovered && link.snippet ? (
+                  <Text numberOfLines={2} style={styles.snippet}>
+                    {link.snippet}
+                  </Text>
+                ) : (
+                  <Text numberOfLines={1} style={styles.where}>
+                    {whereLabel(link)}
+                  </Text>
+                )}
+                {copied === link.key ? <Text style={styles.copied}>copied</Text> : <Text style={styles.time}>{ago(link.lastAt, now)}</Text>}
+              </>
+            )}
           </Pressable>
         ))}
       </View>

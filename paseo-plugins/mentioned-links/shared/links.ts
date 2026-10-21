@@ -26,6 +26,10 @@ export const LinkSchema = z.object({
   lastAt: z.number(),
   /** Sub-agent links only: the sub-agent whose message mentioned it last. */
   via: z.string().optional(),
+  /** A local path (or webshare file) that no longer exists on the daemon machine. */
+  missing: z.boolean().optional(),
+  /** The newest mention's sentence as plain text, about 120 characters. */
+  snippet: z.string().optional(),
 });
 export type Link = z.infer<typeof LinkSchema>;
 

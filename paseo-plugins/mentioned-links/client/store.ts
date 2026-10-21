@@ -79,9 +79,6 @@ export class LinksStore {
   }
 }
 
-/** A type to show alone, or every link. */
-export type TypeFilter = LinkKind | "all";
-
 /** Chip order in the popover. */
 export const KIND_ORDER: readonly LinkKind[] = ["web", "image", "file"];
 
@@ -93,18 +90,25 @@ export function kindCounts(links: readonly Link[]): { kind: LinkKind; count: num
 }
 
 /**
- * The filter a chat's popover uses: the user's last choice in that chat if its type is still
- * present, else Web alone when the chat has web links and something else, else everything.
+ * The types a chat's popover shows: the user's chips in that chat that are still present; else,
+ * with two or more types, Web alone when the chat has web links; else every type.
  */
-export function effectiveFilter(links: readonly Link[], choice: TypeFilter | undefined): TypeFilter {
+export function shownKinds(links: readonly Link[], choice: readonly LinkKind[] | undefined): LinkKind[] {
   const kinds = kindCounts(links).map((entry) => entry.kind);
-  if (kinds.length < 2) return "all";
-  if (choice && (choice === "all" || kinds.includes(choice))) return choice;
-  return kinds.includes("web") ? "web" : "all";
+  if (kinds.length < 2) return kinds;
+  const kept = kinds.filter((kind) => choice?.includes(kind));
+  if (kept.length) return kept;
+  return kinds.includes("web") ? ["web"] : kinds;
 }
 
-/** Each chat's chosen type, for this app session only. */
-export const typeChoices = new Map<string, TypeFilter>();
+/** A chip tap: the type goes on or off, except the last one on, so the list never empties. */
+export function toggleKind(shown: readonly LinkKind[], kind: LinkKind): readonly LinkKind[] {
+  if (!shown.includes(kind)) return KIND_ORDER.filter((each) => each === kind || shown.includes(each));
+  return shown.length > 1 ? shown.filter((each) => each !== kind) : shown;
+}
+
+/** Each chat's types switched on, for this app session only. */
+export const typeChoices = new Map<string, readonly LinkKind[]>();
 
 /** Chats whose popover shows sub-agent links, for this app session only. */
 export const subagentChoices = new Set<string>();
@@ -115,7 +119,9 @@ export function withSubagents(links: readonly Link[], subagentLinks: readonly Li
   return [...links, ...subagentLinks].sort((a, b) => b.lastAt - a.lastAt);
 }
 
-/** The muted column: a sub-agent link names its sub-agent, any other link its host or folder. */
+/** The muted column: `missing` for a path that is gone, the sub-agent for a sub-agent's link, else the host or folder. */
 export function whereLabel(link: Link): string {
-  return link.via ? `↳ ${link.via}` : link.where;
+  const via = link.via ? `↳ ${link.via}` : "";
+  if (link.missing) return via ? `missing · ${via}` : "missing";
+  return via || link.where;
 }

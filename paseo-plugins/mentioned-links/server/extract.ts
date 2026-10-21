@@ -147,18 +147,28 @@ function targetMention(target: string, options: ExtractOptions, title?: string):
   return pathMention(decoded, options, title);
 }
 
+/** A mention and where its token sits in the message's prose (`proseOf`), end exclusive. */
+export interface Found {
+  mention: Mention;
+  start: number;
+  end: number;
+}
+
 /**
  * Links in one message, in token order: image embeds, Markdown links, autolinks, code spans that
  * hold exactly a URL or an absolute/`~/` path, then bare URLs. Each span is used once.
  */
-export function extractMentions(text: string, role: "user" | "assistant", options: ExtractOptions): Mention[] {
-  const found: Mention[] = [];
-  let work = proseOf(text, role);
+export function findMentions(text: string, role: "user" | "assistant", options: ExtractOptions): { prose: string; found: Found[] } {
+  const found: Found[] = [];
+  const prose = proseOf(text, role);
+  // Taken spans turn into spaces, so offsets in `work` stay offsets in `prose`.
+  let work = prose;
   const scan = (pattern: RegExp, take: (match: RegExpExecArray) => Mention | null) => {
     work = work.replace(pattern, (...args: unknown[]) => {
       const match = args.slice(0, -2) as unknown as RegExpExecArray;
+      const start = args.at(-2) as number;
       const mention = take(match);
-      if (mention) found.push(mention);
+      if (mention) found.push({ mention, start, end: start + match[0].length });
       return " ".repeat(match[0].length);
     });
   };
@@ -172,5 +182,9 @@ export function extractMentions(text: string, role: "user" | "assistant", option
     return null;
   });
   scan(BARE_URL, (m) => urlMention(m[0], options));
-  return found;
+  return { prose, found };
+}
+
+export function extractMentions(text: string, role: "user" | "assistant", options: ExtractOptions): Mention[] {
+  return findMentions(text, role, options).found.map(({ mention }) => mention);
 }
