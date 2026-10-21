@@ -231,14 +231,27 @@ const STATIC_CSS = `
 @keyframes spn-flip { 0% { transform: rotateX(0) rotateY(0) } 50% { transform: rotateX(180deg) rotateY(0) } 100% { transform: rotateX(180deg) rotateY(180deg) } }
 
 /* ── Live activity label and elapsed time ──────────────────────────────────────────────── */
-.spn-shim { color: transparent !important; -webkit-text-fill-color: transparent;
-  background: linear-gradient(100deg, var(--spn-muted) 0 35%, var(--spn-fg) 50%, var(--spn-muted) 65% 100%) 0 0 / 300% 100%;
-  -webkit-background-clip: text; background-clip: text; animation: spn-sweep 1.8s linear infinite; }
-@keyframes spn-sweep { from { background-position: 100% 0 } to { background-position: 0 0 } }
+/* The sheen: the text stays muted and a bright copy of it (.c) shows through a window (.w) whose
+   mask is the travelling band. The window slides right by two text widths while the copy inside
+   slides left by the same amount, so the copy's glyphs sit exactly on the muted ones and only the
+   band moves. Both are transform animations, which the compositor runs without the main thread;
+   the static mask rides on the window's layer. Geometry matches the old background-clip:text
+   gradient (100deg band, 300 % of the text's width, from -200 % to 0 over 1.8 s). */
+.spn-sheen { position: relative; }
+.spn-gl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; container-type: inline-size; }
+.spn-gl > .w { position: absolute; left: 0; top: 0; height: 100%; width: 300cqw;
+  -webkit-mask: linear-gradient(100deg, transparent 0 35%, #000 50%, transparent 65% 100%);
+          mask: linear-gradient(100deg, transparent 0 35%, #000 50%, transparent 65% 100%);
+  animation: spn-gl-w 1.8s linear infinite; }
+.spn-gl .c { position: absolute; left: 0; top: 0; height: 100%; width: 100cqw; color: var(--spn-fg); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; animation: spn-gl-c 1.8s linear infinite; }
+@keyframes spn-gl-w { from { transform: translateX(calc(-200% / 3)) } to { transform: translateX(0) } }
+@keyframes spn-gl-c { from { transform: translateX(200%) } to { transform: translateX(0) } }
 .spn-live { display: inline-flex; align-items: center; white-space: nowrap; max-width: 42ch; overflow: hidden; flex: 0 1 auto;
   min-width: 0; color: var(--spn-fg); transition: opacity .25s; }
 .spn-live.spn-fade { opacity: 0; }
-.spn-live > .t { overflow: hidden; text-overflow: ellipsis; }
+.spn-live .t { overflow: hidden; text-overflow: ellipsis; }
+.spn-live > .t.spn-sheen { color: var(--spn-muted); }
 .spn-live.spn-roll-label { height: var(--spn-lh, 1.4em); line-height: var(--spn-lh, 1.4em); }
 .spn-live.spn-roll-label > .t { display: inline-block; transition: transform .22s cubic-bezier(.3, 1.3, .5, 1), opacity .22s; }
 .spn-live.spn-roll-label > .t.out { transform: translateY(-110%); opacity: 0; }
@@ -246,19 +259,15 @@ const STATIC_CSS = `
 .spn-live.spn-typed > .t::after { content: ""; display: inline-block; width: 1px; height: 1.05em; margin-left: 1px; vertical-align: -.15em;
   background: currentColor; animation: spn-blink 1s steps(1) infinite; }
 @keyframes spn-blink { 50% { opacity: 0 } }
-/* Icon + label: the icon is a mask over the same gradient as the text. Both size the gradient to
-   the whole label (--w) and offset it by their own position (--off), so one band sweeps both. */
-.spn-live.spn-icon { gap: .4em; }
-.spn-live.spn-icon > .ico, .spn-live.spn-icon > .t { animation: spn-sweepw 1.8s linear infinite;
-  background: linear-gradient(100deg, var(--spn-muted) 0 35%, var(--spn-fg) 50%, var(--spn-muted) 65% 100%) no-repeat;
-  background-size: calc(var(--w, 200px) * 3) 100%; }
-.spn-live.spn-icon > .ico { width: 1.15em; height: 1.15em; flex: none; --off: 0px;
+/* Icon + label: one sheen over the whole label; its copy repeats the icon (a mask over a fill) and
+   the text in the same flex layout, so one band sweeps both. */
+.spn-live.spn-icon, .spn-icon .spn-gl .c { gap: .4em; }
+.spn-icon .spn-gl .c { display: flex; align-items: center; }
+.spn-icon .ico { width: 1.15em; height: 1.15em; flex: none; background: var(--spn-muted);
   -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat; }
-.spn-live.spn-icon > .t { color: transparent; -webkit-text-fill-color: transparent; -webkit-background-clip: text; background-clip: text;
-  --off: 1.55em; }
-.spn-live.spn-icon > .ico:not([style*="--icon"]) { display: none; }
-.spn-live.spn-icon > .ico:not([style*="--icon"]) + .t { --off: 0px; }
-@keyframes spn-sweepw { from { background-position: calc(var(--w, 200px) * -2 - var(--off)) 0 } to { background-position: calc(0px - var(--off)) 0 } }
+.spn-icon .c .ico { background: var(--spn-fg); }
+.spn-icon > .t { color: var(--spn-muted); }
+.spn-icon .ico:not([style*="--icon"]) { display: none; }
 
 .spn-roll { display: inline-flex; white-space: pre; font-variant-numeric: tabular-nums; height: var(--spn-lh, 1.4em); line-height: var(--spn-lh, 1.4em); }
 .spn-roll .col { display: inline-block; height: var(--spn-lh, 1.4em); overflow: hidden; }
@@ -266,7 +275,8 @@ const STATIC_CSS = `
 .spn-roll .col > span > b { display: block; height: var(--spn-lh, 1.4em); font-weight: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
-  .spn, .spn *, .spn::before, .spn::after, .spn-shim, .spn-live > * { animation-duration: 3s !important; }
+  /* The footer's own elapsed-time sheen (.spn-stime) has always kept its speed here. */
+  .spn, .spn *, .spn::before, .spn::after, .spn-sheen:not(.spn-stime) * { animation-duration: 3s !important; }
 }
 `;
 

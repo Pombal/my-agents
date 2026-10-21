@@ -24,15 +24,17 @@ export interface El {
   querySelectorAll(selector: string): ArrayLike<El>;
   closest(selector: string): El | null;
   insertBefore(node: El, reference: El | null): void;
-  appendChild(node: El): void;
+  appendChild(node: El | TextNode): void;
   remove(): void;
 }
+interface TextNode { data: string }
 interface NodeLike { nodeType: number; parentElement: El | null }
 interface Computed { color: string; backgroundColor: string; fontSize: string; fontFamily: string; fontWeight: string; lineHeight: string }
 declare const document: {
   head: El;
   body: El;
   createElement(tag: string): El;
+  createTextNode(data: string): TextNode;
   querySelectorAll(selector: string): ArrayLike<El>;
 };
 declare const window: { getComputedStyle(element: El): Computed };
@@ -100,11 +102,48 @@ const LIVE_CLASS: Record<Exclude<LiveStyle, "off">, string> = {
   icon: "spn-live spn-icon",
 };
 
+/** Puts the sheen over `host` and returns its bright copy, which the caller fills with what `host` shows. */
+function addSheen(host: El): El {
+  const sheen = document.createElement("span");
+  sheen.className = "spn-gl";
+  sheen.setAttribute("aria-hidden", "true");
+  sheen.innerHTML = '<span class="w"><span class="c"></span></span>';
+  host.classList.add("spn-sheen");
+  host.appendChild(sheen);
+  return sheen.querySelector(".c")!;
+}
+
+/** Text with the sheen over it: the muted text, and its bright copy seen through the moving band. */
+export class SheenText {
+  readonly el: El;
+  private readonly base: TextNode;
+  private readonly copy: El;
+
+  constructor(className = "") {
+    this.el = document.createElement("span");
+    this.el.className = className;
+    this.el.setAttribute(OWN, "");
+    this.base = document.createTextNode("");
+    this.el.appendChild(this.base);
+    this.copy = addSheen(this.el);
+  }
+
+  set(text: string): void {
+    if (text === this.base.data) return;
+    this.base.data = text;
+    this.copy.textContent = text;
+  }
+}
+
 /** The live-activity label in one of its styles. `set` animates from the old text to the new. */
 export class LiveLabel {
   readonly el: El;
   private readonly text: El;
+  /** Shimmer and rolling: the text element carries its own sheen. */
+  private readonly line: SheenText | null;
   private readonly icon: El | null;
+  /** Icon: one sheen over the whole label, whose copy repeats the icon and the text. */
+  private readonly copy: { icon: El; text: El } | null = null;
   private shown = "";
   private target = "";
   private targetIcon: string | null = null;
@@ -119,9 +158,15 @@ export class LiveLabel {
       this.icon.className = "ico";
       this.el.appendChild(this.icon);
     }
-    this.text = document.createElement("span");
-    this.text.className = style === "shimmer" || style === "rolling" ? "t spn-shim" : "t";
+    this.line = style === "shimmer" || style === "rolling" ? new SheenText("t") : null;
+    this.text = this.line?.el ?? document.createElement("span");
+    if (!this.line) this.text.className = "t";
     this.el.appendChild(this.text);
+    if (this.icon) {
+      const copy = addSheen(this.el);
+      copy.innerHTML = '<span class="ico"></span><span class="t"></span>';
+      this.copy = { icon: copy.children[0]!, text: copy.children[1]! };
+    }
   }
 
   set(text: string, icon: string | null = null): void {
@@ -147,11 +192,14 @@ export class LiveLabel {
 
   private show(text: string, icon: string | null): void {
     this.shown = text;
-    this.text.textContent = text;
-    if (this.icon) {
-      if (icon) this.icon.style.setProperty("--icon", icon);
-      else this.icon.style.removeProperty("--icon");
-      this.el.style.setProperty("--w", `${this.el.offsetWidth}px`);
+    if (this.line) this.line.set(text);
+    else this.text.textContent = text;
+    if (this.icon && this.copy) {
+      this.copy.text.textContent = text;
+      for (const element of [this.icon, this.copy.icon]) {
+        if (icon) element.style.setProperty("--icon", icon);
+        else element.style.removeProperty("--icon");
+      }
     }
   }
 
@@ -276,10 +324,8 @@ const FOOTER_CSS = `
 [data-spn-loader] > :not([data-spn-own]) { display: none !important; }
 [data-spn-spinner="off"] [data-spn-loader] { display: none !important; }
 [data-spn-loader] > .spn { font-size: 14px; color: var(--spn-fg); }
-[data-spn-time="off"] ${ELAPSED}, [data-spn-time="rolling"] ${ELAPSED} { display: none !important; }
-[data-spn-time="shimmer"] ${ELAPSED} { color: transparent !important; -webkit-text-fill-color: transparent;
-  background: linear-gradient(100deg, var(--spn-muted) 0 35%, var(--spn-fg) 50%, var(--spn-muted) 65% 100%) 0 0 / 300% 100%;
-  -webkit-background-clip: text; background-clip: text; animation: spn-sweep 1.8s linear infinite; }
+[data-spn-time="off"] ${ELAPSED}, [data-spn-time="shimmer"] ${ELAPSED}, [data-spn-time="rolling"] ${ELAPSED} { display: none !important; }
+[data-spn-time="shimmer"] .spn-stime { color: var(--spn-muted); white-space: nowrap; }
 [data-spn-time="warming"] ${ELAPSED} { color: var(--spn-warm-color, var(--spn-muted)) !important;
   opacity: var(--spn-warm-opacity, 0) !important; }
 [data-spn-time="rolling"] .spn-roll { color: var(--spn-muted); }
@@ -383,7 +429,8 @@ interface FooterState {
   spinnerId?: SpinnerId;
   spin?: El;
   live?: LiveLabel;
-  roll?: RollingTime;
+  /** Our copy of the elapsed time for the styles that replace Paseo's text. */
+  time?: { style: "shimmer" | "rolling"; view: SheenText | RollingTime };
   hold?: { row: string; since: number };
   /** The warming opacity and colour last written, so a render that changes nothing writes nothing. */
   warm?: string;
@@ -483,16 +530,21 @@ export function startIndicator(): Indicator {
 
     setAttribute(footer, "data-spn-time", prefs.time);
     const text = elapsed?.textContent ?? "";
-    if (prefs.time === "rolling" && elapsed?.parentElement) {
-      if (!state.roll) {
-        state.roll = new RollingTime();
-        state.roll.el.setAttribute("style", "font: var(--spn-font)");
+    const replaced = prefs.time === "shimmer" || prefs.time === "rolling" ? prefs.time : null;
+    if (state.time && (state.time.style !== replaced || !elapsed?.parentElement)) {
+      state.time.view.el.remove();
+      state.time = undefined;
+    }
+    if (replaced && elapsed?.parentElement) {
+      if (!state.time) {
+        // Same font as Paseo's elapsed text (it is hidden while ours shows).
+        const view = replaced === "shimmer" ? new SheenText("spn-stime") : new RollingTime();
+        view.el.setAttribute("style", replaced === "shimmer" ? "font: var(--spn-font); font-variant-numeric: tabular-nums" : "font: var(--spn-font)");
+        state.time = { style: replaced, view };
       }
-      if (state.roll.el.parentElement !== elapsed.parentElement) elapsed.parentElement.insertBefore(state.roll.el, elapsed.nextSibling);
-      state.roll.set(text);
-    } else if (state.roll) {
-      state.roll.el.remove();
-      state.roll = undefined;
+      const { el } = state.time.view;
+      if (el.parentElement !== elapsed.parentElement) elapsed.parentElement.insertBefore(el, elapsed.nextSibling);
+      state.time.view.set(text);
     }
     if (prefs.time === "warming") {
       const { opacity, color } = warmth(parseDuration(text) ?? 0, state.light);
@@ -531,7 +583,7 @@ export function startIndicator(): Indicator {
     const state = states.get(footer);
     state?.spin?.remove();
     state?.live?.dispose();
-    state?.roll?.el.remove();
+    state?.time?.view.el.remove();
     states.delete(footer);
     footer.querySelector("[data-spn-loader]")?.removeAttribute("data-spn-loader");
     for (const name of ["data-spn-spinner", "data-spn-time"]) footer.removeAttribute(name);
@@ -634,9 +686,8 @@ export function mountTimeDemo(host: El, style: Preferences["time"], colors: Demo
     return () => { host.innerHTML = ""; };
   }
   const started = Date.now();
-  const roll = style === "rolling" ? new RollingTime() : null;
-  const text = roll ? roll.el : document.createElement("span");
-  if (style === "shimmer") text.className = "spn-shim";
+  const view = style === "rolling" ? new RollingTime() : style === "shimmer" ? new SheenText() : null;
+  const text = view ? view.el : document.createElement("span");
   host.appendChild(text);
   let warm = "";
   const tick = () => {
@@ -652,7 +703,7 @@ export function mountTimeDemo(host: El, style: Preferences["time"], colors: Demo
       return;
     }
     const label = formatDuration(72 + (Date.now() - started) / 1000);
-    if (roll) roll.set(label);
+    if (view) view.set(label);
     else text.textContent = label;
   };
   tick();

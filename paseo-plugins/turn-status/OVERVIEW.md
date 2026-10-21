@@ -33,8 +33,8 @@ real turn. Saved per host; other open windows pick it up on focus.
   `SPINNER_MARKUP`, its CSS here.
 - `client/web.ts`: the DOM side. `startIndicator()` watches the page and restyles every
   `[data-testid="turn-working-indicator"]`: hides Paseo's loader (first child of the footer's content
-  row) and puts ours in the same wrapper, inserts the live label after it, and styles or replaces
-  `[data-testid="turn-working-elapsed"]`. The live label reads the newest
+  row) and puts ours in the same wrapper, inserts the live label after it, and styles
+  `[data-testid="turn-working-elapsed"]` (warming) or hides it behind our own copy (shimmer, rolling). The live label reads the newest
   `[data-history-row-id]` row of the same `[data-testid="agent-chat-scroll"]`
   (`tool-call-badge`/`tool-call-group` name + summary + icon). The same controllers drive the
   settings demos.
@@ -57,6 +57,14 @@ turn in view costs the page's main thread nothing between steps. Measurements an
   thirtieth of the colour blend.
 - The footer writes `data-spn-spinner`, `data-spn-time` and the warming variables only when their
   value changes (each write restyles the footer).
+- **Shimmer** (time style, live styles shimmer/rolling/icon) is a sheen built from transforms
+  (`addSheen`/`SheenText` in `client/web.ts`, `.spn-gl` in `client/catalog.ts`): muted text, and
+  over it a bright copy seen through a window whose static mask is the band. The window slides
+  right while the copy inside slides left by the same amount, so the glyphs stay put and only the
+  band moves. It replaced a `background-position` animation on `background-clip: text`, which
+  repainted on the main thread every frame while a turn was in view. Same 100° band, 300 % width
+  and 1.8 s sweep as before. The shimmer time style now hides Paseo's elapsed text and shows our
+  copy in the same font (as rolling always did); the icon style's one band covers icon and text.
 
 ## Limits
 
