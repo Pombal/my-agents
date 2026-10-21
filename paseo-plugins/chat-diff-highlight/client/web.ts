@@ -55,12 +55,21 @@ interface StyleElement extends DomElement {
   remove(): void;
 }
 declare const document: {
+  readonly documentElement: DomElement;
   readonly body: DomElement;
-  readonly head: { appendChild(node: StyleElement): void };
+  readonly head: DomElement & { appendChild(node: StyleElement): void };
   querySelectorAll(selector: string): ArrayLike<DomElement>;
   createElement(tag: "style"): StyleElement;
   createRange(): DomRange;
   createTreeWalker(root: DomElement, whatToShow: number): { nextNode(): DomNode | null };
+};
+declare const window: {
+  addEventListener(type: "focus", listener: () => void): void;
+  removeEventListener(type: "focus", listener: () => void): void;
+};
+declare function matchMedia(query: string): {
+  addEventListener(type: "change", listener: () => void): void;
+  removeEventListener(type: "change", listener: () => void): void;
 };
 declare const CSS: { highlights?: { set(name: string, highlight: HighlightSet): void; delete(name: string): void } } | undefined;
 declare const Highlight: { new (): HighlightSet } | undefined;
@@ -70,8 +79,8 @@ declare function getComputedStyle(element: DomElement): { color: string; lineHei
 declare function requestAnimationFrame(callback: () => void): number;
 declare function cancelAnimationFrame(handle: number): void;
 declare class MutationObserver {
-  constructor(callback: (records: Array<{ type: string; target: DomNode; addedNodes: ArrayLike<DomNode> }>) => void);
-  observe(target: DomElement, options: { childList: boolean; characterData: boolean; subtree: boolean }): void;
+  constructor(callback: (records: Array<{ type: string; target: DomNode; addedNodes: ArrayLike<DomNode>; removedNodes: ArrayLike<DomNode> }>) => void);
+  observe(target: DomElement, options: { childList?: boolean; characterData?: boolean; subtree?: boolean; attributes?: boolean; attributeFilter?: string[] }): void;
   disconnect(): void;
 }
 declare class ResizeObserver {
@@ -88,7 +97,9 @@ const PREFIX = "chat-diff-highlight";
 const SHOW_TEXT = 4;
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
-const THEME_POLL_MS = 1500;
+const SETTINGS_KEY = "@paseo:app-settings";
+/** Backstop for a settings change no event reported; compares one stored string, reads no style. */
+const SETTINGS_SWEEP_MS = 10_000;
 const EDIT_KINDS: EditKind[] = ["delEdit", "addEdit"];
 const SIDES: Side[] = ["add", "del"];
 const ROW_STYLE = ["background-image", "background-size", "background-position", "background-repeat", "background-origin"];
@@ -141,13 +152,16 @@ export function startDiffHighlighting(): () => void {
 
   let paletteKey = "";
   let palette: DiffPalette = diffPalette("one", "light");
+  /** Paseo's stored settings as last read: a different string may mean another (syntax) theme. */
+  let settingsSeen: string | null = null;
 
   // Called only with a real code block: a placeholder palette while no diff block is on screen
   // would rewrite the stylesheet twice per visit, and each rewrite restyles the whole page.
   const syncPalette = (sample: DomElement): boolean => {
     let syntaxTheme = "one";
+    settingsSeen = localStorage.getItem(SETTINGS_KEY);
     try {
-      const settings: unknown = JSON.parse(localStorage.getItem("@paseo:app-settings") ?? "{}");
+      const settings: unknown = JSON.parse(settingsSeen ?? "{}");
       const value = settings && typeof settings === "object" ? Reflect.get(settings, "syntaxTheme") : undefined;
       if (typeof value === "string") syntaxTheme = value;
     } catch {
@@ -310,15 +324,17 @@ export function startDiffHighlighting(): () => void {
 
   // Streaming rewrites a block's text node in place; virtualized chat mounts and unmounts blocks.
   // Changes are collected and handled once per frame, so a fast stream re-parses a growing block
-  // at most at the display rate.
+  // at most at the display rate. Unmounted blocks are let go right away, without a frame.
   let mutationFrame: number | undefined;
   const pendingMutation = new Set<DomElement>();
   const mutations = new MutationObserver((records) => {
+    let removed = false;
     for (const record of records) {
       const target = record.target.nodeType === ELEMENT_NODE ? (record.target as DomElement) : record.target.parentElement;
       const pre = target?.closest(PRE);
       if (pre) pendingMutation.add(pre);
       if (record.type !== "childList") continue;
+      if (record.removedNodes.length > 0) removed = true;
       for (const node of Array.from(record.addedNodes)) {
         if (node.nodeType !== ELEMENT_NODE) continue;
         const element = node as DomElement;
@@ -326,6 +342,7 @@ export function startDiffHighlighting(): () => void {
         for (const inner of Array.from(element.querySelectorAll(PRE))) pendingMutation.add(inner);
       }
     }
+    if (removed) for (const pre of [...blocks.keys()]) if (!pre.isConnected) clear(pre);
     if (pendingMutation.size === 0) return;
     mutationFrame ??= requestAnimationFrame(() => {
       mutationFrame = undefined;
@@ -335,17 +352,39 @@ export function startDiffHighlighting(): () => void {
   });
   mutations.observe(document.body, { childList: true, characterData: true, subtree: true });
 
-  // Theme and syntax-theme switches restyle without touching these nodes, so check them here.
-  const poll = setInterval(() => {
-    for (const pre of [...blocks.keys()]) if (!pre.isConnected) clear(pre);
-    const sample = blocks.values().next().value?.code;
-    if (sample && syncPalette(sample)) repaintAll();
-  }, THEME_POLL_MS);
+  // Theme and syntax-theme switches restyle without touching the blocks, so they are caught
+  // here. Each re-read of the palette reads the block's computed color, a forced style update, so
+  // it only runs on a sign of a switch, never on a timer.
+  const resync = () => {
+    for (const [pre, block] of blocks) {
+      if (!pre.isConnected) continue;
+      if (syncPalette(block.code)) repaintAll();
+      return;
+    }
+  };
+  // Paseo stores theme and syntax theme in its settings. Comparing the stored string reads no style.
+  const resyncIfSettingsChanged = () => {
+    if (blocks.size > 0 && localStorage.getItem(SETTINGS_KEY) !== settingsSeen) resync();
+  };
+  // Paseo's theme switch (Unistyles on web) swaps a class on <html>; a theme's colors are rewritten
+  // into a stylesheet in <head>, which also changes whenever Paseo adds styles, hence the cheap check.
+  const themeClass = new MutationObserver(resync);
+  themeClass.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+  const themeSheets = new MutationObserver(resyncIfSettingsChanged);
+  themeSheets.observe(document.head, { childList: true, characterData: true, subtree: true });
+  const systemScheme = matchMedia("(prefers-color-scheme: dark)");
+  systemScheme.addEventListener("change", resync);
+  window.addEventListener("focus", resync);
+  const sweep = setInterval(resyncIfSettingsChanged, SETTINGS_SWEEP_MS);
 
   for (const pre of Array.from(document.querySelectorAll(PRE))) process(pre);
 
   return () => {
-    clearInterval(poll);
+    clearInterval(sweep);
+    window.removeEventListener("focus", resync);
+    systemScheme.removeEventListener("change", resync);
+    themeSheets.disconnect();
+    themeClass.disconnect();
     mutations.disconnect();
     resizes.disconnect();
     if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);

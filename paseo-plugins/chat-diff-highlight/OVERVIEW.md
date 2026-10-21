@@ -41,6 +41,10 @@ headless Chromium on a shared VM (a desktop is likely 2–4× faster); audit in
   under 1 ms.
 - 41 page-wide highlight styles (were 49: the 8 that could never match are gone); every one costs
   style time on each element of the chat.
+- Theme and syntax-theme switches recolor diff blocks at once, picked up from Paseo's own theme
+  change (the class on the page root, its theme stylesheet), window focus and the system light/dark
+  switch. The plugin used to check every 1.5 s, forcing a style update each time; idle, it now
+  reads no style at all, and only compares the stored settings every 10 s as a backstop.
 
 Past 100,000 characters only rows, signs and changed words are colored, as Paseo itself stops syntax
 coloring there.
