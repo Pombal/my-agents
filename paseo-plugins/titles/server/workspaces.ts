@@ -8,18 +8,16 @@ import { retitleWorkspace, type RetitleResult } from "../shared/rpc";
 import type { settings } from "../shared/settings";
 import { conversationContext, readable } from "../shared/agent-titles.mjs";
 import { firstAgent, observeTitle, projectEntry, splitWorkspaces, workspaceOwnership } from "../shared/workspace-titles.mjs";
-import { decideWorkspaceTitle, type Sibling, type WorkspaceTitleRequest } from "./model";
-import { paseoHome } from "./rename";
+import { decideWorkspaceTitle, modelChoice, type Sibling, type WorkspaceTitleRequest } from "./model";
+import { DATA_DIR } from "./rename";
 import { openingPromptLines, openingTimeline, recentTimeline } from "./timeline";
 import { listAgents, type ListedAgent } from "./agents";
 
 // Manual retitles avoid the current title and this many earlier ones.
 const REJECTED_MEMORY = 5;
 
-// Not `<home>/plugins/titles`: Paseo deletes that directory with npm and Git
-// installations. Workspace labels would be visible chips, so ownership lives here.
-const OWNERSHIP_DIR = join(paseoHome(), "plugin-data", "titles");
-const OWNERSHIP_FILE = join(OWNERSHIP_DIR, "workspaces.json");
+// Workspace labels would be visible chips, so ownership lives in Titles' data directory.
+const OWNERSHIP_FILE = join(DATA_DIR, "workspaces.json");
 const ownershipSchema = z.object({ version: z.literal(1), workspaces: z.record(z.string(), z.string()) });
 
 // The titles a new workspace showed since Titles saw it created (see observeTitle).
@@ -168,7 +166,7 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
         const before = await ownership(title);
         if (before === "hand" || before === "named") { forget(workspaceId); return `left ${before === "hand" ? "hand-named" : "already named"} ${JSON.stringify(title)}`; }
         asked.add(workspaceId);
-        const decision = await decideWorkspaceTitle("first", { projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace), conversation });
+        const decision = await decideWorkspaceTitle(state.values, "first", { projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace), conversation });
         if (disposed) return "plugin stopped";
         if (decision.kind === "keep") return "no subject yet";
         // No conditional rename exists: re-read right before writing. Paseo's
@@ -212,11 +210,11 @@ export function registerWorkspaceTitles(server: PluginServerContext, preferences
       // A workspace whose only tab is a side agent still has its own title to go on.
       if (!conversation && !tabs.length && !current) return failed("Nothing to title yet");
       const avoid = [...new Set([current, ...(rejected.get(workspaceId) ?? [])].filter((title): title is string => !!title))];
-      const decision = await decideWorkspaceTitle("manual", {
+      const decision = await decideWorkspaceTitle(await modelChoice(preferences), "manual", {
         projectName: workspace.projectCustomName || workspace.projectDisplayName, ...await siblingsOf(paseo, workspace), conversation, tabs, rejected: avoid,
       });
       if (disposed) return failed("Titles was disabled meanwhile");
-      if (decision.kind === "keep") return failed("Claude found no subject to name");
+      if (decision.kind === "keep") return failed("The model found no subject to name");
       // No conditional rename exists: re-read right before writing.
       const now = await paseo.workspaces.ref(workspaceId).refresh();
       if (!now) return failed("This workspace no longer exists");
@@ -263,7 +261,7 @@ function ownershipFile() {
     const next = queue.then(async () => {
       const titles = await all();
       titles.set(workspaceId, title);
-      await mkdir(OWNERSHIP_DIR, { recursive: true, mode: 0o700 });
+      await mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
       const temporary = `${OWNERSHIP_FILE}.${process.pid}.tmp`;
       await writeFile(temporary, `${JSON.stringify({ version: 1, workspaces: Object.fromEntries(titles) })}\n`, { mode: 0o600 });
       await rename(temporary, OWNERSHIP_FILE);

@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Text } from "react-native";
 import { useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { settings as definition, type Automatic } from "../shared/settings";
+import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { OMP_DEFAULT_MODEL, settings as definition, type Automatic, type Provider, type Settings } from "../shared/settings";
 
 const OPTIONS: { label: string; value: Automatic }[] = [
   { label: "Off", value: "off" },
@@ -12,11 +13,23 @@ const OPTIONS: { label: string; value: Automatic }[] = [
 const EXPLAIN: Record<Automatic, string> = {
   off: "Titles change only when you retitle a tab.",
   first: "A new tab is named once its conversation has a subject.",
-  every: "A new tab is named once its conversation has a subject, and renamed when the subject moves on. One Claude Haiku call per reply.",
+  every: "A new tab is named once its conversation has a subject, and renamed when the subject moves on. One model call per reply.",
+};
+
+const PROVIDERS: { label: string; value: Provider }[] = [
+  { label: "Claude Code", value: "claude" },
+  { label: "OMP", value: "omp" },
+];
+
+const PROVIDER_HINT: Record<Provider, string> = {
+  claude: "Claude Haiku through the Claude Code CLI's login.",
+  omp: "The model below through OMP's logins, without your OMP context files, skills, rules or persona.",
 };
 
 export function TitlesSettings({ theme }: PluginSurfaceProps) {
   const state = useSettings(definition);
+  // The model being typed; saved only with Save, so a half-typed name never names a tab.
+  const [draft, setDraft] = useState<string | null>(null);
   const muted = { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 };
   if (state.status === "loading") return <Text style={muted}>Loading settings…</Text>;
   if (state.status !== "ready") return <SettingsSection title="Titles">
@@ -24,12 +37,22 @@ export function TitlesSettings({ theme }: PluginSurfaceProps) {
     <SettingsAction label="Reload settings" actionLabel="Reload" onPress={state.reload} />
     {state.status === "invalid" ? <SettingsAction label="Restore the default" actionLabel="Reset" onPress={state.reset} /> : null}
   </SettingsSection>;
+  const save = (change: Partial<Settings>) => { void state.save({ ...state.values, ...change }, state.revision); };
+  const model = draft?.trim() ?? state.values.ompModel;
   return <SettingsSection title="Titles">
     <SettingsCard>
       <SettingsSelect label="Automatic titles" hint={EXPLAIN[state.values.automatic]} value={state.values.automatic} options={OPTIONS}
-        disabled={state.saving} onValueChange={automatic => { void state.save({ ...state.values, automatic: automatic as Automatic }, state.revision); }} />
+        disabled={state.saving} onValueChange={automatic => save({ automatic })} />
       <SettingsSwitch label="Automatic workspace titles" hint="A new workspace is named once its first tab has a subject, in the style of the project's other workspaces."
-        value={state.values.workspaces} disabled={state.saving} onValueChange={workspaces => { void state.save({ ...state.values, workspaces }, state.revision); }} />
+        value={state.values.workspaces} disabled={state.saving} onValueChange={workspaces => save({ workspaces })} />
+      <SettingsSelect label="Model provider" hint={PROVIDER_HINT[state.values.provider]} value={state.values.provider} options={PROVIDERS}
+        disabled={state.saving} onValueChange={provider => { setDraft(null); save({ provider }); }} />
+      {state.values.provider === "omp" ? <>
+        <SettingsInput label="Model" hint={`provider/id as "omp models" lists it, or a role such as @tiny. Default ${OMP_DEFAULT_MODEL}, the model the prompts were tuned on.`}
+          initialValue={state.values.ompModel} placeholder={OMP_DEFAULT_MODEL} disabled={state.saving} onChangeText={setDraft} />
+        <SettingsAction label={model === state.values.ompModel ? `Using ${state.values.ompModel}` : `Use ${model || "…"}`} actionLabel="Save"
+          disabled={state.saving || !model || model === state.values.ompModel} onPress={() => save({ ompModel: model })} />
+      </> : null}
     </SettingsCard>
     <Text style={muted}>Names you set by hand are never changed automatically. Retitle (Ctrl+Shift+Alt+T, ⌘K, /retitle) always picks a new title; for the workspace, ⌘K → Retitle workspace or /retitle-workspace.</Text>
     {state.saveError ? <Text accessibilityRole="alert" style={{ color: theme.colors.foreground }}>{state.saveError}</Text> : null}

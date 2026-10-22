@@ -3,9 +3,9 @@ import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 import { basename } from "node:path";
 import { retitle, type RetitleResult } from "./shared/rpc";
-import { settings, type Automatic } from "./shared/settings";
+import { settings } from "./shared/settings";
 import { LABEL_NAMED, LABEL_UNNAMED, conversationContext, defaultTitle, readable, siblingEntry, titleOwnership } from "./shared/agent-titles.mjs";
-import { decideTitle, type Sibling } from "./server/model";
+import { decideTitle, modelChoice, type Sibling } from "./server/model";
 import { renameAgent } from "./server/rename";
 import { openingPromptLines, recentTimeline } from "./server/timeline";
 import { listAgents } from "./server/agents";
@@ -33,10 +33,6 @@ export default function contribute(server: PluginServerContext) {
     if (busy.has(agentId)) throw new Error("Already retitling this tab");
     busy.add(agentId);
     try { return await work(); } finally { busy.delete(agentId); }
-  };
-  const automatic = async (): Promise<Automatic> => {
-    const state = await preferences.read();
-    return state.status === "ready" ? state.values.automatic : "off";
   };
   const forget = (agentId: string) => { awaitingFirstTurn.delete(agentId); rejected.delete(agentId); };
 
@@ -83,8 +79,10 @@ export default function contribute(server: PluginServerContext) {
     const firstTurn = awaitingFirstTurn.delete(agent.id);
     const started = Date.now();
     const run = async (): Promise<string | null> => {
-      const mode = await automatic();
-      if (mode === "off") return firstTurn ? "automatic titles are off" : null;
+      const state = await preferences.read();
+      if (state.status !== "ready" || state.values.automatic === "off") return firstTurn ? "automatic titles are off" : null;
+      const { values } = state;
+      const mode = values.automatic;
       if (busy.has(agent.id)) return null; // A manual retitle is deciding already.
       const check = exclusive(agent.id, async () => {
         const handle = paseo.agents.ref(agent.id);
@@ -106,8 +104,8 @@ export default function contribute(server: PluginServerContext) {
         const workspace = basename(snapshot.agent.cwd);
         const siblings = await siblingsOf(paseo, snapshot.agent);
         const decision = ownership === "unnamed"
-          ? await decideTitle("first", { workspace, siblings, conversation })
-          : await decideTitle("every", { workspace, siblings, conversation, title: title! });
+          ? await decideTitle(values, "first", { workspace, siblings, conversation })
+          : await decideTitle(values, "every", { workspace, siblings, conversation, title: title! });
         if (disposed) return "plugin stopped";
         if (decision.kind === "keep" || decision.title === title) return ownership === "named" ? `kept ${JSON.stringify(title)}` : "no subject yet";
         const result = await renameAgent(agent.id, title, decision.title, { [LABEL_NAMED]: decision.title });
@@ -138,9 +136,9 @@ export default function contribute(server: PluginServerContext) {
       const conversation = conversationContext(await recentTimeline(handle));
       if (!conversation) return failed("Nothing to title yet");
       const avoid = [...new Set([current, ...(rejected.get(agentId) ?? [])].filter((title): title is string => !!title))];
-      const decision = await decideTitle("manual", { workspace: basename(snapshot.agent.cwd), siblings: await siblingsOf(paseo, snapshot.agent), conversation, rejected: avoid });
+      const decision = await decideTitle(await modelChoice(preferences), "manual", { workspace: basename(snapshot.agent.cwd), siblings: await siblingsOf(paseo, snapshot.agent), conversation, rejected: avoid });
       if (disposed) return failed("Titles was disabled meanwhile");
-      if (decision.kind === "keep") return failed("Claude found no subject to name");
+      if (decision.kind === "keep") return failed("The model found no subject to name");
       const renamed = await renameAgent(agentId, current, decision.title, { [LABEL_NAMED]: decision.title });
       if (renamed === "gone") return failed("This tab no longer exists");
       if (renamed === "changed") return failed("The tab was renamed meanwhile; that name stays");

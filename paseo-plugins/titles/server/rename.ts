@@ -8,6 +8,8 @@ export type RenameOutcome = "renamed" | "changed" | "gone";
 
 // The daemon's home directory (PASEO_HOME, "~" expanded), shared with the plugin process.
 export const paseoHome = () => resolve((process.env.PASEO_HOME ?? join(homedir(), ".paseo")).replace(/^~(?=\/|$)/, homedir()));
+// Titles' own files. Not `<home>/plugins/titles`: Paseo deletes that directory with npm and Git installations.
+export const DATA_DIR = join(paseoHome(), "plugin-data", "titles");
 
 // The public PaseoApi (0.11.4) cannot rename agents. Use the same local RPC as
 // `paseo agent update --name`, against this daemon's own loopback endpoint.

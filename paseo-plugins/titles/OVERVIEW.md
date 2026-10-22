@@ -6,10 +6,11 @@ Case. Workspace titles in the style of the project's other workspaces (see
 
 ## Three situations, three instructions
 
-Claude Haiku gets the same title rules in every situation plus one short task
-per situation. All of it is in `server/prompts.ts`: edit `RULES` for what a good
-title is, or one of `first` / `every` / `manual` for one situation. In all three
-it also sees the workspace's other tabs (below).
+Claude Haiku (or the OMP model set in Settings, see [Model](#model)) gets the
+same title rules in every situation plus one short task per situation. All of
+it is in `server/prompts.ts`: edit `RULES` for what a good title is, or one of
+`first` / `every` / `manual` for one situation. In all three it also sees the
+workspace's other tabs (below).
 
 | Situation | When | Task |
 | --- | --- | --- |
@@ -44,15 +45,19 @@ don't keep renaming each other. If the lookup fails, Titles logs
 
 ## Automatic titles (Settings → Plugins → titles → Titles)
 
-One setting, **Automatic titles**:
+The setting **Automatic titles**:
 
 - **Off**: titles change only when you retitle a tab.
 - **After the first reply** (default): a new tab is named once its conversation
   has a subject. If the first reply has none ("hi, quick question"), the next
   reply tries again.
 - **After every reply**: as above, and a tab Titles named is checked after each
-  reply and renamed when the subject moved on. One Claude Haiku call per reply
-  (about 3–5 s, on the Claude subscription).
+  reply and renamed when the subject moved on. One model call per reply
+  (about 2–5 s, on a subscription login).
+
+The same screen holds **Automatic workspace titles** (see
+[Workspace titles](#workspace-titles)) and **Model provider** / **Model** (see
+[Model](#model)).
 
 **Names you set by hand are never changed automatically.** Titles only manages
 two kinds of names: Paseo's placeholder (the first prompt line: first nonblank
@@ -85,7 +90,7 @@ gives yet another one.
 
 ### Feedback
 
-Nothing goes into the conversation. While Claude thinks (2–5 s), the check
+Nothing goes into the conversation. While the model thinks (2–5 s), the check
 shows in the same tick as the trigger:
 
 - **Web and desktop:** a small spinner replaces the agent tab's icon (in every
@@ -99,9 +104,9 @@ outcome (it replaces the Retitling… toast):
 | Outcome | Toast |
 | --- | --- |
 | Renamed | ✓ `Renamed to Sky Scattering (was Rayleigh)` (the "was" part only for short old names) |
-| Nothing to name | ⚠ `Couldn't retitle: Claude found no subject to name` |
+| Nothing to name | ⚠ `Couldn't retitle: The model found no subject to name` |
 | Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
-| Claude CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `took longer than 20 s`, or its first error line) |
+| CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `OMP …`; `took longer than 20 s`, or `failed:` and its first error line) |
 
 Pressing a trigger again while a check is running does nothing; the spinner
 shows that a check is already under way. A retitle pressed while an automatic
@@ -205,14 +210,80 @@ workspace then names it from its current title and siblings, and answers
 
 ## Model
 
-The plugin runs the installed **Claude Code CLI** with `--model haiku` through
-Stefan's subscription login, so no API keys are used: the
-`ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables are stripped. If the daemon's service
-PATH omits `~/.local/bin`, Titles adds it for this Claude subprocess so native
-Claude installations still work. The call uses
-`--safe-mode`, no tools, no MCP, no saved session, and a 20 s timeout, with no
-retries. It takes about 1.5–3.5 s end to end (median ~2.5 s), most of it
-Haiku's thinking; see *Speed*.
+Settings → Titles → **Model provider** picks which CLI asks the model:
+**Claude Code** (default) or **OMP**. Under OMP a **Model** field takes an OMP
+model as `omp models` lists it (`provider/id`) or a role (`@tiny`); it is saved
+with **Save**, so a half-typed name never names a tab. Default
+`anthropic/claude-haiku-5-5`, the model the prompts were tuned on. Both
+providers get the same prompt and request, and the answer is parsed the same
+way. Each decision reads the setting, so a switch applies to the next title.
+A dropdown filled from `omp models --json` was tried and dropped: Paseo
+0.12's settings menu doesn't scroll, so of its 82 entries (Cursor and
+OpenRouter left out) only the first ~30 were reachable on a 900 px window.
+
+Both CLIs run with the `ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables stripped,
+so no inherited API key or 3P routing is used. If the daemon's service PATH
+omits `~/.local/bin`, Titles adds it so native installations still work. A
+20 s timeout, no retries. Errors name the provider: `Claude CLI failed: …`,
+`OMP failed: …` with the CLI's first error line.
+
+**Claude Code**: `claude -p --model haiku` through Stefan's subscription
+login, with `--safe-mode`, no tools, no MCP, no saved session. It takes about
+1.5–3.5 s end to end (median ~2.5 s), most of it Haiku's thinking; see
+*Speed*. The CLI asks for adaptive thinking at medium effort, with the
+thinking text omitted (seen in a captured request, 2026-10-22).
+
+**OMP**: `omp -p --no-session --no-title --no-tools --no-lsp --no-skills
+--no-rules --no-prewalk --no-extensions`, through OMP's own logins. Its flags
+don't isolate the call: even with `--system-prompt`, OMP adds a
+`<project-context>` block (workstation, `~/.omp/agent/AGENTS.md`, its
+completion rules), a date and working-directory reminder, magic-keyword
+notices ("ultrathink" in the conversation) and the contents of any `@path`
+the conversation mentions. So Titles writes a small OMP extension,
+`<PASEO_HOME>/plugin-data/titles/omp-isolation.mjs` (source in
+`server/model.ts`), and loads only it (`--no-extensions -e …`). It replaces
+the whole system prompt with the plugin's (passed in
+`PASEO_TITLES_SYSTEM_PROMPT`), keeps only the user message, and drops the
+reminder from the provider request. If OMP can't load the extension, it goes
+on without it, so Titles drops that answer and reports `OMP failed: Failed to
+load extension …`. A captured request (Anthropic) then holds only the system
+block Anthropic requires (`You are Claude Code, …`), the plugin's prompt and
+the request JSON, no tools. Probe (2026-10-22): a system prompt asking the
+model to quote everything it received and to say what it knows about the
+user, the machine, date or working directory, and a conversation with
+`@/etc/hostname` and "ultrathink": Haiku 5.5, `@tiny` (GPT-6 Luna) and Gemini
+3.8 Flash all answered `NONE`. Without the extension, Haiku answered with
+Stefan's name, time zone, STT habit, kernel and `/tmp` being RAM.
+
+Thinking: `--thinking medium` plus `omitThinking: true` (in
+`plugin-data/titles/omp-overlay.yml`, passed with `--config`), the request
+the Claude CLI makes. A role keeps its own level (`@tiny` is low). With
+thinking summaries on, calls took 5.4–6 s; omitted, 2.4–3.5 s. OMP runs from
+the data directory: from the temp directory (25,000 entries here) its
+repository scan took 1.8 s of its 2.2 s startup; now ~0.45 s.
+
+OMP trials (2026-10-22, through `decideTitle` / `decideWorkspaceTitle`,
+Haiku 5.5, 11 calls, all valid, 1.6–4.5 s, median 2.5 s):
+
+| Situation | Title | ms |
+| --- | --- | --- |
+| first: SD-card corruption | SD Card | 2578 |
+| first: inventory table | Inventory | 2461 |
+| first: "hi, quick question" | keep | 1602 |
+| first: inventory next to *Inventory*, *Stock Sync*, a placeholder | Sorting | 2779 |
+| every: *SD Card*, overlayfs follow-up | keep | 4465 |
+| every: *SD Card*, cold-brew question | Cold Brew | 2482 |
+| manual: *SD Card* rejected | OverlayFS | 3693 |
+| manual: *Overlayfs*, *SD Card* rejected | Log Partition | 2611 |
+| workspace first: project habit `PR #812 review` | PR #821 review | 1949 |
+| workspace first: no siblings (kite wind units) | Kite Wind Units | 2111 |
+| workspace manual: *Wind Speed Units* rejected | Knots vs m/s | 2510 |
+
+These match the Claude trials below except the second manual retitle
+(Claude: *Read-Only Root* or *Brownout*). Effort, four of these cases once
+more at each level: medium gave *SD Card*, *Sticky Header*, *Coffee*,
+*Logging* (2.4–4.1 s); high the same four titles (2.8–3.6 s); low *SD Card
+Corruption* (three words, against the rules), then the same three.
 
 The rules (`server/prompts.ts`) ask for one distinctive noun that sets this
 tab apart from the `siblings`, two words at most. They
@@ -318,6 +389,34 @@ the setting off Paseo's title stayed; toggling either setting kept the other;
 a workspace created empty was titled on its first tab; three-word tab titles
 (*Ship of Theseus*) were applied as written.
 
+### OMP provider (2026-10-22, hosted web app, daemon 0.12.0)
+
+Claude CLI logged out; setting on OMP with `anthropic/claude-haiku-5-5`.
+Settings at 1440 px and 390 px: **Model provider** switches between Claude
+Code and OMP, the **Model** field shows only under OMP, and saving `@tiny`,
+switching to Claude Code and back, and restoring Haiku left *Automatic
+titles* and *Automatic workspace titles* unchanged in the settings file. In a
+throwaway project (Haiku 5.5 agents on the OMP provider):
+
+1. Ctrl+Shift+Alt+T on a tab named by `paseo run` → *Overlay*, 3.2 s from key
+   to new tab name (server 2970 ms).
+2. Ctrl+K → Retitle this tab → *OverlayFS*, toast `Renamed to OverlayFS (was
+   Overlay)`, 4.2 s (server 3986 ms).
+3. New workspace from the web app, first prompt about kite wind units →
+   workspace *Kite Wind Units* 2.2 s after the turn started; the tab →
+   *Windspeed* 2.8 s after the first reply.
+
+Test agents, workspaces, project, folder and their OMP sessions were deleted.
+
+| Screenshot (`~/tmp-archive/paseo-surfaces/`) | Shows |
+| --- | --- |
+| `titles-24-settings-omp-desktop.png` | Settings with OMP and the Model field. |
+| `titles-23-settings-claude-desktop.png` | The same with Claude Code: no Model field. |
+| `titles-25-settings-omp-390.png` | OMP settings at 390 px. |
+| `titles-22-model-menu-desktop.png` | The dropped dropdown: 82 entries, unscrollable. |
+| `titles-27-retitle-renamed-omp.png` | Hotkey retitle through OMP: *Overlay*, with its toast. |
+| `titles-28-new-workspace-omp.png` | New workspace *Kite Wind Units*, tab *Windspeed*. |
+
 ## Earlier verification (2026-10-19, hosted web app, daemon 0.11.4)
 
 These predate the three situations: manual retitles could then answer
@@ -367,8 +466,8 @@ paseo plugin disable titles
 
 Audit and measurements: `~/agentspace/index/.scratch/paseo-grievances/titles-perf.md`.
 
-- Over 98% of the wait is the Claude CLI. The plugin sets
-  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for it (no telemetry, update or
+- Over 98% of the wait is the CLI. The plugin sets
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the Claude CLI (no telemetry, update or
   flag traffic): the CLI now exits 15 ms after answering instead of ~700 ms,
   about −0.7 s per call (wall median 3.2 s → 2.5 s, same model and answers).
   Live: first-reply titles median ~2.5 s (was 3.9 s), hotkey retitle 2.5–3.2 s,
@@ -386,14 +485,17 @@ Audit and measurements: `~/agentspace/index/.scratch/paseo-grievances/titles-per
   and sibling lookups know it without a timeline read.
 - Not taken (trade-offs): `--effort low` (−1.1 s, but titles drift to two-word
   abbreviations), a warm CLI process, direct API calls.
+- OMP: ~0.45 s startup from the plugin's data directory (2.2 s from `/tmp`),
+  then the model; with thinking text omitted, calls take 1.6–4.5 s (median
+  2.5 s), like the Claude CLI. See [Model](#model).
 
 ## Code layout and tests
 
 - `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, which timelines can be read without starting an agent, answer parsing, conversation excerpt).
 - `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
-- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`) and *Automatic workspace titles* (`workspaces`, on/off).
+- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`), *Automatic workspace titles* (`workspaces`, on/off), *Model provider* (`provider`: `claude` / `omp`) and the OMP *Model* (`ompModel`).
 - `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
-- `server/model.ts`: Claude CLI call.
+- `server/model.ts`: the Claude CLI and OMP calls, the OMP isolation extension and overlay it writes to the data directory.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.
 - `server/agents.ts`: the agent listing, archived included.
 - `server/timeline.ts`: recent and opening timeline reads, first-prompt lines.
