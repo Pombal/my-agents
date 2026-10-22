@@ -14,13 +14,15 @@ folder, so it only shows up while listed under extra folders).
 
 ## Where Stefan sees it
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
-- **Header pill** per workspace: map icon + effort name + chevron; `bind?` when unbound with a
-  suggestion; nothing when there is none. Popover (option B): name + status, path, counts,
+- **Header button** per workspace, icon-only: a progress pie (solid green = done, faint green =
+  claimed; a pie because a part-filled ring this small reads as a spinner) + Paseo's chevron. Its
+  tooltip carries the name: `wa-ftue · 0/9 done · next 01 Takeover shape`. A dashed empty circle
+  (`No effort · suggested: …`) when unbound with a suggestion; nothing when there is none. Popover
+  (option B): name + status, path, counts,
   the next ticket (opens it in the panel), Open Efforts panel, then a small
   footer bar: All efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover
-  on its first frame, so each bound workspace's effort is read ahead when its pill appears. Unbound: the
-  suggestion with Bind · New effort · No effort. On phones the header button is icon-only and
-  opens the whole effort as a sheet.
+  on its first frame, so each bound workspace's effort is read ahead when its button appears. Unbound: the
+  suggestion with Bind · New effort · No effort. On phones it opens the whole effort as a sheet.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project
   chips, a muted warnings line under them only when the server noticed a problem (an Extra folder
@@ -120,8 +122,8 @@ folder, so it only shows up while listed under extra folders).
   built in; chats are new chats.
 - Phones: Paseo's compact explorer has no plugin panels (step 4 adds the composer pill).
 - Over the app.paseo.sh relay the very first load after a plugin reload takes several seconds.
-- After Unbind the header pill disappears for ~0.5 s before `bind?` returns: the server computes
-  suggestions only for unbound workspaces, so the instant update has none to show yet.
+- After Unbind the header button disappears for ~0.5 s before the dashed suggestion returns: the
+  server computes suggestions only for unbound workspaces, so the instant update has none to show yet.
 - A poll that fails keeps showing what was on screen, with no stale marker.
 
 ## Files

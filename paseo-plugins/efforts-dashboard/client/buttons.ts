@@ -2,6 +2,7 @@ import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/pl
 import { AppState, Dimensions } from "react-native";
 import type { Overview, WorkspaceInfo } from "../shared/rpc";
 import { warmDetail } from "./data";
+import { HeaderPie } from "./header-icon";
 import { findEffort } from "./model";
 import { EffortPopover } from "./popover";
 import { fetchOverview, latestOverview, latestOverviewAt, onOverview } from "./runtime";
@@ -11,11 +12,20 @@ const COMPACT_WIDTH = 720;
 /** Labels refresh this often in the background (the explorer tab polls every 5 s while visible). */
 const REFRESH_MS = 30_000;
 
-/** `wa-ftue`, `bind?`, or null when the workspace shows nothing. */
-function headerLabel(workspace: WorkspaceInfo): string | null {
-  if (workspace.binding?.kind === "effort") return workspace.binding.slug;
-  if (!workspace.binding && workspace.suggestion) return "bind?";
-  return null;
+/**
+ * The icon-only header button's tooltip (and accessible name):
+ * `wa-ftue · 0/9 done · next 01 World naming`, `No effort · suggested: wa-ftue`, or null when the
+ * workspace shows nothing.
+ */
+function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | null {
+  const { binding, suggestion } = workspace;
+  if (binding?.kind === "effort") {
+    const effort = findEffort(overview, binding.root, binding.slug);
+    if (!effort?.counts.total) return binding.slug;
+    const next = effort.next ? ` · next ${effort.next.num} ${effort.next.title}` : "";
+    return `${binding.slug} · ${effort.counts.done}/${effort.counts.total} done${next}`;
+  }
+  return !binding && suggestion ? `No effort · suggested: ${suggestion.slug}` : null;
 }
 
 /** `wa-ftue · 0/9 done`. */
@@ -26,12 +36,12 @@ function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null 
 }
 
 /**
- * One header pill per workspace (name + chevron; popover option B, a sheet on phones) and, on
- * compact layouts only, one composer pill per chat with the effort and its done count.
+ * One icon-only header button per workspace (progress pie + chevron; popover option B, a sheet on
+ * phones) and, on compact layouts only, one composer pill per chat with the effort and its done count.
  */
 export function startButtons(client: PluginClientContext): () => void {
   /** What each registration shows now; `update` is only called when that changes. */
-  const headers = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
+  const headers = new Map<string, { registration: PluginButtonRegistration; title: string; visible: boolean }>();
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
   /** agentId → workspaceId of live chats. */
   const agents = new Map<string, string>();
@@ -47,11 +57,11 @@ export function startButtons(client: PluginClientContext): () => void {
       headers.delete(id);
     }
     for (const workspace of overview.workspaces) {
-      const label = overview.showHeaderButton ? headerLabel(workspace) : null;
+      const title = overview.showHeaderButton ? headerTitle(overview, workspace) : null;
       // The popover is sized on its first frame, so its effort is read before it opens.
       if (workspace.binding?.kind === "effort") warmDetail(workspace.binding);
       const current = headers.get(workspace.id);
-      if (!label) {
+      if (!title) {
         if (current?.visible) {
           current.registration.update({ visible: false });
           current.visible = false;
@@ -59,8 +69,8 @@ export function startButtons(client: PluginClientContext): () => void {
         continue;
       }
       if (current) {
-        if (current.label !== label || !current.visible) current.registration.update({ label, visible: true });
-        current.label = label;
+        if (current.title !== title || !current.visible) current.registration.update({ title, visible: true });
+        current.title = title;
         current.visible = true;
         continue;
       }
@@ -68,9 +78,9 @@ export function startButtons(client: PluginClientContext): () => void {
         const registration = client.addHeaderButton({
           id: "effort",
           workspaceId: workspace.id,
-          button: { title: "Effort of this workspace", icon: "Map", label, behavior: { kind: "popover", Content: EffortPopover } },
+          button: { title, icon: HeaderPie, behavior: { kind: "popover", Content: EffortPopover } },
         });
-        headers.set(workspace.id, { registration, label, visible: true });
+        headers.set(workspace.id, { registration, title, visible: true });
       } catch (error) {
         console.warn("[efforts] header button failed", error);
       }

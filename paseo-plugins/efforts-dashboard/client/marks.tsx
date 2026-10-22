@@ -138,6 +138,59 @@ export function Bar({ done, total, c, width = 34 }: { done: number; total: numbe
   );
 }
 
+/**
+ * One filled wedge of a `size` disc from 12 o'clock clockwise to `share` (0–1), drawn with Views so
+ * it renders on web and native alike: each half is a half-disc rotated inside a half-width clip.
+ */
+function Wedge({ size, share, color, opacity }: { size: number; share: number; color: string; opacity: number }) {
+  if (share <= 0) return null;
+  const half = size / 2;
+  const disc = { position: "absolute", top: 0, width: size, height: size, borderRadius: half, overflow: "hidden" } as const;
+  const clip = { position: "absolute", top: 0, width: half, height: size, overflow: "hidden" } as const;
+  const fill = { position: "absolute", top: 0, bottom: 0, width: half, backgroundColor: color } as const;
+  // Right clip: a disc whose left half is coloured, turned clockwise into view by up to 180°.
+  const right = Math.min(share, 0.5) * 360;
+  // Left clip, past half: a disc whose right half is coloured, turned on by the remainder.
+  const left = Math.max(share - 0.5, 0) * 360;
+  return (
+    <View style={{ position: "absolute", left: 0, top: 0, width: size, height: size, opacity }}>
+      <View style={[clip, { left: half }]}>
+        <View style={[disc, { left: -half, transform: [{ rotate: `${right}deg` }] }]}>
+          <View style={[fill, { left: 0 }]} />
+        </View>
+      </View>
+      {left > 0 ? (
+        <View style={[clip, { left: 0 }]}>
+          <View style={[disc, { left: 0, transform: [{ rotate: `${left}deg` }] }]}>
+            <View style={[fill, { left: half }]} />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The effort's progress at icon size: a thin outline holding a pie, solid green for done and faint
+ * green for claimed, the same greens as the panel's bar and the claimed ticket glyph. A pie, not an
+ * arc: a part-filled ring this small reads as a loading spinner. `dashed` (no counts) marks a suggestion.
+ */
+export function Pie({ done, claimed, total, c, size = 16, dashed = false }: { done: number; claimed: number; total: number; c: Palette; size?: number; dashed?: boolean }) {
+  const ring = size - 2;
+  const disc = ring - 4;
+  const doneShare = total ? done / total : 0;
+  const claimedShare = total ? Math.min((done + claimed) / total, 1) : 0;
+  return (
+    <View style={[styles.center, { width: size, height: size }]}>
+      <View style={{ width: ring, height: ring, borderRadius: ring / 2, borderWidth: 1.25, borderColor: c.muted, borderStyle: dashed ? "dashed" : "solid" }} />
+      <View style={{ position: "absolute", left: (size - disc) / 2, top: (size - disc) / 2, width: disc, height: disc }}>
+        <Wedge size={disc} share={claimedShare} color={c.green} opacity={0.4} />
+        <Wedge size={disc} share={doneShare} color={c.green} opacity={1} />
+      </View>
+    </View>
+  );
+}
+
 /** Amber dot: changed here, not committed. */
 export function Dot({ c }: { c: Palette }) {
   return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: c.amber, flexShrink: 0 }} />;
