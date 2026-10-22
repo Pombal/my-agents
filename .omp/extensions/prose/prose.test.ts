@@ -1082,6 +1082,34 @@ describe("/prose ^N trims in place", () => {
 		expect(notices.some(notice => notice.includes("Trimmed in place") && notice.includes("/tree"))).toBe(true);
 	});
 
+	test("^0 distills every turn and copies none verbatim", async () => {
+		const { notices, liveEntries } = await runProse("^0", { entries: pinBranch });
+
+		expect(liveEntries[0]).toBe("[reset_boundary]");
+		const flat = JSON.stringify(liveEntries);
+		// Both turns' calls became traces; neither survives as a native toolCall.
+		expect(flat).toContain("[ran read bundler.config.ts");
+		expect(flat).not.toContain("call_head");
+		expect(flat).not.toContain("call_tail");
+		// The seam is the last entry and says the conversation is live, not that a verbatim tail follows.
+		expect(contentOf(liveEntries.at(-1))).toContain("the conversation is live from here");
+		expect(notices.some(notice => notice.includes("Distilled in place: the whole conversation"))).toBe(true);
+	});
+
+	test("^0 on an empty context refuses without mutating", async () => {
+		const { notices, liveEntries } = await runProse("^0", { entries: [] });
+		expect(liveEntries.length).toBe(0);
+		expect(notices.some(notice => notice.includes("Nothing to distill"))).toBe(true);
+	});
+
+	test("plain 0 refuses and points at ^0 instead of claiming a range error", async () => {
+		const { notices, liveEntries, branchCalls } = await runProse("0", { entries: pinBranch });
+		expect(liveEntries.length).toBe(0);
+		expect(branchCalls).toEqual([]);
+		expect(notices.some(notice => notice.includes("did you mean `^0`"))).toBe(true);
+		expect(notices.some(notice => notice.includes("turn(s)"))).toBe(false);
+	});
+
 	test("refuses when the pinned turn already opens the conversation", async () => {
 		const { notices, liveEntries } = await runProse("^1");
 		expect(liveEntries.length).toBe(0);

@@ -24,6 +24,9 @@
  *                            tool calls, results, reasoning untouched — and
  *                            distill everything before it, in place (^ = ^1:
  *                            your last question). Same ^ vocabulary as /pivot.
+ *   /prose ^0                distill the whole conversation in place, keeping
+ *                            no turn verbatim — the bare fork's result without
+ *                            leaving this session or its background jobs
  *   /prose ?  /prose ^?      pick the turn interactively (distill-from / keep-from)
  *   /prose story             same filters, but the whole exchange lands as ONE
  *                            user message with [@user]/[@assistant]/[@system]
@@ -1434,7 +1437,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 	pi.on("session_switch", (_event, ctx) => adopt(ctx));
 
 	pi.registerCommand("prose", {
-		description: "[N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — fork; N distills recent turns in place; ^N keeps them and distills the rest",
+		description: "[N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — fork; N distills recent turns in place; ^N keeps them and distills the rest; ^0 distills everything in place",
 		// Offered only once a flag is being typed. An empty argument deliberately
 		// yields nothing: an open dropdown suppresses the editor's inline hint
 		// (it prefers the selected item's own `hint`), and the hint is what
@@ -1460,6 +1463,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 					});
 				const pinMatches = [
 					{ value: "^?", label: "^?", description: "pick the kept turn from a list" },
+					{ value: "^0", label: "^0", description: "distill everything in place, keep no turn verbatim" },
 					...pinItems,
 				].filter(item => item.value.startsWith(argumentPrefix));
 				return pinMatches.length > 0 ? pinMatches : null;
@@ -1549,12 +1553,13 @@ export default function proseExtension(pi: ExtensionAPI) {
 			}
 
 			if (pin !== undefined) {
-				if (!Number.isInteger(pin) || pin < 1 || pin > starts.length) {
+				if (!Number.isInteger(pin) || pin < 0 || pin > starts.length) {
 					ctx.ui.notify(`only ${starts.length} turn(s)${sealed}`, "warning");
 					return;
 				}
-				const cut = starts[pin - 1];
-				if (cut === windowStart) {
+				// ^0 keeps no turn verbatim: the whole reachable window is the head.
+				const cut = pin === 0 ? entries.length : starts[pin - 1];
+				if (pin > 0 && cut === windowStart) {
 					ctx.ui.notify("Nothing before that turn — it already opens the active context.", "warning");
 					return;
 				}
@@ -1595,7 +1600,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 					branchResults,
 				);
 				if (headItems.length === 0) {
-					ctx.ui.notify("Nothing to distill before that turn.", "warning");
+					ctx.ui.notify(pin === 0 ? "Nothing to distill: no conversation in the active context." : "Nothing to distill before that turn.", "warning");
 					return;
 				}
 
@@ -1607,7 +1612,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 				const appended = [
 					proseNote(parsed.keep, "this session's history above the boundary (/tree reaches it)", artifactId),
 					...(parsed.keep.story ? storyFold(headItems) : headItems),
-					proseTail(parsed.keep, true),
+					proseTail(parsed.keep, pin > 0),
 					...verbatimCopyOf(tail),
 				];
 				// The originals stay on this branch above the boundary, so every
@@ -1623,13 +1628,19 @@ export default function proseExtension(pi: ExtensionAPI) {
 				await sm.flush();
 				await ctx.reload();
 				ctx.ui.notify(
-					`Trimmed in place: everything before your last ${pin === 1 ? "turn" : `${pin} turns`} distilled${artifactId ? ` (archived in artifact://${artifactId})` : ""} — the kept turns stay verbatim; full history above the boundary (/tree).`,
+					pin === 0
+						? `Distilled in place: the whole conversation${artifactId ? ` (archived in artifact://${artifactId})` : ""} — full history above the boundary (/tree).`
+						: `Trimmed in place: everything before your last ${pin === 1 ? "turn" : `${pin} turns`} distilled${artifactId ? ` (archived in artifact://${artifactId})` : ""} — the kept turns stay verbatim; full history above the boundary (/tree).`,
 					"info",
 				);
 				return;
 			}
 
 			if (turns !== undefined) {
+				if (turns === 0) {
+					ctx.ui.notify("Nothing to distill in the last 0 turns — did you mean `^0` (distill everything in place)?", "warning");
+					return;
+				}
 				if (!Number.isInteger(turns) || turns < 1 || turns > starts.length) {
 					ctx.ui.notify(`only ${starts.length} turn(s)${sealed}`, "warning");
 					return;
@@ -1637,7 +1648,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 				const cut = starts[turns - 1];
 				const turnEntry = entries[cut];
 				if (!turnEntry.parentId) {
-					ctx.ui.notify("That covers the whole conversation — use bare /prose to fork it.", "warning");
+					ctx.ui.notify("That covers the whole conversation — use bare /prose to fork it, or `^0` to distill it in place.", "warning");
 					return;
 				}
 				const slice = entries.slice(cut);

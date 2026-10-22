@@ -18,7 +18,7 @@ Icon: a single white four-pointed sparkle with a black outline on a transparent 
 
 Symlink a folder into `~/.omp/agent/extensions/` (or a profile's) to enable it.
 
-- [prose](.omp/extensions/prose) — `/prose` distills or forks a conversation into readable prose; `^N` trims in place, keeping the last N turns verbatim.
+- [prose](.omp/extensions/prose) — `/prose` distills or forks a conversation into readable prose; `^N` trims in place, keeping the last N turns verbatim; `^0` distills everything in place.
 - [pivot](.omp/extensions/pivot) — `/pivot` keeps one message verbatim and summarizes everything before it.
 - [minimap](.omp/extensions/minimap) — `/minimap` opens a keyboard-driven outline of the session.
 - [skill-directives](.omp/extensions/skill-directives) — `@imports` and `` !`shell` `` expansion in SKILL.md.
@@ -26,6 +26,7 @@ Symlink a folder into `~/.omp/agent/extensions/` (or a profile's) to enable it.
 - [usage-guard](.omp/extensions/usage-guard) — enforces provider usage thresholds with warnings, subagent draining, or a global pause.
 - [session-id](.omp/extensions/session-id) — tells the model which session it is running in.
 - [stage-note](.omp/extensions/stage-note) — `/stage` appends text to context without starting a turn.
+- [strip-keywords](.omp/extensions/strip-keywords) — hides magic keywords from the model while keeping them in the session file.
 
 ### Usage Guard
 
@@ -54,6 +55,14 @@ A rule must name an exact `limit`, `window`, or both from `omp usage --json --pr
     }
   ]
 }
+```
+
+### Strip Keywords
+
+Configure `$PI_CODING_AGENT_DIR/strip-keywords.json` (normally `~/.omp/agent/strip-keywords.json`). Each keyword is a literal, case-sensitive string, removed from user messages only where it stands as its own whitespace-delimited token. Edits apply on the next request; a missing or invalid file disables stripping.
+
+```json
+{ "keywords": ["@@ping"] }
 ```
 
 ## Pi Extensions

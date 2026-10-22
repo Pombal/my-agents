@@ -20,6 +20,9 @@ One axis governs tool calls, at three levels — `none`, `trace` (the default),
                             after it verbatim, distill everything before it
 /prose ^N  /prose ^?        same, keeping the last N turns / picking from a list
                             (plain N distills the last N turns instead — inverse cut)
+/prose ^0                   distill everything in place, keep no turn verbatim —
+                            the bare fork's result without leaving the session,
+                            so background jobs keep running
 /prose -tools               no tool traces at all
 /prose +tools               native toolCall + toolResult turns: full arguments,
                             full output, nothing capped
@@ -135,7 +138,7 @@ rejection when you resume the fork.
   cancels every subagent and background bash/eval job it still runs, and drops
   finished results not yet delivered. With any of those pending, bare `/prose`
   lists them and waits for a Yes (the cursor starts on No); without a UI it
-  refuses. `N` and `^N` trim in place, so they never ask.
+  refuses. `N`, `^N` and `^0` trim in place, so they never ask.
 - Since `/prose ^N` trims via a `/clear`-style reset boundary, a later bare
   `/prose` distills only what follows it: the kept copies, not the originals
   above the boundary.
