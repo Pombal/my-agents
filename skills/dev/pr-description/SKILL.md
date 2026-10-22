@@ -11,11 +11,11 @@ The whole thing is freeform prose. Markdown appears rarely, only where it genuin
 **Title**
 A title is a *subject line*, never a shrunken headline: imperative or noun phrase, no trailing period, ≤72 characters. Match the repo's existing shape (`gh pr list --state merged`).
 The verb carries the claim: a trigger that moved is not a *delay*; work that still runs on demand was not *skipped*.
-Name the effect a teammate would notice, with its distinctive words up front. Mechanism belongs in the body.
+Start with the area that owns the change, named the way the repo's recent titles name it, then the effect a teammate would notice. Mechanism belongs in the body. Skip the prefix when no single area owns it.
 Example:
 - Weak: "Update FeaturebaseMessenger.tsx"
 - Weak: "Featurebase now does nothing at all until you open the help menu"
-- Strong: "Warm Featurebase only when the help menu opens"
+- Strong: "Help menu: warm Featurebase only when it opens"
 
 **Headline**
 The body's first line alone is enough to understand what was changed and why the PR matters — a teammate reading nothing else can tell whether it concerns them. Name the behavior, not the code touched. One sentence, about 15 words.
