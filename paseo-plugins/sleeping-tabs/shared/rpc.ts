@@ -48,6 +48,17 @@ export const wakeRpc = defineRpc({
   output: z.object({ status: z.string() }),
 });
 
+/**
+ * Puts one chat to sleep now (`/sleep`, ⌘K "Sleep this chat"). A refusal comes back as a plain
+ * sentence in `refused` rather than as an error, so the client can show it without the RPC's
+ * "Request failed … code=…" wrapping.
+ */
+export const sleepRpc = defineRpc({
+  name: "sleep.sleep",
+  input: z.object({ agentId: z.string().min(1), provider: z.string().min(1) }),
+  output: z.object({ refused: z.string().nullable() }),
+});
+
 /** Writes `agents.providers.<id>.sleep` for every provider whose chats can sleep. */
 export const configureRpc = defineRpc({
   name: "sleep.configure",

@@ -12,7 +12,7 @@ interface SleepState {
   keptAwake: { agentId: string; reason: KeptAwakeReason; since: string }[];
 }
 interface SleepAgents { sleepState(): Promise<SleepState> }
-interface WakeHandle { wake(): Promise<{ status: string }> }
+interface SleepHandle { wake(): Promise<{ status: string }>; sleep(): Promise<SleepMarker | null> }
 
 /** The fork's sleep API on this daemon, or null on a daemon that can't sleep agents. */
 export function sleepApi(paseo: Paseo): SleepAgents | null {
@@ -21,10 +21,35 @@ export function sleepApi(paseo: Paseo): SleepAgents | null {
 }
 
 export async function wakeAgent(paseo: Paseo, agentId: string): Promise<{ status: string }> {
-  const handle = paseo.agents.ref(agentId) as unknown as Partial<WakeHandle>;
+  const handle = paseo.agents.ref(agentId) as unknown as Partial<SleepHandle>;
   if (typeof handle.wake !== "function") throw new Error("This Paseo server can't sleep agents.");
   const agent = await handle.wake();
   return { status: agent.status };
+}
+
+const REFUSALS: Record<string, string> = {
+  running: "Can't sleep: it's working right now.",
+  permission: "Can't sleep: it's waiting for your permission.",
+  background_work: "Can't sleep: a background job is still running.",
+};
+
+/**
+ * Puts a chat to sleep now. The fork's manual sleep ignores "open in a client", so a focused chat
+ * sleeps too. Returns null on success, or a plain sentence saying why it can't sleep.
+ */
+export async function sleepAgentNow(paseo: Paseo, agentId: string): Promise<string | null> {
+  const handle = paseo.agents.ref(agentId) as unknown as Partial<SleepHandle>;
+  if (typeof handle.sleep !== "function") return "This Paseo server can't sleep agents.";
+  try {
+    await handle.sleep();
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = /cannot sleep now: (\w+)/.exec(message)?.[1];
+    if (reason) return REFUSALS[reason] ?? `Can't sleep: ${reason.replace(/_/g, " ")}.`;
+    if (/cannot sleep: reading their conversation/.test(message)) return "Only OMP chats can sleep.";
+    throw error;
+  }
 }
 
 const PAGE_LIMIT = 200; // the daemon's largest page

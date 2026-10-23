@@ -1,10 +1,17 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginAgentCommandContext, PluginClientContext } from "@getpaseo/plugin/client";
 import { startPills } from "./client/pills";
 import { SleepSettings } from "./client/settings";
-import { pillsRpc, wakeRpc } from "./shared/rpc";
+import { pillsRpc, sleepRpc, wakeRpc } from "./shared/rpc";
 
 /** The daemon-side half may still be starting when a client connects. */
 const PROBE_RETRY_MS = [2_000, 5_000, 15_000];
+
+/** `/sleep` and ⌘K "Sleep this chat". A thrown error becomes Paseo's error toast. */
+async function sleepThisChat({ agent, rpc }: PluginAgentCommandContext) {
+  if (agent.status === "closed") throw new Error("This chat is already asleep.");
+  const { refused } = await rpc(sleepRpc, { agentId: agent.id, provider: agent.provider });
+  if (refused) throw new Error(refused);
+}
 
 export default function contribute(client: PluginClientContext) {
   // Always present, so a daemon without the sleep feature can say so in one muted line.
@@ -34,6 +41,23 @@ export default function contribute(client: PluginClientContext) {
         async onSubmit({ agent, rpc }) {
           await rpc(wakeRpc, { agentId: agent.id });
         },
+      }),
+      client.addSlashCommand({
+        name: "sleep",
+        description: "Put this chat to sleep now and free its memory",
+        argumentHint: "",
+        context: "agent",
+        onSubmit: sleepThisChat,
+      }),
+      // Paseo 0.12 has no per-chat visibility for ⌘K items: this shows for every focused chat on
+      // a fork daemon, and says why when that chat can't sleep.
+      client.addCommandCenterItem({
+        id: "sleep-chat",
+        title: "Sleep this chat",
+        icon: "Moon",
+        keywords: ["sleep", "asleep", "free", "memory", "ram"],
+        context: "agent",
+        onSelect: sleepThisChat,
       }),
     );
   };

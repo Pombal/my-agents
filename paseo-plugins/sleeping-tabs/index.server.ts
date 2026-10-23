@@ -1,6 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { describeAgents, sleepApi, wakeAgent } from "./server/sleep";
-import { configureRpc, overviewRpc, pillsRpc, wakeRpc } from "./shared/rpc";
+import { describeAgents, sleepAgentNow, sleepApi, wakeAgent } from "./server/sleep";
+import { configureRpc, overviewRpc, pillsRpc, sleepRpc, wakeRpc } from "./shared/rpc";
 
 const UNSUPPORTED = "This Paseo server can't sleep agents.";
 
@@ -46,6 +46,14 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.handle(wakeRpc, ({ agentId }, { paseo }) => wakeAgent(paseo, agentId));
+
+  server.handle(sleepRpc, async ({ agentId, provider }, { paseo }) => {
+    const api = sleepApi(paseo);
+    if (!api) return { refused: UNSUPPORTED };
+    const { providers } = await api.sleepState();
+    if (!providers.some((entry) => entry.provider === provider)) return { refused: "Only OMP chats can sleep." };
+    return { refused: await sleepAgentNow(paseo, agentId) };
+  });
 
   server.handle(configureRpc, async ({ enabled, idleMinutes }, { paseo }) => {
     const api = sleepApi(paseo);
