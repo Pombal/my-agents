@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Discord Thread → Markdown (for AI agents)
 // @namespace    local.tools
-// @version      0.9.2
+// @version      0.10.0
 // @description  Copy a Discord conversation as markdown, with per-message permalinks and attachment URLs.
 // @match        https://discord.com/channels/*
 // @grant        GM_setClipboard
@@ -270,7 +270,8 @@
   async function emit(makeData) {
     try {
       const data = makeData();
-      const text = FORMAT === 'json' ? JSON.stringify(data, null, 2) : toMarkdown(data);
+      const body = FORMAT === 'json' ? JSON.stringify(data, null, 2) : toMarkdown(data);
+      const text = `<discord-transcript>\n${body}\n</discord-transcript>`;
       console.log(text);
       await copy(text);
       const note = data.truncated ? ` (capped at ${MAX_ANCHORED})` : '';
