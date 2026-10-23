@@ -245,6 +245,80 @@ describe("clicking an unread dot", () => {
   });
 });
 
+describe("tapping a dot on a touch screen", () => {
+  // jsdom has no PointerEvent: a MouseEvent with the pointer type set by hand.
+  const pointer = (type: string, pointerType: "touch" | "mouse") =>
+    Object.assign(new MouseEvent(type, { bubbles: true, cancelable: true }), { pointerType });
+  /**
+   * A finger tap as Chrome delivers it: pointer and touch events on the dot, then a click only
+   * if `touchend` wasn't cancelled. Chrome hit-tests that click again after the row turns
+   * :hover, so with "edge" alignment it can land beside the dot (`clickTarget`).
+   */
+  const tap = (dot: Element, clickTarget: Element = dot) => {
+    const touchend = new TouchEvent("touchend", { bubbles: true, cancelable: true });
+    for (const event of [pointer("pointerdown", "touch"), new TouchEvent("touchstart", { bubbles: true, cancelable: true }), pointer("pointerup", "touch"), touchend]) {
+      dot.dispatchEvent(event);
+    }
+    if (!touchend.defaultPrevented) clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    return touchend;
+  };
+  const PRESSES = ["pointerdown", "touchstart", "pointerup", "touchend", "pointercancel", "mousedown", "mouseup", "click"];
+  /** Every press event that reaches Paseo's row. */
+  const rowSees = (row: Element) => {
+    const seen: string[] = [];
+    for (const type of PRESSES) row.addEventListener(type, () => seen.push(type));
+    return seen;
+  };
+
+  // The plugin used to cancel `touchend` on a dot, which cancels the tap's click: a tap did nothing.
+  test("a tap opens its tab once, and the row never sees it", async () => {
+    const row = addRow("srv_A:wks_a");
+    start(agentsOf(unread("a1", "wks_a")));
+    await frames();
+    const seen = rowSees(row);
+    const touchend = tap(row.querySelector('[data-agent="a1"]')!);
+    expect(touchend.defaultPrevented).toBe(false);
+    expect(dotsIn(row)).toEqual([]);
+    await frames(2);
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(openTab).toHaveBeenCalledWith({ serverId: "srv_A", agentId: "a1" });
+    expect(seen).toEqual([]);
+  });
+
+  test("a tap whose click lands beside the dot opens the dot the finger touched", async () => {
+    const row = addRow("srv_A:wks_a");
+    start(agentsOf(unread("a1", "wks_a"), unread("a2", "wks_a"), unread("a3", "wks_a")));
+    await frames();
+    const seen = rowSees(row);
+    tap(row.querySelector('[data-agent="a1"]')!, row.querySelector('[data-agent="a2"]')!);
+    await frames(2);
+    expect(openTab.mock.calls).toEqual([[{ serverId: "srv_A", agentId: "a1" }]]);
+    tap(row.querySelector('[data-agent="a3"]')!, row.querySelector("[data-tab-dots]")!.previousElementSibling!);
+    await frames(2);
+    expect(openTab.mock.calls).toEqual([[{ serverId: "srv_A", agentId: "a1" }], [{ serverId: "srv_A", agentId: "a3" }]]);
+    expect(seen).toEqual([]);
+  });
+
+  test("a drag that starts on a dot opens nothing, and the row's next click is its own", async () => {
+    const row = addRow("srv_A:wks_a");
+    start(agentsOf(unread("a1", "wks_a")));
+    await frames();
+    const seen = rowSees(row);
+    const dot = row.querySelector('[data-agent="a1"]')!;
+    // A scroll: the browser cancels the pointer and sends no click.
+    dot.dispatchEvent(pointer("pointerdown", "touch"));
+    dot.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, cancelable: true }));
+    dot.dispatchEvent(pointer("pointercancel", "touch"));
+    dot.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true }));
+    // Then a click on the row with no pointer down first, as from the keyboard.
+    dot.parentElement!.previousElementSibling!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await frames(2);
+    expect(openTab).not.toHaveBeenCalled();
+    expect(dotsIn(row)).toEqual(["a1"]);
+    expect(seen).toEqual(["pointercancel", "click"]);
+  });
+});
+
 describe("rows Paseo mounts later", () => {
   // Rows remount on project expand, grouping switch and plugin load; they must get their dots.
   test("a row added after start gets its dots, also inside a newly added list", async () => {

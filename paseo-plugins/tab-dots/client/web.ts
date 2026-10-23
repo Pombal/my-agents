@@ -55,9 +55,9 @@ declare const window: {
   getComputedStyle(element: El): { color: string };
   matchMedia(query: string): MediaQueryLike;
 };
-const PRESS_EVENTS = ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "click"] as const;
+const PRESS_EVENTS = ["pointerdown", "mousedown", "touchstart", "pointerup", "mouseup", "touchend", "pointercancel", "click"] as const;
 type PressEvent = (typeof PRESS_EVENTS)[number];
-interface PressLike { type: string; target: El | null; stopPropagation(): void; preventDefault(): void }
+interface PressLike { type: string; target: El | null; pointerType?: string; stopPropagation(): void; preventDefault(): void }
 declare const localStorage: { getItem(key: string): string | null };
 declare function requestAnimationFrame(callback: () => void): number;
 declare const performance: { now(): number };
@@ -466,15 +466,31 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
   document.addEventListener("mouseover", onOver);
   document.addEventListener("mouseout", onOut);
 
+  // The dot a touch landed on, until that tap's click. The browser hit-tests a tap's click
+  // again after it applies :hover, and with "edge" alignment the row's hover menu has shifted
+  // the dots by then: the click lands beside the dot (another dot, the title, the menu). So a
+  // tap takes its dot from the touch, and its click only says it was a tap: a drag or a scroll
+  // sends `pointercancel` and no click.
+  let touched: { dot: El; row: El } | null = null;
+
   // A dot opens its tab. Window capture runs before the row's own press handling, so the
   // row never sees presses on a dot (it would otherwise open the workspace's last tab).
   const onPress = (event: PressLike) => {
-    const dot = myDot(event.target);
+    if (event.type === "pointerdown" || event.type === "pointercancel") touched = null;
+    if (event.type === "pointercancel") return;
+    let dot = myDot(event.target);
+    let row = dot?.closest(ROWS) ?? null;
+    if (event.type === "click" && touched) {
+      if (touched.row.contains(event.target)) ({ dot, row } = touched);
+      touched = null;
+    }
     const agentId = dot?.getAttribute("data-agent");
-    const row = dot?.closest(ROWS);
     if (!dot || !agentId || !row) return;
+    if (event.type === "pointerdown" && event.pointerType === "touch") touched = { dot, row };
     event.stopPropagation();
-    event.preventDefault();
+    // Touch events keep their default: a cancelled `touchend` cancels the tap's `click`, and a
+    // tap on a touch screen would do nothing.
+    if (!event.type.startsWith("touch")) event.preventDefault();
     if (event.type !== "click") return;
     hideTip();
     hovered = null;
