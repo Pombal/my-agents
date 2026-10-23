@@ -16,12 +16,17 @@ folder, so it only shows up while listed under extra folders).
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
 - **Header button** per workspace, icon-only: a progress pie (solid green = done, faint green =
   claimed; a pie because a part-filled ring this small reads as a spinner) + Paseo's chevron. Its
-  tooltip carries the name: `wa-ftue · 0/9 done · next 01 Takeover shape`. A dashed empty circle
+  tooltip carries the name: `wa-ftue · 0/9 done`. A dashed empty circle
   (`No effort · suggested: …`) when unbound with a suggestion; nothing when there is none. Popover
-  (option B): name + status, path, counts,
-  the next ticket (opens it in the panel), Open Efforts panel, then a small
-  footer bar: All efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover
-  on its first frame, so each bound workspace's effort is read ahead when its button appears. Unbound: the
+  (Paseo's maximum, 420 × 440): name + status, the map's Destination (2 lines), the **route bar**
+  (done · claimed · open · blocked/parked, then a dashed fog tail a quarter as wide: fog is counted,
+  never sized), `11/26 done · 15 to do · + 10 fog`; then one list in route order under a fixed
+  head: **Done** (folded at every open), In progress, To do (number order; tail = blockers, what it
+  asks of you — talk / agent / hands-on / yours, from the `Type:` line — and age from 7 days, old
+  rows muted), Fog (map's Not yet specified; a row opens the map there). Footer: Open panel · All
+  efforts · Switch… (the panel's effort picker) · Unbind. Paseo sizes a popover on its first frame
+  and never again, so each bound workspace's effort is read ahead when its button appears and the
+  list's height is fixed from its folded rows (opening Done scrolls inside it). Unbound: the
   suggestion with Bind · New effort · No effort. On phones it opens the whole effort as a sheet.
 - **Sidebar row "Efforts"** → global screen (⌘K "All efforts"): search over efforts, tickets, docs
   and workspace names (results grouped, replacing the table while typing; `/` focuses), project

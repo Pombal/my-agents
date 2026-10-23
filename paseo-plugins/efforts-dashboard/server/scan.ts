@@ -12,7 +12,9 @@ import {
   statusWord,
   sections,
   ticketNum,
+  ticketKind,
   ticketQuestion,
+  type TicketKind,
   type BlockedBy,
   type Bucket,
 } from "../shared/parse";
@@ -99,6 +101,7 @@ export interface ParsedTicket {
   rel: string;
   title: string;
   type: string | null;
+  kind: TicketKind | null;
   statusRaw: string | null;
   statusWord: string;
   bucket: Bucket;
@@ -134,6 +137,7 @@ async function parseTicket(effortDir: string, file: string, num: string, mtimeMs
       rel: `issues/${file}`,
       title: withoutNumber(head.title ?? file.replace(/\.md$/, ""), num),
       type: head.fields.get("type")?.replace(/^wayfinder:/i, "").split(/[\s,;(]/)[0].toLowerCase() || null,
+      kind: ticketKind(head.fields.get("type")),
       statusRaw,
       statusWord: word,
       bucket: bucketOf(word),
@@ -148,6 +152,7 @@ async function parseTicket(effortDir: string, file: string, num: string, mtimeMs
       rel: `issues/${file}`,
       title: `${file} (couldn't read)`,
       type: null,
+      kind: null,
       statusRaw: null,
       statusWord: "open",
       bucket: "open",
@@ -292,11 +297,13 @@ async function scanRootNow(root: string): Promise<EffortScan[]> {
   return scans.filter((scan): scan is EffortScan => scan !== null);
 }
 
+/** Per-ticket maps are keyed by `rel`: numbers repeat (`05-build-slice-1.md`, `05-reconcile-….md`). */
 export interface Resolved {
   state: Map<string, TicketState>;
   /** Not-done own blockers per ticket. */
   after: Map<string, string[]>;
   afterElsewhere: Map<string, string[]>;
+  /** By ticket number: open tickets that name it in `Blocked by:`. */
   blocks: Map<string, string[]>;
   counts: Counts;
   next: { num: string; title: string } | null;
@@ -325,7 +332,7 @@ export function resolveTickets(scan: EffortScan, siblings: readonly EffortScan[]
   const blocks = new Map<string, string[]>();
   for (const ticket of scan.tickets) {
     if (ticket.bucket !== "open") {
-      state.set(ticket.num, ticket.bucket === "claimed" ? "claimed" : ticket.bucket);
+      state.set(ticket.rel, ticket.bucket === "claimed" ? "claimed" : ticket.bucket);
       continue;
     }
     const own = ticket.blockedBy.own.filter((num) => num !== ticket.num && byNum.has(num) && byNum.get(num)!.bucket !== "done");
@@ -336,14 +343,14 @@ export function resolveTickets(scan: EffortScan, siblings: readonly EffortScan[]
         return blocker ? blocker.bucket !== "done" : false;
       })
       .map(({ effort, num }) => `${effort} ${num}`);
-    after.set(ticket.num, own);
-    afterElsewhere.set(ticket.num, elsewhere);
-    state.set(ticket.num, own.length || elsewhere.length ? "blocked" : "ready");
+    after.set(ticket.rel, own);
+    afterElsewhere.set(ticket.rel, elsewhere);
+    state.set(ticket.rel, own.length || elsewhere.length ? "blocked" : "ready");
     for (const num of own) blocks.set(num, [...(blocks.get(num) ?? []), ticket.num]);
   }
   const counts: Counts = { total: scan.tickets.length, done: 0, ready: 0, claimed: 0, blocked: 0, parked: 0 };
   for (const value of state.values()) counts[value]++;
-  const first = scan.tickets.find((ticket) => state.get(ticket.num) === "ready");
+  const first = scan.tickets.find((ticket) => state.get(ticket.rel) === "ready");
   return { state, after, afterElsewhere, blocks, counts, next: first ? { num: first.num, title: first.title } : null };
 }
 

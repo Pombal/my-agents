@@ -113,6 +113,8 @@ export const TicketSchema = z.object({
   rel: z.string(),
   title: z.string(),
   type: z.string().nullable(),
+  /** What it asks of you: `talk`, `agent`, `hands-on`, `yours` (see `ticketKind`). */
+  kind: z.enum(["talk", "agent", "hands-on", "yours"]).nullable(),
   state: TicketStateSchema,
   /** The `Status:` value as written, null when the ticket has none. */
   statusRaw: z.string().nullable(),

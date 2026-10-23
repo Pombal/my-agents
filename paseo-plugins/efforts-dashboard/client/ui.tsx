@@ -257,12 +257,16 @@ export function TicketRow(props: {
   next?: boolean;
   onPress?(): void;
   big?: boolean;
+  /** Popover rows: 24 px tall, 6 px inset. */
+  compact?: boolean;
+  /** Drawn muted like a blocked ticket (popover: open but untouched for a week). */
+  faded?: boolean;
   label?: string;
   onHoverIn?(): void;
   onHoverOut?(): void;
 }) {
   const { c } = props;
-  const dim = props.state === "blocked" || props.state === "parked" || props.state === "done";
+  const dim = props.faded || props.state === "blocked" || props.state === "parked" || props.state === "done";
   return (
     <RowButton
       c={c}
@@ -271,7 +275,7 @@ export function TicketRow(props: {
       onHoverOut={props.onHoverOut}
       hot={props.next}
       label={props.label ?? `${props.num} ${props.title}`}
-      style={[styles.ticket, props.big ? { height: 40, paddingHorizontal: 14 } : null]}
+      style={[styles.ticket, props.big ? { height: 40, paddingHorizontal: 14 } : props.compact ? { height: 24, paddingHorizontal: 6 } : null]}
     >
       <Glyph state={props.state} c={c} />
       <Text style={{ ...SMALL, width: 18, flexShrink: 0, color: props.next ? c.fg : c.muted, fontVariant: ["tabular-nums"] }}>{props.num}</Text>

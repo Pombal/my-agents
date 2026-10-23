@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Platform, StyleSheet, Text, View, type TextStyle } from "react-native";
-import type { TicketState } from "../shared/rpc";
+import type { Counts, TicketState } from "../shared/rpc";
 
 /** Paseo's default type ramp (Interface size 14): 14/20 titles, 13 rows, 12/17 the rest, 11 labels. */
 export const BASE = { fontSize: 14, lineHeight: 20 } as const;
@@ -134,6 +134,34 @@ export function Bar({ done, total, c, width = 34 }: { done: number; total: numbe
   return (
     <View style={{ width, height: 4, borderRadius: 2, backgroundColor: c.track, overflow: "hidden", flexShrink: 0 }}>
       <View style={{ width: total ? `${(done / total) * 100}%` : 0, height: "100%", backgroundColor: c.green }} />
+    </View>
+  );
+}
+
+/**
+ * The whole route in one 8 px bar: done, claimed (faint green), open, then blocked and parked
+ * (fainter), each as wide as its ticket count; then, when the map has fog, a dashed tail a quarter
+ * the width of the tickets. The tail is counted, never sized: a fog patch may become any number of tickets.
+ */
+export function RouteBar({ counts, fog, c }: { counts: Counts; fog: number; c: Palette }) {
+  const parts: [number, string, number][] = [
+    [counts.done, c.green, 1],
+    [counts.claimed, c.green, 0.45],
+    [counts.ready, c.muted, 0.5],
+    [counts.blocked + counts.parked, c.muted, 0.22],
+  ];
+  return (
+    <View style={{ flexDirection: "row", gap: 2, height: 8 }}>
+      {counts.total ? (
+        <View style={{ flex: 4, flexDirection: "row", gap: 2 }}>
+          {parts
+            .filter(([count]) => count > 0)
+            .map(([count, color, opacity], index) => (
+              <View key={index} style={{ flex: count, backgroundColor: color, opacity, borderRadius: 2 }} />
+            ))}
+        </View>
+      ) : null}
+      {fog ? <View style={{ flex: 1, borderWidth: 1.5, borderStyle: "dashed", borderColor: c.muted, opacity: 0.55, borderRadius: 2, borderTopRightRadius: 6, borderBottomRightRadius: 6 }} /> : null}
     </View>
   );
 }

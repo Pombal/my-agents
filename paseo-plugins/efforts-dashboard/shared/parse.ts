@@ -90,6 +90,24 @@ export function knownStatus(word: string): boolean {
   return word in BUCKETS;
 }
 
+/** What a ticket asks of the person driving the effort; drawn as the popover row's tail. */
+export type TicketKind = "talk" | "agent" | "hands-on" | "yours";
+
+/**
+ * From the raw `Type:` value (`wayfinder:task (HITL)`, `grievance (Stefan, …)`): a conversation
+ * (grilling, prototype, decision), the agent alone (research, AFK tasks, build slices), your hands
+ * (HITL tasks), or something you raised yourself (grievance). Null when the type says none of these.
+ */
+export function ticketKind(rawType: string | null | undefined): TicketKind | null {
+  if (!rawType) return null;
+  const text = rawType.toLowerCase();
+  if (/\bgrievance\b/.test(text)) return "yours";
+  if (/\btask\b/.test(text) && /\bhitl\b/.test(text)) return "hands-on";
+  if (/\b(grilling|prototype|decision)\b/.test(text)) return "talk";
+  if (/\b(research|task|slice)\b/.test(text)) return "agent";
+  return null;
+}
+
 export interface BlockedBy {
   /** Own ticket numbers, as written (`01`). */
   own: string[];

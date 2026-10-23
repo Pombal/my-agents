@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { bucketOf, headFields, parseBlockedBy, statusWord } from "../shared/parse";
-import { scratchFor, skipReason } from "./scan";
+import { bucketOf, headFields, parseBlockedBy, statusWord, ticketKind } from "../shared/parse";
+import { resolveTickets, scanEffort, scratchFor, skipReason } from "./scan";
 
 // Every value below is copied from a real ticket or map under nilo-wayfinder, index or
 // nilo-observatory `.scratch` (2026-10-20).
@@ -26,6 +26,22 @@ describe("Status lines", () => {
 
   it("ignores Status lines below the first ## heading", () => {
     expect(headFields("# T\n\nType: task\n\n## Answer\n\nStatus: resolved\n").fields.has("status")).toBe(false);
+  });
+});
+
+describe("what a ticket asks of you", () => {
+  // Real `Type:` values, world-agent-subagents and wa-ftue (2026-10-23).
+  it.each([
+    ["wayfinder:grilling (HITL, Stefan drives)", "talk"],
+    ["wayfinder:prototype", "talk"],
+    ["wayfinder:task (HITL)", "hands-on"],
+    ["wayfinder:task (AFK)", "agent"],
+    ["wayfinder:task (execution, per the map's Notes override)", "agent"],
+    ["wayfinder:research", "agent"],
+    ["grievance / design question (Stefan, 2026-10-22)", "yours"],
+    ["spike", null],
+  ])("%s → %s", (raw, kind) => {
+    expect(ticketKind(raw)).toBe(kind);
   });
 });
 
@@ -65,6 +81,25 @@ describe("symlinked .scratch roots", () => {
     const real = await scratchFor(path.join(dir, "nilo-wayfinder"), dir);
     expect(await scratchFor(path.join(dir, "worktree"), dir)).toBe(real);
     expect(await scratchFor("~/worktree/.scratch", dir)).toBe(real);
+  });
+});
+
+describe("tickets sharing a number", () => {
+  let dir = "";
+  afterAll(() => rm(dir, { recursive: true, force: true }));
+
+  it("keeps each file's own state and counts both", async () => {
+    // world-agent-subagents has `05-build-slice-1.md` (open) and `05-reconcile-….md` (closed).
+    dir = await mkdtemp(path.join(tmpdir(), "efforts-"));
+    const issues = path.join(dir, "subagents", "issues");
+    await mkdir(issues, { recursive: true });
+    await writeFile(path.join(issues, "05-build-slice-1.md"), "# 05 — Build slice 1\n\n**Status:** open\n");
+    await writeFile(path.join(issues, "05-reconcile.md"), "# 05 — Reconcile\n\n**Status:** closed (2026-10-16)\n");
+    const scan = (await scanEffort(dir, "subagents"))!;
+    const resolved = resolveTickets(scan, [scan], new Map());
+    expect(resolved.state.get("issues/05-build-slice-1.md")).toBe("ready");
+    expect(resolved.state.get("issues/05-reconcile.md")).toBe("done");
+    expect(resolved.counts).toMatchObject({ total: 2, done: 1, ready: 1 });
   });
 });
 
