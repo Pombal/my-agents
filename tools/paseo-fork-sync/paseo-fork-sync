@@ -1,0 +1,560 @@
+#!/usr/bin/env bash
+# paseo-fork-sync: bring Stefan's Paseo daemon fork (branch `axalon` on
+# choephix/paseo) up to the newest stable upstream release, build it, test it,
+# push it. Conflicts go to a non-interactive Opus OMP resolver.
+# Never installs, restarts or touches the live daemon.
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: paseo-fork-sync [options]
+
+Rebases the fork branch onto the newest stable upstream tag (vX.Y.Z), builds
+it (npm ci, build:server, build:daemon-web-ui), tests it (typecheck:server +
+server unit suite) and force-pushes it with a lease. Never touches the live
+daemon. Conflicts are handed to an Opus OMP resolver, one fork commit at a time.
+
+Options:
+  --check            Only report whether a newer stable tag exists. One line on
+                     stdout; exit 0 = up to date, 10 = update available, 1 = error.
+  --to TAG           Rebase onto TAG instead of the newest stable tag.
+  --dry-run          Show the plan (base, target, fork commits, files both sides
+                     touched) and change nothing.
+  --no-push          Do everything except pushing.
+  --finish           Skip fetch/rebase: build, test and push the branch as it is
+                     (after finishing a paused rebase by hand, or to publish an
+                     earlier --no-push result).
+  --no-resolver      Stop at the first conflict instead of starting the resolver.
+  --branch NAME      Fork branch (default: axalon).
+  --worktree DIR     Worktree for the branch (default: ~/forkspace/paseo-wt/<branch>;
+                     created if missing).
+  -h, --help         This help.
+
+Exit codes: 0 synced / up to date, 1 error, 3 rebase paused for a human,
+4 build or tests failed (result kept local, not pushed).
+
+Environment: PASEO_FORK_REPO (default ~/forkspace/paseo), PASEO_FORK_SYNC_HOME
+(state, logs, lock; default ~/tmp-archive/paseo-fork-sync),
+PASEO_FORK_RESOLVER_MODEL (default @opus), PASEO_FORK_RESOLVER_MAX_TIME
+(default 45m), npm_config_cache (default ~/tmp-archive/paseo-fork-test/npm-cache).
+EOF
+}
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+SELF_DIR=$(dirname "$SELF")
+REPO=${PASEO_FORK_REPO:-$HOME/forkspace/paseo}
+HOME_DIR=${PASEO_FORK_SYNC_HOME:-$HOME/tmp-archive/paseo-fork-sync}
+RESOLVER_MODEL=${PASEO_FORK_RESOLVER_MODEL:-@opus}
+RESOLVER_MAX_TIME=${PASEO_FORK_RESOLVER_MAX_TIME:-45m}
+NOTES=/home/cx/agentspace/index/.scratch/paseo-fork/map.md
+RUNBOOK=/home/cx/agentspace/index/.scratch/paseo-fork/issues/05-switch-runbook.md
+UPSTREAM=upstream
+ORIGIN=origin
+STAMP_FILES=(packages/server/package.json packages/cli/package.json)
+export npm_config_cache=${npm_config_cache:-$HOME/tmp-archive/paseo-fork-test/npm-cache}
+# rerere for this process and everything it starts (including the resolver's
+# `git rebase --continue`), without changing the shared clone's config.
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=rerere.enabled GIT_CONFIG_VALUE_0=true
+export GIT_CONFIG_KEY_1=rerere.autoupdate GIT_CONFIG_VALUE_1=true
+export GIT_EDITOR=true
+
+MODE=sync TO_TAG='' DRY_RUN=0 PUSH=1 USE_RESOLVER=1 BRANCH=axalon WORKTREE=''
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) MODE=check ;;
+    --finish) MODE=finish ;;
+    --to) TO_TAG=${2:?--to needs a tag}; shift ;;
+    --dry-run) DRY_RUN=1 ;;
+    --no-push) PUSH=0 ;;
+    --no-resolver) USE_RESOLVER=0 ;;
+    --branch) BRANCH=${2:?--branch needs a name}; shift ;;
+    --worktree) WORKTREE=${2:?--worktree needs a dir}; shift ;;
+    -h | --help) usage; exit 0 ;;
+    *) echo "paseo-fork-sync: unknown option $1 (see --help)" >&2; exit 1 ;;
+  esac
+  shift
+done
+WORKTREE=${WORKTREE:-$HOME/forkspace/paseo-wt/$BRANCH}
+case "$BRANCH" in v[0-9]* | main | */*) echo "paseo-fork-sync: refusing branch name '$BRANCH'" >&2; exit 1 ;; esac
+
+die() { echo "paseo-fork-sync: $*" >&2; exit 1; }
+log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
+r() { git -C "$REPO" "$@"; }
+w() { git -C "$WORKTREE" "$@"; }
+
+STABLE_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
+stable_tags() { r tag -l 'v*' | grep -E "$STABLE_RE" | sort -V; }
+version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
+# Base = nearest stable upstream tag reachable from the branch. The branch is
+# always "<tag> + fork commits", so describe lands on exactly that tag; betas
+# (-*) and our own axalon/* tags are excluded by the patterns.
+detect_base() {
+  local base
+  base=$(r describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' "refs/heads/$BRANCH" 2>/dev/null) ||
+    die "cannot find a stable vX.Y.Z tag below $BRANCH"
+  [[ $base =~ $STABLE_RE ]] || die "base tag '$base' of $BRANCH is not a stable vX.Y.Z tag"
+  printf '%s\n' "$base"
+}
+fetch_upstream_tags() {
+  # Only tags; never pushed anywhere. Non-forced so a moved upstream tag is an error, not a silent rewrite.
+  r fetch --quiet --no-tags "$UPSTREAM" 'refs/tags/v*:refs/tags/v*'
+}
+origin_sha() { r rev-parse -q --verify "refs/remotes/$ORIGIN/$BRANCH" 2>/dev/null || true; }
+fetch_origin_branch() {
+  if r ls-remote --exit-code --heads "$ORIGIN" "$BRANCH" >/dev/null 2>&1; then
+    r fetch --quiet "$ORIGIN" "+refs/heads/$BRANCH:refs/remotes/$ORIGIN/$BRANCH"
+  fi
+}
+
+[ -d "$REPO/.git" ] || die "fork clone not found at $REPO"
+r show-ref -q --verify "refs/heads/$BRANCH" || die "branch $BRANCH does not exist in $REPO"
+
+# ---------------------------------------------------------------- --check
+if [ "$MODE" = check ]; then
+  fetch_upstream_tags || die "fetching upstream tags failed"
+  base=$(detect_base)
+  latest=${TO_TAG:-$(stable_tags | tail -1)}
+  if version_gt "$latest" "$base"; then
+    echo "status=update-available branch=$BRANCH base=$base latest=$latest"
+    exit 10
+  fi
+  echo "status=up-to-date branch=$BRANCH base=$base latest=$latest"
+  exit 0
+fi
+
+# ---------------------------------------------------------------- run setup
+mkdir -p "$HOME_DIR/runs"
+exec 9>"$HOME_DIR/lock"
+flock -n 9 || die "another paseo-fork-sync run holds $HOME_DIR/lock"
+
+RUN_ID=$(date +%Y%m%d-%H%M%S)-$BRANCH
+RUN=$HOME_DIR/runs/$RUN_ID
+mkdir -p "$RUN"
+exec > >(tee -a "$RUN/sync.log") 2>&1
+T0=$(date +%s)
+REPORT=$RUN/report.md
+log "paseo-fork-sync run $RUN_ID (logs: $RUN)"
+
+declare -a COMMIT_LINES=()
+OLD='' NEW='' BACKUP='' RESULT='' RANGE_SUMMARY='' BUILD_RESULT="not run" TEST_RESULT="not run" PUSH_RESULT="not pushed" VERSION=''
+declare -A COMMIT_STATE=()
+NEXT_STEP=
+
+elapsed() { local s=$(($(date +%s) - T0)); printf '%dm%02ds' $((s / 60)) $((s % 60)); }
+
+write_report() {
+  {
+    echo "# paseo-fork-sync $RUN_ID"
+    echo
+    echo "- Result: **$RESULT**"
+    echo "- Branch: \`$BRANCH\` in \`$WORKTREE\`"
+    [ -n "$OLD" ] && echo "- Upstream: $OLD → ${NEW:-$OLD}"
+    [ -n "$VERSION" ] && echo "- Version stamp (uncommitted): \`$VERSION\`"
+    [ -n "$BACKUP" ] && echo "- Pre-sync branch saved as \`$BACKUP\` (rollback: \`git -C $WORKTREE reset --hard $BACKUP\`)"
+    echo "- Build: $BUILD_RESULT"
+    echo "- Tests: $TEST_RESULT"
+    echo "- Push: $PUSH_RESULT"
+    echo "- Wall time: $(elapsed)"
+    echo "- Logs: \`$RUN/\`"
+    if [ ${#COMMIT_LINES[@]} -gt 0 ]; then
+      echo
+      echo "## Fork commits"
+      echo
+      local line sha
+      for line in "${COMMIT_LINES[@]}"; do
+        sha=${line%% *}
+        echo "- \`$line\`: ${COMMIT_STATE[$sha]:-not replayed}"
+      done
+    fi
+    if [ -n "$RANGE_SUMMARY" ]; then
+      echo
+      echo "## range-diff ($OLD..old vs $NEW..new)"
+      echo
+      echo '```'
+      echo "$RANGE_SUMMARY"
+      echo '```'
+    fi
+    local f
+    for f in "$RUN"/resolver-*-report.md; do
+      [ -f "$f" ] || continue
+      echo
+      echo "## Resolver report: $(basename "$f")"
+      echo
+      sed 's/^#/###/' "$f"
+    done
+    echo
+    echo "## Next step"
+    echo
+    echo "$NEXT_STEP"
+  } >"$REPORT"
+  echo
+  echo "================================ report ($REPORT)"
+  cat "$REPORT"
+}
+
+finish() { # finish <exit-code> <result> <next-step>
+  ln -sfn "$RUN" "$HOME_DIR/latest"
+  RESULT=$2 NEXT_STEP=$3
+  write_report
+  exit "$1"
+}
+
+# ---------------------------------------------------------------- worktree
+if [ ! -e "$WORKTREE" ]; then
+  log "creating worktree $WORKTREE for $BRANCH"
+  r worktree add "$WORKTREE" "$BRANCH" >"$RUN/worktree-add.log" 2>&1 || die "git worktree add failed (see $RUN/worktree-add.log)"
+fi
+[ "$(w rev-parse --show-toplevel 2>/dev/null)" = "$(readlink -f "$WORKTREE")" ] || die "$WORKTREE is not a worktree root"
+GITDIR=$(w rev-parse --absolute-git-dir)
+rebase_in_progress() { [ -d "$GITDIR/rebase-merge" ] || [ -d "$GITDIR/rebase-apply" ]; }
+rebase_in_progress && die "a rebase is paused in $WORKTREE (earlier run?). Finish it (git add, git rebase --continue) and run paseo-fork-sync --finish, or abort it (git rebase --abort) and rerun."
+[ "$(w symbolic-ref -q --short HEAD || true)" = "$BRANCH" ] || die "$WORKTREE does not have $BRANCH checked out"
+
+# Undo the previous build's version stamp; anything else dirty is someone's work.
+dirty=$(w status --porcelain --untracked-files=no | awk '{print $2}' | grep -vxF -f <(printf '%s\n' "${STAMP_FILES[@]}") || true)
+[ -z "$dirty" ] || die "uncommitted changes in $WORKTREE: $(echo "$dirty" | tr '\n' ' ')"
+w checkout -q -- "${STAMP_FILES[@]}"
+
+# ---------------------------------------------------------------- remote state
+log "fetching upstream tags and $ORIGIN/$BRANCH"
+fetch_upstream_tags >"$RUN/fetch.log" 2>&1 || die "fetching upstream tags failed (see $RUN/fetch.log)"
+fetch_origin_branch >>"$RUN/fetch.log" 2>&1 || die "fetching $ORIGIN/$BRANCH failed (see $RUN/fetch.log)"
+ORIGIN_SHA=$(origin_sha)
+LOCAL_SHA=$(w rev-parse HEAD)
+SYNC_REF=refs/fork-sync/$BRANCH/origin-at-rebase # origin sha our last local rebase replaced
+if [ -n "$ORIGIN_SHA" ] && [ "$ORIGIN_SHA" != "$LOCAL_SHA" ]; then
+  if w merge-base --is-ancestor "$LOCAL_SHA" "$ORIGIN_SHA"; then
+    log "$ORIGIN/$BRANCH is ahead (fork commits pushed elsewhere): fast-forwarding"
+    w merge -q --ff-only "$ORIGIN_SHA"
+    LOCAL_SHA=$ORIGIN_SHA
+  elif w merge-base --is-ancestor "$ORIGIN_SHA" "$LOCAL_SHA"; then
+    log "local $BRANCH is ahead of $ORIGIN/$BRANCH (unpushed commits)"
+  elif [ "$(r rev-parse -q --verify "$SYNC_REF" || true)" = "$ORIGIN_SHA" ]; then
+    log "local $BRANCH is an unpushed rebase of $ORIGIN/$BRANCH (earlier --no-push run)"
+  elif [ "$PUSH" = 1 ]; then
+    die "local $BRANCH and $ORIGIN/$BRANCH diverged and $ORIGIN has commits this tool did not rebase; reconcile by hand (or use --no-push)"
+  else
+    log "warning: local $BRANCH and $ORIGIN/$BRANCH diverged; continuing because of --no-push"
+  fi
+fi
+
+push_branch() {
+  if [ "$PUSH" != 1 ]; then
+    PUSH_RESULT="skipped (--no-push); publish later with \`paseo-fork-sync --finish\`"
+    return 0
+  fi
+  local head lease_ok=0
+  head=$(w rev-parse HEAD)
+  if [ -z "$ORIGIN_SHA" ] || w merge-base --is-ancestor "$ORIGIN_SHA" "$head" ||
+    [ "$(r rev-parse -q --verify "$SYNC_REF" || true)" = "$ORIGIN_SHA" ]; then
+    lease_ok=1
+  fi
+  if [ "$lease_ok" != 1 ]; then
+    PUSH_RESULT="refused: $ORIGIN/$BRANCH has commits not covered by this result"
+    return 1
+  fi
+  if w push --force-with-lease="refs/heads/$BRANCH:$ORIGIN_SHA" "$ORIGIN" "refs/heads/$BRANCH:refs/heads/$BRANCH" >"$RUN/push.log" 2>&1; then
+    PUSH_RESULT="pushed $(w rev-parse --short HEAD) to $ORIGIN/$BRANCH (force-with-lease from ${ORIGIN_SHA:0:9})"
+    r update-ref -d "$SYNC_REF" 2>/dev/null || true
+    return 0
+  fi
+  PUSH_RESULT="FAILED (see $RUN/push.log)"
+  return 1
+}
+
+next_build_number() { # next free N for axalon/v<ver>+axalon.N, local and origin tags
+  local ver=$1 max=0 n t
+  for t in $(r tag -l "axalon/v$ver+axalon.*") $(r ls-remote --tags "$ORIGIN" "refs/tags/axalon/v$ver+axalon.*" 2>/dev/null | awk '{print $2}' | sed 's#refs/tags/##'); do
+    n=${t##*+axalon.}
+    [[ $n =~ ^[0-9]+$ ]] && [ "$n" -gt "$max" ] && max=$n
+  done
+  echo $((max + 1))
+}
+
+stamp_version() {
+  local tag=$1
+  VERSION="${tag#v}+axalon.$(next_build_number "${tag#v}")"
+  (cd "$WORKTREE" && node -e '
+    const fs = require("fs"); const [version, ...files] = process.argv.slice(1);
+    for (const f of files) { const j = JSON.parse(fs.readFileSync(f, "utf8")); j.version = version;
+      fs.writeFileSync(f, JSON.stringify(j, null, 2) + "\n"); }' "$VERSION" "${STAMP_FILES[@]}")
+  log "stamped $VERSION into ${STAMP_FILES[*]} (uncommitted)"
+}
+
+run_step() { # run_step <name> <cmd...>; logs to $RUN/<name>.log, records duration
+  local name=$1 s rc
+  shift
+  s=$(date +%s)
+  log "$name: $*"
+  set +e
+  (cd "$WORKTREE" && "$@") >"$RUN/$name.log" 2>&1
+  rc=$?
+  set -e
+  STEP_TIME=$(($(date +%s) - s))
+  log "$name: exit $rc in ${STEP_TIME}s"
+  return $rc
+}
+
+build_and_test() { # sets BUILD_RESULT / TEST_RESULT; returns 0 if all passed
+  local tag=$1 b0 t_tc t_unit
+  b0=$(date +%s)
+  run_step npm-ci npm ci --no-audit --no-fund || { BUILD_RESULT="FAILED at npm ci (see $RUN/npm-ci.log)"; return 1; }
+  sha256sum "$WORKTREE/package-lock.json" | cut -d' ' -f1 >"$WORKTREE/node_modules/.paseo-fork-sync-lock-hash"
+  stamp_version "$tag"
+  run_step build-server npm run build:server || { BUILD_RESULT="FAILED at build:server (see $RUN/build-server.log)"; return 1; }
+  run_step build-daemon-web-ui npm run build:daemon-web-ui || { BUILD_RESULT="FAILED at build:daemon-web-ui (see $RUN/build-daemon-web-ui.log)"; return 1; }
+  BUILD_RESULT="ok in $(($(date +%s) - b0))s (npm ci, build:server, build:daemon-web-ui; version $VERSION)"
+  run_step typecheck-server npm run typecheck:server || { TEST_RESULT="FAILED: typecheck:server (see $RUN/typecheck-server.log)"; return 1; }
+  t_tc=$STEP_TIME
+  local rc=0 counts fails files baseline_fails new_fails
+  run_step test-server-unit env NO_COLOR=1 FORCE_COLOR=0 npm run test:unit --workspace=@getpaseo/server || rc=$?
+  t_unit=$STEP_TIME
+  counts=$(grep -E '^ *(Test Files|Tests) ' "$RUN/test-server-unit.log" | tail -2 | tr -s ' ' | sed 's/^ //' | paste -sd';')
+  if [ "$rc" = 0 ]; then
+    TEST_RESULT="ok: typecheck:server ${t_tc}s; server unit suite ${t_unit}s ($counts)"
+    return 0
+  fi
+  # A failing test only blocks if it passes on the pristine upstream tag; tests that
+  # already fail upstream (on this machine) are reported, not blamed on the fork.
+  fails=$(grep -E '^ FAIL ' "$RUN/test-server-unit.log" | sed -E 's/^ FAIL +//' | sort -u)
+  if [ -z "$fails" ]; then
+    TEST_RESULT="FAILED: server unit suite exited $rc without test failures (see $RUN/test-server-unit.log)"
+    return 1
+  fi
+  files=$(cut -d' ' -f1 <<<"$fails" | sort -u)
+  if ! baseline_fails=$(baseline_failures "$tag" $files); then
+    TEST_RESULT="FAILED: server unit suite ($counts); baseline run on $tag failed to start (see $RUN/test-baseline.log)"
+    return 1
+  fi
+  new_fails=$(comm -23 <(echo "$fails") <(echo "$baseline_fails"))
+  if [ -n "$new_fails" ]; then
+    TEST_RESULT="FAILED: server unit suite ($counts); failing only on the fork: $(paste -sd';' <<<"$new_fails") (see $RUN/test-server-unit.log)"
+    return 1
+  fi
+  TEST_RESULT="ok: typecheck:server ${t_tc}s; server unit suite ${t_unit}s ($counts; every failure also fails on pristine $tag, see $RUN/test-baseline.log: $(paste -sd';' <<<"$fails"))"
+}
+
+# Runs the given server test files in a pristine worktree of <tag> and prints the
+# failing tests (same " FAIL file > suite > test" format, prefix stripped).
+baseline_failures() { # <tag> <test files...>
+  local tag=$1 base_wt=$HOME/forkspace/paseo-wt/$BRANCH-baseline hash
+  shift
+  {
+    echo "== baseline $tag in $base_wt for: $*"
+    if [ ! -e "$base_wt" ]; then
+      r worktree add --detach "$base_wt" "$tag" || return 1
+    else
+      git -C "$base_wt" checkout -q --detach "$tag" || return 1
+    fi
+    hash=$(sha256sum "$base_wt/package-lock.json" | cut -d' ' -f1)
+    if [ "$(cat "$base_wt/node_modules/.paseo-fork-sync-lock-hash" 2>/dev/null)" != "$hash" ]; then
+      (cd "$base_wt" && npm ci --no-audit --no-fund) || return 1
+      echo "$hash" >"$base_wt/node_modules/.paseo-fork-sync-lock-hash"
+    fi
+    (cd "$base_wt" && npm run build:server-deps) || return 1
+    (cd "$base_wt/packages/server" && NO_COLOR=1 FORCE_COLOR=0 npx vitest run "$@") || true
+  } >"$RUN/test-baseline.log" 2>&1 || return 1
+  grep -E '^ FAIL ' "$RUN/test-baseline.log" | sed -E 's/^ FAIL +//' | sort -u || true
+}
+
+# ---------------------------------------------------------------- --finish
+if [ "$MODE" = finish ]; then
+  OLD=$(detect_base)
+  [ "$DRY_RUN" = 1 ] && { log "dry run: would build, test and push $BRANCH ($(w rev-parse --short HEAD), base $OLD)"; exit 0; }
+  if ! build_and_test "$OLD"; then
+    finish 4 "build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\`, then rerun \`paseo-fork-sync --finish\`."
+  fi
+  push_branch || finish 1 "built and tested, push failed" "Check \`$RUN/push.log\`."
+  finish 0 "built and tested at $OLD" "Ready to switch: see the switch runbook ($RUNBOOK). Deploy tag: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
+fi
+
+# ---------------------------------------------------------------- plan
+OLD=$(detect_base)
+if [ -n "$TO_TAG" ]; then
+  r rev-parse -q --verify "refs/tags/$TO_TAG" >/dev/null || die "tag $TO_TAG not found"
+  [[ $TO_TAG =~ $STABLE_RE ]] || log "warning: $TO_TAG is not a stable vX.Y.Z tag"
+  NEW=$TO_TAG
+else
+  NEW=$(stable_tags | tail -1)
+fi
+if ! version_gt "$NEW" "$OLD"; then
+  log "up to date: $BRANCH is on $OLD, newest stable upstream is $NEW"
+  if [ -n "$ORIGIN_SHA" ] && [ "$(w rev-parse HEAD)" != "$ORIGIN_SHA" ]; then
+    log "note: local $BRANCH differs from $ORIGIN/$BRANCH; publish with: paseo-fork-sync --finish"
+  fi
+  rm -rf "$RUN"
+  exit 0
+fi
+
+while read -r line; do COMMIT_LINES+=("$line"); done < <(w log --reverse --format='%h %s' "$OLD..HEAD")
+log "update: $OLD -> $NEW; ${#COMMIT_LINES[@]} fork commit(s) to replay"
+printf '  %s\n' "${COMMIT_LINES[@]}"
+
+if [ "$DRY_RUN" = 1 ]; then
+  echo "dry run, nothing changed. Plan:"
+  echo "  git -C $WORKTREE rebase --onto $NEW $OLD $BRANCH   (rerere on)"
+  echo "  upstream: $(r rev-list --count "$OLD..$NEW") commits, $(r diff --shortstat "$OLD" "$NEW" | sed 's/^ //')"
+  overlap=$(comm -12 <(w diff --name-only "$OLD" HEAD | sort) <(r diff --name-only "$OLD" "$NEW" | sort))
+  echo "  files changed by both the fork and upstream (possible conflicts):"
+  printf '    %s\n' ${overlap:-"(none)"}
+  echo "  then: npm ci, stamp ${NEW#v}+axalon.N, build:server, build:daemon-web-ui, typecheck:server, server unit tests, push ($([ "$PUSH" = 1 ] && echo yes || echo no))"
+  rm -rf "$RUN"
+  exit 0
+fi
+
+# ---------------------------------------------------------------- rebase
+BACKUP=refs/fork-sync/$BRANCH/backup/$RUN_ID
+r update-ref "$BACKUP" "$LOCAL_SHA"
+[ -n "$ORIGIN_SHA" ] && r update-ref "$SYNC_REF" "$ORIGIN_SHA"
+for line in "${COMMIT_LINES[@]}"; do COMMIT_STATE[${line%% *}]="rebased cleanly"; done
+
+short_of() { w rev-parse --short "$1"; }
+step_of() { # position of the stopped commit in the series, "n/total"
+  local msgnum end
+  msgnum=$(cat "$GITDIR/rebase-merge/msgnum" 2>/dev/null || echo '?')
+  end=$(cat "$GITDIR/rebase-merge/end" 2>/dev/null || echo '?')
+  echo "$msgnum/$end"
+}
+
+build_resolver_prompt() { # <n> <commit> <files...>
+  local n=$1 commit=$2 prompt tpl files_md
+  shift 2
+  prompt=$RUN/resolver-$n-prompt.md
+  files_md=$(printf '`%s` ' "$@")
+  tpl=$(cat "$SELF_DIR/prompts/resolver.md")
+  tpl=${tpl//'{{WORKTREE}}'/$WORKTREE}
+  tpl=${tpl//'{{BRANCH}}'/$BRANCH}
+  tpl=${tpl//'{{OLD_TAG}}'/$OLD}
+  tpl=${tpl//'{{NEW_TAG}}'/$NEW}
+  tpl=${tpl//'{{COMMIT}}'/$(short_of "$commit")}
+  tpl=${tpl//'{{SUBJECT}}'/$(w log -1 --format=%s "$commit")}
+  tpl=${tpl//'{{STEP}}'/$(step_of)}
+  tpl=${tpl//'{{FILES}}'/$files_md}
+  tpl=${tpl//'{{NOTES}}'/$NOTES}
+  tpl=${tpl//'{{TYPECHECK}}'/$SELF_DIR/fork-typecheck-server}
+  tpl=${tpl//'{{REPORT}}'/$RUN/resolver-$n-report.md}
+  {
+    echo "$tpl"
+    echo
+    echo "## Fork series ($OLD..$BRANCH before the rebase)"
+    echo
+    printf -- '- %s\n' "${COMMIT_LINES[@]}"
+    echo
+    echo "## Fork commit being replayed: message and original diff"
+    echo
+    echo '```diff'
+    w show --stat --patch --format='commit %H%nAuthor: %an%n%n%B' "$commit"
+    echo '```'
+    echo
+    echo "## Upstream $OLD..$NEW on the conflicted files"
+    echo
+    echo '```'
+    w log --oneline --no-decorate "$OLD..$NEW" -- "$@" | head -80
+    echo '```'
+    echo
+    echo '```diff'
+    local diff_lines
+    w diff "$OLD" "$NEW" -- "$@" >"$RUN/resolver-$n-upstream.diff"
+    diff_lines=$(wc -l <"$RUN/resolver-$n-upstream.diff")
+    head -n 3000 "$RUN/resolver-$n-upstream.diff"
+    echo '```'
+    [ "$diff_lines" -gt 3000 ] && echo "(upstream diff truncated at 3000 of $diff_lines lines; run \`git diff $OLD $NEW -- <file>\` for the rest)"
+    echo
+    echo "## Current conflict state"
+    echo
+    echo '```diff'
+    w diff -- "$@" | head -n 1500
+    echo '```'
+  } >"$prompt"
+  echo "$prompt"
+}
+
+run_resolver() { # <n> <commit> <files...>; returns 0 if it reports resolved and the rebase moved on
+  local n=$1 commit=$2 prompt status s
+  shift 2
+  prompt=$(build_resolver_prompt "$n" "$commit" "$@")
+  log "resolver #$n ($RESOLVER_MODEL) for $(short_of "$commit"): $* (prompt: $prompt)"
+  s=$(date +%s)
+  set +e
+  (cd "$WORKTREE" && omp -p --model "$RESOLVER_MODEL" --cwd "$WORKTREE" --no-title --auto-approve \
+    --max-time "$RESOLVER_MAX_TIME" --session-dir "$RUN/resolver-sessions" \
+    "@$prompt" "Resolve the paused rebase exactly as the attached instructions say, then write the report.") \
+    >"$RUN/resolver-$n.log" 2>&1 </dev/null
+  local rc=$?
+  set -e
+  log "resolver #$n exited $rc after $(($(date +%s) - s))s"
+  [ -f "$RUN/resolver-$n-report.md" ] || printf 'STATUS: paused\n\n## Not confident\n\n- The resolver wrote no report (exit %s); see resolver-%s.log.\n' "$rc" "$n" >"$RUN/resolver-$n-report.md"
+  status=$(grep -m1 -oE '^STATUS: *(resolved|paused)' "$RUN/resolver-$n-report.md" | awk '{print $2}' || true)
+  if [ "$status" != resolved ]; then
+    return 1
+  fi
+  if rebase_in_progress && [ "$(w rev-parse -q --verify REBASE_HEAD || true)" = "$commit" ]; then
+    echo "- The resolver reported resolved but the rebase is still stopped on $(short_of "$commit")." >>"$RUN/resolver-$n-report.md"
+    return 1
+  fi
+  return 0
+}
+
+log "rebasing: git rebase --onto $NEW $OLD $BRANCH"
+set +e
+w rebase --onto "$NEW" "$OLD" "$BRANCH" >"$RUN/rebase.log" 2>&1
+set -e
+resolver_n=0
+while rebase_in_progress; do
+  commit=$(w rev-parse -q --verify REBASE_HEAD || true)
+  [ -n "$commit" ] || { COMMIT_STATE[unknown]="stopped"; finish 3 "rebase stopped without a conflict" "Inspect \`$WORKTREE\` (git status); see $RUN/rebase.log."; }
+  short=$(short_of "$commit")
+  mapfile -t unmerged < <(w diff --name-only --diff-filter=U)
+  if [ ${#unmerged[@]} -eq 0 ]; then
+    # rerere resolved everything (autoupdate staged it), or the commit became empty.
+    w rebase --continue >>"$RUN/rebase.log" 2>&1 || true
+    if ! rebase_in_progress || [ "$(w rev-parse -q --verify REBASE_HEAD || true)" != "$commit" ]; then
+      COMMIT_STATE[$short]="conflict resolved by rerere (recorded earlier resolution)"
+      continue
+    fi
+    if w diff --cached --quiet; then
+      w rebase --skip >>"$RUN/rebase.log" 2>&1 || true
+      COMMIT_STATE[$short]="dropped: empty on $NEW (upstream already has it)"
+      continue
+    fi
+    COMMIT_STATE[$short]="STOPPED: rebase --continue failed without conflicts"
+    finish 3 "rebase stopped at $short" "Inspect \`$WORKTREE\` (git status) and $RUN/rebase.log; continue by hand, then \`paseo-fork-sync --finish\`."
+  fi
+  log "conflict replaying $short ($(step_of)): ${unmerged[*]}"
+  if [ "$USE_RESOLVER" != 1 ]; then
+    COMMIT_STATE[$short]="CONFLICT (resolver disabled): ${unmerged[*]}"
+    finish 3 "rebase paused for a human at $short" "Resolve in \`$WORKTREE\` (\`git status\`), \`git add\`, \`git rebase --continue\`, then \`paseo-fork-sync --finish\`. To give up: \`git -C $WORKTREE rebase --abort\` (branch returns to $BACKUP)."
+  fi
+  resolver_n=$((resolver_n + 1))
+  if run_resolver "$resolver_n" "$commit" "${unmerged[@]}"; then
+    COMMIT_STATE[$short]="conflict in ${unmerged[*]}: resolved by agent (resolver-$resolver_n-report.md)"
+  else
+    COMMIT_STATE[$short]="FAILED: conflict in ${unmerged[*]}; resolver not confident, rebase paused (resolver-$resolver_n-report.md)"
+    finish 3 "rebase paused for a human at $short ($OLD → $NEW)" "Read the resolver report below, finish the resolution in \`$WORKTREE\` (\`git status\`, \`git add\`, \`git rebase --continue\`), then run \`paseo-fork-sync --finish\`. To give up: \`git -C $WORKTREE rebase --abort\` (branch returns to $BACKUP)."
+  fi
+done
+
+[ "$(detect_base)" = "$NEW" ] || finish 1 "rebase ended but $BRANCH is not on $NEW" "Inspect \`$WORKTREE\`; rollback: \`git -C $WORKTREE reset --hard $BACKUP\`."
+# Creation factor 100: pair resolved commits with their originals even when the resolution changed most of the patch.
+w range-diff --no-color --creation-factor=100 "$OLD..$BACKUP" "$NEW..HEAD" >"$RUN/range-diff.txt" 2>&1 || true
+RANGE_SUMMARY=$(head -n 200 "$RUN/range-diff.txt")
+RANGE_SUMMARY="$RANGE_SUMMARY
+(= same patch, ! patch changed (inner diff shows how), < only before (dropped), > only after; full: $RUN/range-diff.txt)"
+# A clean pick whose patch upstream already contains is dropped by git silently;
+# a commit is dropped when no commit after the rebase carries its subject.
+new_subjects=$(w log --format=%s "$NEW..HEAD")
+for line in "${COMMIT_LINES[@]}"; do
+  sha=${line%% *}
+  if ! grep -qxF -- "${line#* }" <<<"$new_subjects" && [ "${COMMIT_STATE[$sha]}" = "rebased cleanly" ]; then
+    COMMIT_STATE[$sha]="dropped: empty on $NEW (upstream already has it)"
+  fi
+done
+log "rebase done: $BRANCH is now $NEW + $(w rev-list --count "$NEW..HEAD") fork commit(s)"
+
+# ---------------------------------------------------------------- build, test, push
+if ! build_and_test "$NEW"; then
+  finish 4 "rebased onto $NEW, but build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\` (logs above), then \`paseo-fork-sync --finish\`. Rollback: \`git -C $WORKTREE reset --hard $BACKUP\`."
+fi
+push_branch || finish 1 "synced and tested, but push failed" "Check \`$RUN/push.log\`, then \`paseo-fork-sync --finish\`."
+finish 0 "synced $OLD → $NEW, built and tested" "Ready to switch: see the switch runbook ($RUNBOOK). Deploy tag for this build: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."

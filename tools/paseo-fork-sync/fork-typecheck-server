@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Targeted typecheck for a Paseo worktree, used by the paseo-fork-sync conflict
+# resolver mid-rebase. Run from the worktree root (or pass it as $1).
+# Reinstalls deps only when package-lock.json changed since the last install,
+# builds the server's workspace deps (their dist/ provides types), then
+# typechecks @getpaseo/server.
+set -euo pipefail
+cd "${1:-.}"
+[ -f package-lock.json ] && [ -d packages/server ] || {
+  echo "fork-typecheck-server: $(pwd) is not a Paseo worktree root" >&2
+  exit 2
+}
+export npm_config_cache="${npm_config_cache:-$HOME/tmp-archive/paseo-fork-test/npm-cache}"
+stamp=node_modules/.paseo-fork-sync-lock-hash
+hash=$(sha256sum package-lock.json | cut -d' ' -f1)
+if [ ! -d node_modules ] || [ "$(cat "$stamp" 2>/dev/null)" != "$hash" ]; then
+  echo "== npm ci (package-lock.json changed)"
+  npm ci --no-audit --no-fund
+  echo "$hash" >"$stamp"
+fi
+echo "== npm run build:server-deps"
+npm run build:server-deps
+echo "== npm run typecheck --workspace=@getpaseo/server"
+npm run typecheck --workspace=@getpaseo/server
