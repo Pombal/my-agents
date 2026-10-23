@@ -226,7 +226,7 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
         </Pressable>
       );
     };
-    const linkRow = (row: PageRow, options: { where: boolean; tab: boolean }) => (
+    const linkRow = (row: PageRow, withTab: boolean) => (
       <LinkRow
         key={`${row.tab.agentId}|${row.link.key}`}
         theme={theme}
@@ -237,8 +237,7 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
         onPress={press}
         onOpen={open}
         foldKey={`${workspaceId}|${row.tab.agentId}|${row.link.key}`}
-        where={options.where}
-        tab={options.tab ? tabCell(row) : undefined}
+        tab={withTab ? tabCell(row) : undefined}
       />
     );
     const groupHeader = (group: PageGroup) => {
@@ -266,11 +265,11 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
         </Pressable>
       );
     };
-    const groupBlock = (group: PageGroup, options: { where: boolean; tab: boolean }) => [
+    const groupBlock = (group: PageGroup, withTab: boolean) => [
       groupHeader(group),
       folded(group) ? null : (
         <View key={`rows|${group.key}`} style={page.groupRows}>
-          {group.rows.map((row) => linkRow(row, options))}
+          {group.rows.map((row) => linkRow(row, withTab))}
         </View>
       ),
     ];
@@ -297,12 +296,12 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
               Closed
             </Text>
           ) : null,
-          ...groupBlock(group, { where: true, tab: false }),
+          ...groupBlock(group, false),
         ]);
       } else {
         const rows = all.filter((row) => keep(row.link));
         shownRows = rows.length;
-        body = grouping === "site" ? bySite(rows).flatMap((group) => groupBlock(group, { where: false, tab: true })) : rows.map((row) => linkRow(row, { where: true, tab: true }));
+        body = grouping === "site" ? bySite(rows).flatMap((group) => groupBlock(group, true)) : rows.map((row) => linkRow(row, true));
       }
       if (!shownRows) {
         const elsewhere = shown && searched.some((entry) => entry.kind !== shown) ? ` in ${KIND_LABEL[shown].toLowerCase()}` : "";

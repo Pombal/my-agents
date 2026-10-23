@@ -1,17 +1,14 @@
 import type { Link } from "../shared/links";
 
-/**
- * One sub-row of an unfolded row: `url` opens, `text` is what it shows (the bare URL's path, else
- * the variant's literal query and fragment), `lastAt` its newest mention (none for a bare URL
- * that was never mentioned on its own).
- */
+/** One sub-row of an unfolded row: `url` opens; `query` is the variant's literal `?query#fragment`, empty for the bare URL. */
 export interface VariantRow {
   url: string;
-  text: string;
+  query: string;
+  /** Its newest mention; none for a bare URL that was never mentioned on its own. */
   lastAt?: number;
 }
 
-/** A run of a sub-row's text: URL syntax, keys and paths are muted; `value` runs are query values and the fragment. */
+/** A run of a sub-row's text: URL syntax and keys are faded; `value` runs are query values and the fragment. */
 export interface UrlPart {
   text: string;
   value: boolean;
@@ -21,11 +18,6 @@ export interface UrlPart {
 function withoutQuery(url: string): string {
   const cut = url.search(/[?#]/);
   return cut < 0 ? url : url.slice(0, cut);
-}
-
-/** The path of a URL as written (`/observatory-design/post-anatomy.html`), `/` for none. */
-function pathOf(url: string): string {
-  return withoutQuery(url).replace(/^[a-z][a-z\d+.-]*:\/\/[^/]*/i, "") || "/";
 }
 
 /**
@@ -39,18 +31,18 @@ export function variantRows(link: Link): VariantRow[] {
   if (!variants?.length) return [];
   const bare = variants.find((variant) => !variant.query);
   let first: VariantRow;
-  if (bare) first = { url: bare.url, text: pathOf(bare.url), lastAt: bare.lastAt };
+  if (bare) first = { url: bare.url, query: "", lastAt: bare.lastAt };
   else {
     let url = withoutQuery(variants[0]!.url);
     if (url.endsWith("/index.html") && !link.key.endsWith("/index.html")) url = url.slice(0, -"index.html".length);
-    first = { url, text: pathOf(url) };
+    first = { url, query: "" };
   }
-  const rest = variants.filter((variant) => variant !== bare).map((variant) => ({ url: variant.url, text: variant.query, lastAt: variant.lastAt }));
+  const rest = variants.filter((variant) => variant !== bare).map((variant) => ({ url: variant.url, query: variant.query, lastAt: variant.lastAt }));
   return [first, ...rest];
 }
 
 /**
- * A variant's literal `?query#fragment` in runs: `?`, `&`, `=`, keys and `#` muted, each value
+ * A variant's literal `?query#fragment` in runs: `?`, `&`, `=`, keys and `#` faded, each value
  * and the fragment not; adjacent runs of one kind are joined.
  */
 export function queryParts(query: string): UrlPart[] {
@@ -77,4 +69,32 @@ export function queryParts(query: string): UrlPart[] {
     push(query.slice(hash + 1), true);
   }
   return parts;
+}
+
+/**
+ * A row's path shortened until `fits` accepts it: the full path; the first segment (host or `~`),
+ * `/…/` and the last two segments; `…/` and the last two; `…/` and the last segment, cut at the
+ * end with `…`. A trailing `/` stays with the last segment.
+ */
+export function shortenPath(path: string, fits: (text: string) => boolean): string {
+  if (fits(path)) return path;
+  const slash = path.endsWith("/") && path.length > 1 ? "/" : "";
+  const segments = (slash ? path.slice(0, -1) : path).split("/");
+  const lastTwo = `${segments.slice(-2).join("/")}${slash}`;
+  if (segments.length > 3) {
+    const kept = `${segments[0]}/…/${lastTwo}`;
+    if (fits(kept)) return kept;
+  }
+  if (segments.length > 2 && fits(`…/${lastTwo}`)) return `…/${lastTwo}`;
+  const last = `${segments.length > 1 ? "…/" : ""}${segments.at(-1)}${slash}`;
+  if (fits(last)) return last;
+  // The longest start of `last` that fits with a closing `…`.
+  let low = 0;
+  let high = last.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(`${last.slice(0, mid)}…`)) low = mid;
+    else high = mid - 1;
+  }
+  return `${last.slice(0, low)}…`;
 }

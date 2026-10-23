@@ -31,6 +31,11 @@ export const LinkSchema = z.object({
   title: z.string(),
   /** Muted: the host, or the folder shortened to `~/…/a/b`. */
   where: z.string(),
+  /**
+   * What the row shows: the URL without scheme, query and fragment (`axalon:8080/pages/x/`, a webshare
+   * `index.html` dropped), or the file path with `~` and its newest `:line`; folders end in `/`.
+   */
+  path: z.string(),
   /** Lucide icon name for the row. */
   glyph: z.string(),
   /** web/image: what opens, the newest variant's full URL. */

@@ -3,8 +3,8 @@ import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Platform, Pressable, Text, View, type PressableStateCallbackType, type TextStyle } from "react-native";
 import type { Link, LinkKind } from "../shared/links";
-import { whereLabel } from "./store";
-import { queryParts, variantRows } from "./variants";
+import { rowMark } from "./store";
+import { queryParts, shortenPath, variantRows } from "./variants";
 
 /** The list parts the composer popover and the links page share: type tabs, sub-agents switch, rows. */
 
@@ -25,7 +25,16 @@ export type PressState = PressableStateCallbackType & { hovered?: boolean };
 
 type Theme = PluginHostProps["theme"];
 
-/** Paseo's real sizes: 13 px names, 12 px muted columns and tabs, 11 px counts; 28 px rows on desktop, 40 px on phones. */
+/** `#rgb`, `#rrggbb` or `rgb()` at `alpha`; other colour forms come back as they are. */
+function fade(color: string, alpha: number): string {
+  const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(color)?.[1];
+  const rgb = hex
+    ? (hex.length === 3 ? [...hex].map((digit) => digit + digit) : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)]).map((pair) => parseInt(pair, 16))
+    : /^rgb\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)\s*\)$/i.exec(color)?.slice(1).map(Number);
+  return rgb ? `rgba(${rgb.join(", ")}, ${alpha})` : color;
+}
+
+/** Paseo's real sizes: 13 px paths, 12 px muted marks and tabs, 11 px counts; 28 px rows on desktop, 40 px on phones. */
 function buildStyles(theme: Theme, compact: boolean) {
   const muted = theme.colors.foregroundMuted;
   return {
@@ -59,15 +68,15 @@ function buildStyles(theme: Theme, compact: boolean) {
       borderRadius: 6,
     },
     rowActive: { backgroundColor: theme.colors.surface2 },
-    name: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: theme.colors.foreground },
-    nameMissing: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: muted, textDecorationLine: "line-through" as const },
-    where: { flex: 1, minWidth: 0, fontSize: 12, color: muted },
-    // `×N` after the name: how many distinct full URLs (query strings, fragments) a row folds; it unfolds them.
-    variants: { fontSize: 11, color: muted, opacity: 0.7, fontVariant: ["tabular-nums" as const] },
-    variantsHover: { fontSize: 11, color: muted, fontVariant: ["tabular-nums" as const] },
-    variantsOn: { fontSize: 11, color: theme.colors.foreground, fontVariant: ["tabular-nums" as const] },
-    variantsButton: { flexShrink: 0, paddingHorizontal: 4, marginHorizontal: -4, paddingVertical: 2, borderRadius: 4 },
-    // Unfolded variants: sub-rows on a faint rail under the glyph, their text under the name. The
+    // The path takes the row's width; `pathBox` is what gets measured for shortening.
+    pathBox: { flex: 1, minWidth: 0 },
+    path: { fontSize: 13, color: theme.colors.foreground },
+    pathMissing: { fontSize: 13, color: muted, textDecorationLine: "line-through" as const },
+    mark: { flexShrink: 0, maxWidth: "40%" as const, fontSize: 12, color: muted },
+    // `×N` at the right edge: how many distinct full URLs (query strings, fragments) the row unfolds.
+    variants: { flexShrink: 0, fontSize: 11, color: muted, opacity: 0.7, fontVariant: ["tabular-nums" as const] },
+    variantsOn: { flexShrink: 0, fontSize: 11, color: theme.colors.foreground, fontVariant: ["tabular-nums" as const] },
+    // Unfolded variants: sub-rows on a faint rail under the glyph, their text under the path. The
     // theme's `border` vanishes on the popover's surface, so the rail is the muted colour, faded.
     rail: { marginLeft: 6 },
     railLine: { position: "absolute" as const, zIndex: 1, left: 0, top: 2, bottom: 2, width: 1, backgroundColor: muted, opacity: 0.25 },
@@ -82,13 +91,13 @@ function buildStyles(theme: Theme, compact: boolean) {
       marginRight: -8,
       borderRadius: 6,
     },
-    // The literal URL text: syntax, keys and path muted, values one step up. Long queries break anywhere (web).
-    subText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16, color: muted, wordBreak: "break-all" } as TextStyle,
+    // A literal query, wrapped in full: `?`, `&`, `=` and keys in the muted colour faded, values in
+    // the foreground, distinct even where the muted colour is nearly white. Breaks anywhere (web).
+    subText: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16, color: fade(muted, 0.6), wordBreak: "break-all" } as TextStyle,
     subValue: { color: theme.colors.foreground },
-    // Two lines fit the 28 px desktop row.
-    snippet: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 13, color: muted },
-    time: { flexShrink: 0, minWidth: 28, textAlign: "right" as const, fontSize: 12, color: muted, fontVariant: ["tabular-nums" as const] },
-    copied: { flexShrink: 0, minWidth: 28, textAlign: "right" as const, fontSize: 12, color: theme.colors.foreground },
+    noParams: { flex: 1, minWidth: 0, fontSize: 12, lineHeight: 16, color: muted },
+    time: { flexShrink: 0, textAlign: "right" as const, fontSize: 12, color: muted, fontVariant: ["tabular-nums" as const] },
+    copied: { flexShrink: 0, textAlign: "right" as const, fontSize: 12, color: theme.colors.foreground },
   };
 }
 
@@ -186,17 +195,56 @@ export function useLinkPress(after?: () => void): { press(link: Link): void; ope
 /** Rows whose variants are unfolded, by the caller's `foldKey`; kept until the app reloads. */
 const unfolded = new Set<string>();
 
-/** Web: the full URL as the browser's hover tooltip (React Native Web has no `title` prop). */
-function urlTooltip(url: string) {
+/** Web: a hover tooltip, none for `""` (React Native Web has no `title` prop). */
+function tooltip(text: string) {
   if (Platform.OS !== "web") return undefined;
-  return (node: unknown) => (node as { setAttribute?(name: string, value: string): void } | null)?.setAttribute?.("title", url);
+  return (node: unknown) => (node as { setAttribute?(name: string, value: string): void } | null)?.setAttribute?.("title", text);
+}
+
+type Canvas2D = { font: string; measureText(text: string): { width: number } };
+type WebGlobals = {
+  document?: { createElement(tag: "canvas"): { getContext(kind: "2d"): Canvas2D | null } };
+  getComputedStyle?(node: unknown): { fontWeight: string; fontSize: string; fontFamily: string };
+};
+/** The web's canvas measures text exactly, in the font read off the first rendered path. */
+let canvas: Canvas2D | null | undefined;
+let pathFont = "";
+const PATH_SIZE = 13;
+
+function readPathFont(node: unknown) {
+  if (pathFont || Platform.OS !== "web" || !node) return;
+  const style = (globalThis as WebGlobals).getComputedStyle?.(node);
+  if (style) pathFont = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+}
+
+/** A path's width in pixels: measured on the web, estimated (0.6 em per character) elsewhere. */
+function pathWidth(text: string): number {
+  if (canvas === undefined) canvas = Platform.OS === "web" ? ((globalThis as WebGlobals).document?.createElement("canvas").getContext("2d") ?? null) : null;
+  if (!canvas || !pathFont) return text.length * PATH_SIZE * 0.6;
+  canvas.font = pathFont;
+  return canvas.measureText(text).width;
+}
+
+/** The row's path in the width it gets, shortened by `shortenPath`; the full path as the web tooltip. */
+function RowPath(props: { theme: Theme; compact: boolean; link: Link }) {
+  const { link } = props;
+  const styles = listStyles(props.theme, props.compact);
+  const [width, setWidth] = useState(0);
+  const shown = width > 0 ? shortenPath(link.path, (text) => pathWidth(text) <= width) : link.path;
+  return (
+    <View ref={tooltip(shown === link.path ? "" : link.path)} style={styles.pathBox} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <Text ref={readPathFont} numberOfLines={1} style={link.missing ? styles.pathMissing : styles.path}>
+        {shown}
+      </Text>
+    </View>
+  );
 }
 
 /**
- * glyph · name (struck through when missing) · `×N` · muted host/folder (hover: the sentence around
- * the link, desktop only) · `tab` slot · time. `where: false` keeps the column for the sentence only.
- * `×N` (or → / ← on the focused row, web) unfolds the variants under the row: the bare URL's path,
- * then each variant's literal query, newest first; a sub-row opens its URL with `onOpen`.
+ * glyph · path (shortened to fit; struck through when missing) · muted `missing` / `↳ sub-agent` ·
+ * `tab` slot · time (desktop, on hover) · `×N`. A row with variants folds and unfolds them on a
+ * click (and → / ← on the focused row, web): `no params` for the bare URL, then each variant's
+ * literal query, newest first; a sub-row opens its URL with `onOpen`. Any other row opens or copies.
  */
 export function LinkRow(props: {
   theme: Theme;
@@ -208,11 +256,10 @@ export function LinkRow(props: {
   onOpen(url: string): void;
   /** Identifies the row for its fold state: the chat or workspace (and tab) plus the link key. */
   foldKey: string;
-  where?: boolean;
   tab?: ReactNode;
 }) {
-  const { link, now, copied, onPress, onOpen, foldKey, where = true, tab } = props;
-  const styles = listStyles(props.theme, props.compact);
+  const { link, now, copied, onPress, onOpen, foldKey, tab, compact } = props;
+  const styles = listStyles(props.theme, compact);
   const [open, setOpen] = useState(() => unfolded.has(foldKey));
   const fold = (next: boolean) => {
     if (next) unfolded.add(foldKey);
@@ -220,6 +267,7 @@ export function LinkRow(props: {
     setOpen(next);
   };
   const count = link.variants?.length ?? 0;
+  const mark = rowMark(link);
   const keys = count
     ? {
         onKeyDown: (event: { key: string }) => {
@@ -228,73 +276,64 @@ export function LinkRow(props: {
         },
       }
     : {};
+  const label = count ? `${open ? "Hide" : "Show"} ${count} variants of ${link.path}` : link.kind === "file" ? `Copy ${link.copy}` : `Open ${link.url}`;
   return (
     <View {...(keys as object)}>
       <Pressable
-        accessibilityRole={link.kind === "file" ? "button" : "link"}
-        accessibilityLabel={link.kind === "file" ? `Copy ${link.copy}` : `Open ${link.url}`}
-        onPress={() => onPress(link)}
+        accessibilityRole={count || link.kind === "file" ? "button" : "link"}
+        accessibilityState={count ? { expanded: open } : undefined}
+        accessibilityLabel={label}
+        onPress={() => (count ? fold(!open) : onPress(link))}
         style={({ hovered, pressed }: PressState) => [styles.row, (hovered || pressed) && styles.rowActive]}
       >
         {({ hovered }: PressState) => (
           <>
             <Icon name={link.glyph} size={14} color={styles.muted} />
-            <Text numberOfLines={1} style={link.missing ? styles.nameMissing : styles.name}>
-              {link.title}
-            </Text>
-            {count ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ expanded: open }}
-                accessibilityLabel={open ? "Hide variants" : `Show ${count} variants`}
-                onPress={() => fold(!open)}
-                hitSlop={props.compact ? { top: 10, bottom: 10, left: 8, right: 8 } : 4}
-                style={styles.variantsButton}
-              >
-                {({ hovered: over }: PressState) => <Text style={open ? styles.variantsOn : over ? styles.variantsHover : styles.variants}>{`×${count}`}</Text>}
-              </Pressable>
+            <RowPath theme={props.theme} compact={compact} link={link} />
+            {mark ? (
+              <Text numberOfLines={1} style={styles.mark}>
+                {mark}
+              </Text>
             ) : null}
-            {/* Desktop only: phones have no hover, so they never see snippets. */}
-            {hovered && link.snippet ? (
-              <Text numberOfLines={2} style={styles.snippet}>
-                {link.snippet}
-              </Text>
-            ) : (
-              <Text numberOfLines={1} style={styles.where}>
-                {where ? whereLabel(link) : link.missing ? "missing" : ""}
-              </Text>
-            )}
             {tab}
-            {copied ? <Text style={styles.copied}>copied</Text> : <Text style={styles.time}>{ago(link.lastAt, now)}</Text>}
+            {/* Phones have no hover, so they show no time. */}
+            {copied ? <Text style={styles.copied}>copied</Text> : hovered && !compact ? <Text style={styles.time}>{ago(link.lastAt, now)}</Text> : null}
+            {count ? <Text style={open ? styles.variantsOn : styles.variants}>{`×${count}`}</Text> : null}
           </>
         )}
       </Pressable>
       {open && count ? (
         <View style={styles.rail}>
           <View style={styles.railLine} />
-          {variantRows(link).map((sub, index) => (
+          {variantRows(link).map((sub) => (
             <Pressable
               key={sub.url}
-              ref={urlTooltip(sub.url)}
+              ref={tooltip(sub.url)}
               accessibilityRole="link"
               accessibilityLabel={`Open ${sub.url}`}
               onPress={() => onOpen(sub.url)}
               style={({ hovered, pressed }: PressState) => [styles.sub, (hovered || pressed) && styles.rowActive]}
             >
-              <Text numberOfLines={2} style={styles.subText}>
-                {index === 0
-                  ? sub.text
-                  : queryParts(sub.text).map((part, at) =>
-                      part.value ? (
-                        <Text key={at} style={styles.subValue}>
-                          {part.text}
-                        </Text>
-                      ) : (
-                        part.text
-                      ),
-                    )}
-              </Text>
-              <Text style={styles.time}>{sub.lastAt === undefined ? "" : ago(sub.lastAt, now)}</Text>
+              {({ hovered }: PressState) =>
+                sub.query ? (
+                  <>
+                    <Text style={styles.subText}>
+                      {queryParts(sub.query).map((part, at) =>
+                        part.value ? (
+                          <Text key={at} style={styles.subValue}>
+                            {part.text}
+                          </Text>
+                        ) : (
+                          part.text
+                        ),
+                      )}
+                    </Text>
+                    {hovered && !compact && sub.lastAt !== undefined ? <Text style={styles.time}>{ago(sub.lastAt, now)}</Text> : null}
+                  </>
+                ) : (
+                  <Text style={styles.noParams}>no params</Text>
+                )
+              }
             </Pressable>
           ))}
         </View>

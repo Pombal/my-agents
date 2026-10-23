@@ -123,12 +123,12 @@ export function bySite(rows: readonly PageRow[]): PageGroup[] {
   return [...groups.values()];
 }
 
-/** A search over name, folder or host, URL or path, sentence and sub-agent: every word must match. */
+/** A search over name, shown path, folder or host, URL or path, sentence and sub-agent: every word must match. */
 export function searchFilter(query: string): (link: Link) => boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return () => true;
   return (link) => {
-    const text = [link.title, link.where, link.url, link.copy, link.snippet, link.via].join(" ").toLowerCase();
+    const text = [link.title, link.path, link.where, link.url, link.copy, link.snippet, link.via].join(" ").toLowerCase();
     return words.every((word) => text.includes(word));
   };
 }

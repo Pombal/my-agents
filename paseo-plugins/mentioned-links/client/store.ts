@@ -132,9 +132,9 @@ export function withSubagents(links: readonly Link[], subagentLinks: readonly Li
   return [...links, ...subagentLinks].sort((a, b) => b.lastAt - a.lastAt);
 }
 
-/** The muted column: `missing` for a path that is gone, the sub-agent for a sub-agent's link, else the host or folder. */
-export function whereLabel(link: Link): string {
+/** The muted mark after a row's path: `missing` for a path that is gone, the sub-agent for a sub-agent's link, or both. */
+export function rowMark(link: Link): string {
   const via = link.via ? `↳ ${link.via}` : "";
   if (link.missing) return via ? `missing · ${via}` : "missing";
-  return via || link.where;
+  return via;
 }

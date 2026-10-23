@@ -1,27 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Link, LinkVariant } from "../shared/links";
-import { queryParts, variantRows } from "./variants";
+import { queryParts, shortenPath, variantRows } from "./variants";
 
 const variant = (url: string, lastAt: number): LinkVariant => {
   const cut = url.search(/[?#]/);
   return { url, query: cut < 0 ? "" : url.slice(cut), count: 1, lastAt };
 };
-const link = (key: string, variants: LinkVariant[]): Link => ({ key, kind: "web", title: "x", where: "host", glyph: "Globe", url: variants[0]!.url, lastAt: variants[0]!.lastAt, variants });
+const link = (key: string, variants: LinkVariant[]): Link => ({ key, kind: "web", title: "x", where: "host", path: key, glyph: "Globe", url: variants[0]!.url, lastAt: variants[0]!.lastAt, variants });
 
 describe("variant rows", () => {
   it("put the bare URL first, derived from the newest variant when it was never mentioned on its own", () => {
     const row = link("https://site.dev/docs/page.html", [variant("https://site.dev/docs/page.html?v=tree&title=1#notes", 9), variant("https://site.dev/docs/page.html?v=card", 4)]);
     expect(variantRows(row)).toEqual([
-      { url: "https://site.dev/docs/page.html", text: "/docs/page.html" },
-      { url: "https://site.dev/docs/page.html?v=tree&title=1#notes", text: "?v=tree&title=1#notes", lastAt: 9 },
-      { url: "https://site.dev/docs/page.html?v=card", text: "?v=card", lastAt: 4 },
+      { url: "https://site.dev/docs/page.html", query: "" },
+      { url: "https://site.dev/docs/page.html?v=tree&title=1#notes", query: "?v=tree&title=1#notes", lastAt: 9 },
+      { url: "https://site.dev/docs/page.html?v=card", query: "?v=card", lastAt: 4 },
     ]);
   });
 
-  it("use the mentioned bare URL, with its time, first even when it is not the newest", () => {
+  it("use the mentioned bare URL first even when it is not the newest", () => {
     const row = link("https://site.dev/page", [variant("https://site.dev/page#install", 9), variant("https://site.dev/page", 5), variant("https://site.dev/page?x=1", 2)]);
-    expect(variantRows(row).map((sub) => [sub.text, sub.lastAt])).toEqual([
-      ["/page", 5],
+    expect(variantRows(row).map((sub) => [sub.query, sub.lastAt])).toEqual([
+      ["", 5],
       ["#install", 9],
       ["?x=1", 2],
     ]);
@@ -29,14 +29,14 @@ describe("variant rows", () => {
 
   it("drop a webshare `index.html` the row's key dropped, and keep one the key kept", () => {
     const webshare = link("http://axalon:8080/pages/mocks", [variant("http://axalon:8080/pages/mocks/index.html?f=2", 9), variant("http://axalon:8080/pages/mocks/?f=1", 3)]);
-    expect(variantRows(webshare)[0]).toEqual({ url: "http://axalon:8080/pages/mocks/", text: "/pages/mocks/" });
+    expect(variantRows(webshare)[0]).toEqual({ url: "http://axalon:8080/pages/mocks/", query: "" });
     const other = link("https://site.dev/index.html", [variant("https://site.dev/index.html?a=1", 9), variant("https://site.dev/index.html?a=2", 3)]);
-    expect(variantRows(other)[0]).toEqual({ url: "https://site.dev/index.html", text: "/index.html" });
+    expect(variantRows(other)[0]).toEqual({ url: "https://site.dev/index.html", query: "" });
   });
 });
 
 describe("query parts", () => {
-  it("split a literal query into muted syntax and keys and plain values, the fragment a value", () => {
+  it("split a literal query into faded syntax and keys and plain values, the fragment a value", () => {
     expect(queryParts("?v=tree3&pathpos=below&flag&empty=#notes")).toEqual([
       { text: "?v=", value: false },
       { text: "tree3", value: true },
@@ -56,5 +56,45 @@ describe("query parts", () => {
       { text: "#", value: false },
       { text: "install", value: true },
     ]);
+  });
+});
+
+describe("path shortening", () => {
+  // Widths in characters; the client measures pixels.
+  const at = (path: string, ...widths: number[]) => widths.map((width) => shortenPath(path, (text) => text.length <= width));
+
+  it("keep the first segment and the last two of a GitHub URL, then drop the first, then the second-to-last", () => {
+    expect(at("github.com/getpaseo/paseo/pull/123", 40, 30, 20, 6)).toEqual(["github.com/getpaseo/paseo/pull/123", "github.com/…/pull/123", "…/pull/123", "…/123"]);
+  });
+
+  it("go from a short webshare URL's full path to its last two segments, its last, then cut that at the end", () => {
+    expect(at("axalon:8080/observatory-design/post-anatomy.html", 50, 40, 25, 12)).toEqual([
+      "axalon:8080/observatory-design/post-anatomy.html",
+      "…/observatory-design/post-anatomy.html",
+      "…/post-anatomy.html",
+      "…/post-anat…",
+    ]);
+  });
+
+  it("keep `~` and the `:line` suffix of a home file", () => {
+    expect(at("~/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318", 70, 44, 42, 30, 20)).toEqual([
+      "~/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318",
+      "~/…/paseo-grievances/paseo-grievances.md:318",
+      "…/paseo-grievances/paseo-grievances.md:318",
+      "…/paseo-grievances.md:318",
+      "…/paseo-grievances.…",
+    ]);
+  });
+
+  it("keep a folder's trailing slash on its last segment", () => {
+    expect(at("axalon:8080/nilo-wayfinder-artifacts/nilo-observatory/share-previews/final/", 40, 30, 10)).toEqual([
+      "axalon:8080/…/share-previews/final/",
+      "…/share-previews/final/",
+      "…/final/",
+    ]);
+  });
+
+  it("cut a bare host at the end", () => {
+    expect(at("nilo-observatory.vercel.app", 30, 10)).toEqual(["nilo-observatory.vercel.app", "nilo-obse…"]);
   });
 });

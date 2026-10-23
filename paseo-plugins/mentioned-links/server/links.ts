@@ -112,14 +112,22 @@ function isVariantLabel(text: string, url: URL): boolean {
   return false;
 }
 
-/** The row's key, name and variant for a URL; `text` is the mention's link text. */
+/** The row's key, name, shown path and variant for a URL; `text` is the mention's link text. */
 function urlParts(url: URL, site: Site, text: string | undefined) {
   const page = pagePath(url, site);
   const key = `${url.protocol}//${url.host}${page}`;
   const query = `${url.search}${url.hash}`;
+  // As written, without scheme, query and fragment; a trailing `/` stays, a webshare `index.html` goes.
+  let shown = url.origin === site.webshareOrigin ? url.pathname.replace(/\/index\.html$/, "/") : url.pathname;
+  try {
+    shown = decodeURI(shown);
+  } catch {
+    // Keep it encoded.
+  }
   return {
     key,
     name: urlTitle(url.host, page),
+    path: `${url.host}${shown === "/" ? "" : shown}`,
     url: url.href,
     variant: { id: `${key}${query}`, url: url.href, query, label: !!text && !!query && isVariantLabel(text, url) },
   };
@@ -184,6 +192,8 @@ export function classify(mention: Mention, site: Site): Classified | null {
   return {
     key: `file:${file}`,
     kind: "file",
+    // Under the home folder as `~/…`; `listLinks` adds the `:line`.
+    path: `${file === site.home || file.startsWith(`${site.home}/`) ? `~${file.slice(site.home.length)}` : file}${dir ? "/" : ""}`,
     name,
     title: text ?? name,
     ...(text ? { text } : {}),
@@ -276,7 +286,7 @@ export function listLinks(links: LinkMap, everyVariant = false): Link[] {
       return {
         ...link,
         title: rowTitle(entry),
-        ...(file ? { copy: `${file}${line ?? ""}` } : {}),
+        ...(file ? { copy: `${file}${line ?? ""}`, path: `${link.path}${line ?? ""}` } : {}),
         ...(disk && !existsSync(disk) ? { missing: true } : {}),
         ...(variants.size > (everyVariant ? 0 : 1)
           ? {

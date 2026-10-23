@@ -7,6 +7,7 @@ const link = (key: string, lastAt: number, extra: Partial<Link> = {}): Link => (
   kind: "web" as LinkKind,
   title: key,
   where: "host",
+  path: key,
   glyph: "Globe",
   url: `https://${key}`,
   lastAt,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Link, LinkKind } from "../shared/links";
-import { kindCounts, shownKind, whereLabel, withSubagents } from "./store";
+import { kindCounts, rowMark, shownKind, withSubagents } from "./store";
 
-const link = (kind: LinkKind, n: number): Link => ({ key: `${kind}:${n}`, kind, title: `${kind} ${n}`, where: "", glyph: "File", lastAt: n });
+const link = (kind: LinkKind, n: number): Link => ({ key: `${kind}:${n}`, kind, title: `${kind} ${n}`, where: "", path: `~/${n}`, glyph: "File", lastAt: n });
 
 describe("type tabs", () => {
   it("lists only the types a chat has, in tab order", () => {
@@ -31,10 +31,10 @@ describe("sub-agent links", () => {
     const extra: Link[] = [{ ...link("web", 5), via: "LinksPillBuild" }, { ...link("file", 1), via: "Scout" }];
     expect(withSubagents(chat, extra, false)).toBe(chat);
     const shown = withSubagents(chat, extra, true);
-    expect(shown.map((row) => [row.lastAt, whereLabel({ ...row, where: "host" })])).toEqual([
-      [9, "host"],
+    expect(shown.map((row) => [row.lastAt, rowMark(row)])).toEqual([
+      [9, ""],
       [5, "↳ LinksPillBuild"],
-      [3, "host"],
+      [3, ""],
       [1, "↳ Scout"],
     ]);
     // They obey the type filter like any other link: Web alone now has two rows.
@@ -45,8 +45,8 @@ describe("sub-agent links", () => {
     ]);
   });
 
-  it("mark a missing path in the muted column, keeping the sub-agent", () => {
-    expect(whereLabel({ ...link("file", 1), where: "~/tmp", missing: true })).toBe("missing");
-    expect(whereLabel({ ...link("file", 1), where: "~/tmp", missing: true, via: "Scout" })).toBe("missing · ↳ Scout");
+  it("mark a missing path after the path, keeping the sub-agent", () => {
+    expect(rowMark({ ...link("file", 1), missing: true })).toBe("missing");
+    expect(rowMark({ ...link("file", 1), missing: true, via: "Scout" })).toBe("missing · ↳ Scout");
   });
 });
