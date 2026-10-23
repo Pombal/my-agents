@@ -263,8 +263,12 @@ export function addProse(links: LinkMap, prose: Prose, site: Site): void {
   });
 }
 
-/** Newest first, as the popover shows them; paths are checked on disk on every call. */
-export function listLinks(links: LinkMap): Link[] {
+/**
+ * Newest first, as the popover shows them; paths are checked on disk on every call. `variants`
+ * only for 2+ distinct full URLs, or (`everyVariant`, for the links page to merge across tabs)
+ * for every URL link.
+ */
+export function listLinks(links: LinkMap, everyVariant = false): Link[] {
   return [...links.values()]
     .sort((a, b) => b.lastAt - a.lastAt)
     .map((entry) => {
@@ -274,7 +278,7 @@ export function listLinks(links: LinkMap): Link[] {
         title: rowTitle(entry),
         ...(file ? { copy: `${file}${line ?? ""}` } : {}),
         ...(disk && !existsSync(disk) ? { missing: true } : {}),
-        ...(variants.size > 1
+        ...(variants.size > (everyVariant ? 0 : 1)
           ? {
               variants: [...variants.values()]
                 .sort((a, b) => b.lastAt - a.lastAt || b.seq - a.seq)
@@ -287,12 +291,12 @@ export function listLinks(links: LinkMap): Link[] {
 
 /**
  * What the chat's sub-agents add: their links whose key the chat itself never mentioned, one row
- * per link, marked `via` the sub-agent that mentioned it last. Newest first.
+ * per link, marked `via` the sub-agent that mentioned it last. Newest first. `everyVariant` as in `listLinks`.
  */
-export function subagentLinks(chat: LinkMap, subagents: readonly { name: string; links: LinkMap }[]): Link[] {
+export function subagentLinks(chat: LinkMap, subagents: readonly { name: string; links: LinkMap }[], everyVariant = false): Link[] {
   const added = new Map<string, Link>();
   for (const subagent of subagents) {
-    for (const link of listLinks(subagent.links)) {
+    for (const link of listLinks(subagent.links, everyVariant)) {
       if (chat.has(link.key)) continue;
       const prev = added.get(link.key);
       if (!prev || link.lastAt > prev.lastAt) added.set(link.key, { ...link, via: subagent.name });

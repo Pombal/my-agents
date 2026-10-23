@@ -45,7 +45,11 @@ export const LinkSchema = z.object({
   missing: z.boolean().optional(),
   /** The newest mention's sentence as plain text, about 120 characters. */
   snippet: z.string().optional(),
-  /** Only when the link was mentioned with 2+ distinct full URLs: each of them, newest first. */
+  /**
+   * Only when the link was mentioned with 2+ distinct full URLs: each of them, newest first.
+   * `links.for-workspace` sends them for every URL link (1+) so the page can merge them across tabs;
+   * the page's rows keep the 2+ rule.
+   */
   variants: z.array(LinkVariantSchema).optional(),
 });
 export type Link = z.infer<typeof LinkSchema>;

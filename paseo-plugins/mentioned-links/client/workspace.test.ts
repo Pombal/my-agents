@@ -49,6 +49,26 @@ describe("flat rows", () => {
       ["c.dev", "Titles", undefined, 1],
     ]);
   });
+
+  it("merge a link's variants across tabs: every distinct URL once, counts summed, newest first; a single URL shows none", () => {
+    const page = "http://axalon:8080/pages/m";
+    const variant = (query: string, count: number, lastAt: number, title?: string) => ({ url: `${page}${query}`, query, ...(title ? { title } : {}), count, lastAt });
+    const tabs = [
+      tab("Links", [link("m", 5, { url: `${page}?f=a`, variants: [variant("?f=a", 2, 5, "A"), variant("", 1, 1)] }), link("one", 3, { variants: [variant("", 2, 3)] })]),
+      tab("Mocks", [link("m", 9, { url: `${page}?f=b`, variants: [variant("?f=b", 1, 9), variant("?f=a", 3, 4)] })]),
+      tab("Tree", [link("one", 2, { variants: [variant("", 1, 2)] })]),
+    ];
+    const [m, one] = flatRows(tabs, false);
+    expect([m!.link.url, m!.tab.title, m!.others]).toEqual([`${page}?f=b`, "Mocks", 1]);
+    expect(m!.link.variants).toEqual([variant("?f=b", 1, 9), variant("?f=a", 5, 5, "A"), variant("", 1, 1)]);
+    expect(one!.link).not.toHaveProperty("variants");
+    // By tab keeps each tab's own variants, with the same 2+ rule.
+    expect(byTab(tabs, false, () => true).map((group) => [group.title, group.rows.map((row) => row.link.variants?.length)])).toEqual([
+      ["Mocks", [2]],
+      ["Links", [2, undefined]],
+      ["Tree", [undefined]],
+    ]);
+  });
 });
 
 describe("grouping", () => {

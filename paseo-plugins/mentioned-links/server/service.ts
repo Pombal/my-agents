@@ -108,11 +108,12 @@ export function createLinksService(home: string) {
         title: root.title || root.id.slice(0, 8),
         provider: root.provider,
         closed: !!root.archivedAt,
-        links: listLinks(links),
+        // Every URL link carries its variants, so the page can merge them across tabs (`client/workspace.ts`).
+        links: listLinks(links, true),
       };
       if (!subagents) return tab;
       const [own, folded] = await Promise.all([harnessSubagents(transcript), agentTranscripts(children, home)]);
-      return { ...tab, subagentLinks: subagentLinks(links, await readSubagents([...own, ...folded])) };
+      return { ...tab, subagentLinks: subagentLinks(links, await readSubagents([...own, ...folded]), true) };
     });
     return { tabs };
   }

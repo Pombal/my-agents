@@ -101,6 +101,16 @@ describe("variants", () => {
     expect(row).not.toHaveProperty("variants");
   });
 
+  it("lists the single variant too when asked (the links page merges them across tabs); files never have any", () => {
+    const links: LinkMap = new Map();
+    addProse(links, { role: "assistant", text: "Twice [the docs](https://paseo.sh/docs?tab=web) and `/home/cx/notes.md`", at: 60_000 }, siteFor("/home/cx"));
+    addProse(links, { role: "assistant", text: "Again https://paseo.sh/docs?tab=web", at: 120_000 }, siteFor("/home/cx"));
+    expect(listLinks(links, true).map(({ title, variants }) => [title, variants])).toEqual([
+      ["the docs", [{ url: "https://paseo.sh/docs?tab=web", query: "?tab=web", title: "the docs", count: 2, lastAt: 120_000 }]],
+      ["notes.md", undefined],
+    ]);
+  });
+
   it("keeps one link text all variants share, names the page when the text names a variant", () => {
     const shared = rows(["assistant", `[Post anatomy](${PAGE}?v=a) and [Post anatomy](${PAGE}?v=b)`, 1]);
     expect(shared.map(({ title, variants }) => [title, variants?.map((variant) => variant.title)])).toEqual([
