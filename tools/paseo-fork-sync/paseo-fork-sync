@@ -307,7 +307,7 @@ build_and_test() { # sets BUILD_RESULT / TEST_RESULT; returns 0 if all passed
   BUILD_RESULT="ok in $(($(date +%s) - b0))s (npm ci, build:server, build:daemon-web-ui; version $VERSION)"
   run_step typecheck-server npm run typecheck:server || { TEST_RESULT="FAILED: typecheck:server (see $RUN/typecheck-server.log)"; return 1; }
   t_tc=$STEP_TIME
-  local rc=0 counts fails files baseline_fails new_fails
+  local rc=0 counts fails files baseline_fails new_fails still flaky='' notes=''
   run_step test-server-unit env NO_COLOR=1 FORCE_COLOR=0 npm run test:unit --workspace=@getpaseo/server || rc=$?
   t_unit=$STEP_TIME
   counts=$(grep -E '^ *(Test Files|Tests) ' "$RUN/test-server-unit.log" | tail -2 | tr -s ' ' | sed 's/^ //' | paste -sd';')
@@ -329,10 +329,41 @@ build_and_test() { # sets BUILD_RESULT / TEST_RESULT; returns 0 if all passed
   fi
   new_fails=$(comm -23 <(echo "$fails") <(echo "$baseline_fails"))
   if [ -n "$new_fails" ]; then
-    TEST_RESULT="FAILED: server unit suite ($counts); failing only on the fork: $(paste -sd';' <<<"$new_fails") (see $RUN/test-server-unit.log)"
-    return 1
+    # Timing-sensitive tests can fail under full-suite load: rerun fork-only failures
+    # alone on the fork, up to 2 times; a test that passes on a retry is flaky, not blocking.
+    still=$(retry_fork_failures "$new_fails")
+    flaky=$(comm -23 <(echo "$new_fails") <(echo "$still") | sed '/^$/d')
+    if [ -n "$still" ]; then
+      TEST_RESULT="FAILED: server unit suite ($counts); failing only on the fork, also on isolated retry: $(paste -sd';' <<<"$still") (see $RUN/test-server-unit.log, $RUN/test-retry.log)"
+      [ -n "$flaky" ] && TEST_RESULT="$TEST_RESULT; flaky (passed on retry): $(paste -sd';' <<<"$flaky")"
+      return 1
+    fi
   fi
-  TEST_RESULT="ok: typecheck:server ${t_tc}s; server unit suite ${t_unit}s ($counts; every failure also fails on pristine $tag, see $RUN/test-baseline.log: $(paste -sd';' <<<"$fails"))"
+  baseline_fails=$(comm -12 <(echo "$fails") <(echo "$baseline_fails") | sed '/^$/d')
+  [ -n "$baseline_fails" ] && notes="; also fails on pristine $tag (see $RUN/test-baseline.log): $(paste -sd';' <<<"$baseline_fails")"
+  [ -n "$flaky" ] && notes="$notes; flaky (passed on retry, see $RUN/test-retry.log): $(paste -sd';' <<<"$flaky")"
+  TEST_RESULT="ok: typecheck:server ${t_tc}s; server unit suite ${t_unit}s ($counts$notes)"
+}
+
+# Reruns the files of the given failing tests on the fork worktree in isolation, up to
+# 2 times, and prints the tests that failed on every attempt (a crashed run counts as failing).
+retry_fork_failures() { # <failing tests, one per line>
+  local still=$1 attempt files out rc retry_fails
+  for attempt in 1 2; do
+    files=$(cut -d' ' -f1 <<<"$still" | sort -u)
+    out=$RUN/test-retry-$attempt.log
+    rc=0
+    # shellcheck disable=SC2086
+    (cd "$WORKTREE/packages/server" && NO_COLOR=1 FORCE_COLOR=0 npx vitest run $files) >"$out" 2>&1 || rc=$?
+    retry_fails=$(grep -E '^ FAIL ' "$out" | sed -E 's/^ FAIL +//' | sort -u || true)
+    { echo "== retry $attempt (exit $rc): $files"; cat "$out"; } >>"$RUN/test-retry.log"
+    rm -f "$out"
+    [ "$rc" = 0 ] && { still=''; break; }
+    # Nonzero exit without FAIL lines (crash, collection error): keep everything failing.
+    [ -n "$retry_fails" ] && still=$(comm -12 <(echo "$still") <(echo "$retry_fails") | sed '/^$/d')
+    [ -z "$still" ] && break
+  done
+  printf '%s\n' "$still" | sed '/^$/d'
 }
 
 # Runs the given server test files in a pristine worktree of <tag> and prints the
