@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 // Paseo's plugin types leave out the DOM library; declare only what this module uses.
 interface DomElement {
   parentElement: DomElement | null;
+  style: { display: string };
   isConnected: boolean;
   querySelector(selector: string): DomElement | null;
   getClientRects(): { length: number };
@@ -50,6 +51,12 @@ export function trackPill(agentId: string, node: unknown): () => void {
     nodes.delete(node as DomElement);
     if (!nodes.size) pillNodes.delete(agentId);
   };
+}
+
+/** Web only: Paseo always draws a 16 px icon slot in a pill; hide it so the pill is label-only. */
+export function hideIconSlot(node: unknown): void {
+  const slot = isWeb ? (node as DomElement | null)?.parentElement : null;
+  if (slot) slot.style.display = "none";
 }
 
 /** The chat's composer textarea: the nearest one above a visible `cmds` pill of that chat. */

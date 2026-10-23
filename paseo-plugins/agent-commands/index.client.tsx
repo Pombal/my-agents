@@ -1,11 +1,10 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef } from "react";
 import { View } from "react-native";
 import { createCommandsPopover, reopenOnFilterEscape } from "./client/popover";
 import { createSettingsScreen } from "./client/settings";
-import { trackPill } from "./client/web";
+import { hideIconSlot, trackPill } from "./client/web";
 import { SLASH_NAME } from "./shared/commands";
 import { sendCommand, slashCatalog } from "./shared/rpc";
 import { settings, type Settings } from "./shared/settings";
@@ -18,12 +17,15 @@ interface AgentSummary {
   internal?: boolean;
 }
 
-/** The pill's square-slash icon; on web its DOM node also tells where this chat's message box is. */
-function PillIcon(props: PluginButtonIconProps) {
+/** No visible icon (Stefan: label only). On web the empty node hides Paseo's icon slot and tells where this chat's message box is. */
+function PillAnchor(props: PluginButtonIconProps) {
   const agentId = props.context === "agent" ? props.agentId : "";
   const ref = useRef<View>(null);
-  useEffect(() => trackPill(agentId, ref.current), [agentId]);
-  return <View ref={ref}><Icon name="SquareSlash" size={props.size} color={props.color} /></View>;
+  useEffect(() => {
+    hideIconSlot(ref.current);
+    return trackPill(agentId, ref.current);
+  }, [agentId]);
+  return <View ref={ref} />;
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -45,7 +47,7 @@ export default function contribute(client: PluginClientContext) {
       id: "cmds",
       workspaceId: agent.workspaceId,
       agentId: agent.id,
-      button: { title: "Commands", icon: PillIcon, label: "cmds", behavior: { kind: "popover", Content } },
+      button: { title: "Commands", icon: PillAnchor, label: "cmds", behavior: { kind: "popover", Content } },
     }));
   };
 

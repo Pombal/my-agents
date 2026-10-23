@@ -1,4 +1,4 @@
-A `cmds` composer pill (square-slash icon) in every chat, any provider. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. Design: `~/www/webshare/pages/agent-commands-mocks/simple.html?on=desc,filter,send&rows=inline&tone=extra&agent=busy`.
+A `cmds` composer pill (label only, no icon) in every chat, any provider. It lists your reusable prompt files from `.agents/commands/*.md` and puts one into the chat with a click. Design: `~/www/webshare/pages/agent-commands-mocks/simple.html?on=desc,filter,send&rows=inline&tone=extra&agent=busy`.
 
 ## What it does
 
