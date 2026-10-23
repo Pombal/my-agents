@@ -149,7 +149,7 @@ write_report() {
     echo
     echo "- Result: **$RESULT**"
     echo "- Branch: \`$BRANCH\` in \`$WORKTREE\`"
-    [ -n "$OLD" ] && echo "- Upstream: $OLD → ${NEW:-$OLD}"
+    if [ -n "$NEW" ]; then echo "- Upstream: $OLD → $NEW"; elif [ -n "$OLD" ]; then echo "- Upstream base: $OLD"; fi
     [ -n "$VERSION" ] && echo "- Version stamp (uncommitted): \`$VERSION\`"
     [ -n "$BACKUP" ] && echo "- Pre-sync branch saved as \`$BACKUP\` (rollback: \`git -C $WORKTREE reset --hard $BACKUP\`)"
     echo "- Build: $BUILD_RESULT"
