@@ -30,7 +30,7 @@ export function createLinksPopover(store: LinksStore<ChatLinks>) {
       setSubagentsShown(!subagentsShown);
     }, [agentId, subagentsShown]);
     const status = useAgent(agentId, (agent) => agent.status);
-    const { press, copied } = useLinkPress(close);
+    const { press, open, copied } = useLinkPress(close);
 
     // Registered before the refresh below, so the popover's own fetch already includes sub-agents.
     useEffect(() => store.watchSubagents(agentId), [agentId]);
@@ -77,7 +77,17 @@ export function createLinksPopover(store: LinksStore<ChatLinks>) {
         ) : null}
         {rows.length ? null : <Text style={styles.line}>No links in this chat yet</Text>}
         {rows.map((link) => (
-          <LinkRow key={link.key} theme={theme} compact={compact} link={link} now={now} copied={copied === link.key} onPress={press} />
+          <LinkRow
+            key={link.key}
+            theme={theme}
+            compact={compact}
+            link={link}
+            now={now}
+            copied={copied === link.key}
+            onPress={press}
+            onOpen={open}
+            foldKey={`${agentId}|${link.key}`}
+          />
         ))}
       </View>
     );

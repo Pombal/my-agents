@@ -148,7 +148,7 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
     const [menuOpen, setMenuOpen] = useState(false);
     const [searchFocused, setSearchFocused] = useState(false);
     const [, setFoldsVersion] = useState(0);
-    const { press, copied } = useLinkPress();
+    const { press, open, copied } = useLinkPress();
 
     // Registered before the first refresh, so the page's own fetch already includes sub-agents.
     useEffect(() => store.watchSubagents(workspaceId), [workspaceId]);
@@ -235,6 +235,8 @@ export function createLinksPage(store: LinksStore<WorkspaceLinks>, show: (worksp
         now={now}
         copied={copied === row.link.key}
         onPress={press}
+        onOpen={open}
+        foldKey={`${workspaceId}|${row.tab.agentId}|${row.link.key}`}
         where={options.where}
         tab={options.tab ? tabCell(row) : undefined}
       />
