@@ -1,0 +1,703 @@
+#!/usr/bin/env bash
+# paseo-fork: deploy tested builds of Stefan's Paseo daemon fork (branch `axalon`)
+# and switch the live daemon between the official npm CLI and a fork deploy.
+# Runbook: /home/cx/agentspace/index/.scratch/paseo-fork/switch-runbook.md
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: paseo-fork <command> [options]
+
+Commands:
+  status                 Say plainly which build the daemon runs (read-only).
+  deploy [TAG]           Copy the tested build from the axalon worktree into
+                         ~/.local/share/paseo-fork/<version>/ and point `current`
+                         at it. Creates and pushes the tag axalon/v<ver>+axalon.N
+                         if it doesn't exist yet. Refuses unless paseo-fork-sync
+                         reported build and tests green for that exact commit.
+                         Never touches the daemon.
+  switch fork            Stop the daemon and start the fork deploy (`current`,
+                         or --deploy NAME). Falls back to official on failure.
+  switch official        Stop the daemon and start the official npm CLI.
+                         This is the one-step rollback.
+  backup                 Back up the Paseo home into ~/tmp-archive/paseo-home-backups/.
+  deploys                List kept deploys.
+  prune [--keep N]       Delete old deploys, keeping the newest N (default 3),
+                         `current` and the live one.
+
+Switch options:
+  --check                Only run the read-only preflight and say whether now is
+                         a good moment. Changes nothing. Exit 0 = ready, 2 = not.
+  --anyway               Switch even if agents are in the middle of a turn
+                         (their turns are cut off).
+  --deploy NAME          Fork deploy to use, e.g. v0.12.0+axalon.1 (default: current).
+
+Test profile (all three together; refuses the live home, port and unit names):
+  --home DIR --port N --unit-prefix NAME
+
+switch runs in its own systemd user unit (paseo-fork-job-*), so it finishes even
+if the shell that started it dies when the daemon stops. Its full log is in
+~/tmp-archive/paseo-fork/logs/. Exit codes: 0 ok, 1 failed (official running
+again after a failed fork switch), 2 refused by a precondition, 3 failed and the
+daemon may be down (follow the printed steps).
+EOF
+}
+
+SELF=$(readlink -f "${BASH_SOURCE[0]}")
+REPO=$HOME/forkspace/paseo
+BRANCH=axalon
+WORKTREE=$HOME/forkspace/paseo-wt/$BRANCH
+SYNC_HOME=$HOME/tmp-archive/paseo-fork-sync
+DEPLOY_ROOT=$HOME/.local/share/paseo-fork
+STATE=$HOME/tmp-archive/paseo-fork
+BACKUP_DIR=$HOME/tmp-archive/paseo-home-backups
+NODE_BIN=/home/cx/.vite-plus/js_runtime/node/24.22.0/bin
+OFFICIAL_CLI=$NODE_BIN/paseo
+# PATH for the daemon unit (agents inherit it); copied from the running daemon's
+# unit when there is one, this is the fallback (same as the original unit).
+DEFAULT_UNIT_PATH=$HOME/.local/bin:$HOME/.bun/bin:$HOME/.opencode/bin:$NODE_BIN:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+LIVE_HOME=$HOME/.paseo
+LIVE_PORT=6767
+LIVE_UNIT_PREFIX=paseo-daemon
+KEEP=3
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'paseo-fork: %s\n' "$1" >&2; exit "${2:-1}"; }
+now() { date +%Y%m%d-%H%M%S; }
+
+# ------------------------------------------------------------------ arguments
+CMD=${1:-}
+[ -n "$CMD" ] || { usage; exit 1; }
+shift
+JOB_LOG=''
+if [ "$CMD" = _job ]; then # internal: _job <log> <command> <args...>
+  JOB_LOG=$1 CMD=$2
+  shift 2
+fi
+ORIG_ARGS=("$@")
+TARGET='' ANYWAY=0 CHECK=0 DEPLOY_NAME='' TAG_ARG='' T_HOME='' T_PORT='' T_PREFIX='' PRUNE_KEEP=$KEEP
+while [ $# -gt 0 ]; do
+  case $1 in
+    --anyway) ANYWAY=1 ;;
+    --check) CHECK=1 ;;
+    --deploy) DEPLOY_NAME=${2:?--deploy needs a name}; shift ;;
+    --home) T_HOME=${2:?--home needs a directory}; shift ;;
+    --port) T_PORT=${2:?--port needs a number}; shift ;;
+    --unit-prefix) T_PREFIX=${2:?--unit-prefix needs a name}; shift ;;
+    --keep) PRUNE_KEEP=${2:?--keep needs a number}; shift ;;
+    -h | --help) usage; exit 0 ;;
+    fork | official) [ "$CMD" = switch ] || die "unexpected argument: $1"; TARGET=$1 ;;
+    -*) die "unknown option: $1 (see paseo-fork --help)" ;;
+    *) [ "$CMD" = deploy ] && [ -z "$TAG_ARG" ] || die "unexpected argument: $1"; TAG_ARG=$1 ;;
+  esac
+  shift
+done
+
+# ------------------------------------------------------------------ profile
+TEST=0
+if [ -n "$T_HOME$T_PORT$T_PREFIX" ]; then
+  [ -n "$T_HOME" ] && [ -n "$T_PORT" ] && [ -n "$T_PREFIX" ] ||
+    die "test profile needs all of --home, --port and --unit-prefix" 2
+  T_HOME=$(realpath -m "$T_HOME")
+  [ "$T_HOME" != "$(realpath -m "$LIVE_HOME")" ] || die "test profile refuses the live home $LIVE_HOME" 2
+  case $T_HOME in "$HOME"/tmp-archive/*) ;; *) die "test home must live under ~/tmp-archive/" 2 ;; esac
+  [[ $T_PORT =~ ^[0-9]+$ ]] && [ "$T_PORT" != "$LIVE_PORT" ] || die "test profile refuses port $T_PORT" 2
+  [[ $T_PREFIX =~ ^[a-z0-9-]+$ ]] || die "unit prefix may only contain a-z, 0-9 and -" 2
+  case $T_PREFIX in paseo-daemon* | paseo | paseo-fork-job*) die "test profile refuses unit prefix $T_PREFIX" 2 ;; esac
+  [ -f "$T_HOME/config.json" ] || die "test home has no config.json: $T_HOME" 2
+  [ "$(jq -r '.daemon.listen // ""' "$T_HOME/config.json")" = "127.0.0.1:$T_PORT" ] ||
+    die "test config.json must set daemon.listen to 127.0.0.1:$T_PORT" 2
+  [ "$(jq -r '.daemon.relay.enabled' "$T_HOME/config.json")" = false ] ||
+    die "test config.json must set daemon.relay.enabled to false" 2
+  TEST=1 H=$T_HOME PORT=$T_PORT UNIT_PREFIX=$T_PREFIX
+else
+  H=$LIVE_HOME PORT=$LIVE_PORT UNIT_PREFIX=$LIVE_UNIT_PREFIX
+fi
+LISTEN=127.0.0.1:$PORT
+
+# ------------------------------------------------------------------ helpers
+pcli() { "$OFFICIAL_CLI" "$@" --home "$H"; } # read-only calls; same protocol for fork and official
+
+daemon_status() { pcli daemon status --json 2>/dev/null || echo '{}'; }
+
+http_version() { curl -fsS -m 3 "http://$LISTEN/api/status" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true; }
+
+health_ok() { curl -fsS -m 3 "http://$LISTEN/api/health" 2>/dev/null | jq -e '.status == "ok"' >/dev/null 2>&1; }
+
+port_busy() { [ -n "$(ss -Hltn "sport = :$PORT" 2>/dev/null)" ]; }
+
+unit_of_pid() { # systemd unit whose cgroup holds PID (empty if none)
+  local cg
+  cg=$(cat "/proc/$1/cgroup" 2>/dev/null) || return 0
+  cg=${cg##*/}
+  case $cg in *.service) echo "$cg" ;; esac
+}
+
+unit_argv() { systemctl --user show -p ExecStart --value "$1" 2>/dev/null | sed -n 's/.*argv\[\]=\([^;]*\) ;.*/\1/p'; }
+
+unit_cli() { # CLI script path from a unit's ExecStart (skips a leading node binary)
+  local a
+  read -r -a a <<<"$(unit_argv "$1")"
+  [ ${#a[@]} -gt 0 ] || return 0
+  case ${a[0]} in */node) echo "${a[1]:-}" ;; *) echo "${a[0]}" ;; esac
+}
+
+unit_path_env() { systemctl --user show -p Environment --value "$1" 2>/dev/null | tr ' ' '\n' | sed -n 's/^PATH=//p'; }
+
+unit_procs() { # number of processes in a unit's cgroup
+  local cg
+  cg=$(systemctl --user show -p ControlGroup --value "$1" 2>/dev/null)
+  [ -n "$cg" ] && [ -f "/sys/fs/cgroup$cg/cgroup.procs" ] || { echo 0; return; }
+  wc -l <"/sys/fs/cgroup$cg/cgroup.procs"
+}
+
+describe_cli() { # human label for a CLI path
+  local p=$1 r
+  r=$(readlink -f "$p" 2>/dev/null || echo "$p")
+  case $r in
+    "$DEPLOY_ROOT"/*) local d=${r#"$DEPLOY_ROOT"/}; echo "FORK deploy ${d%%/*}" ;;
+    */lib/node_modules/@getpaseo/cli/*) echo "OFFICIAL npm @getpaseo/cli" ;;
+    '') echo "unknown CLI" ;;
+    *) echo "other CLI $r" ;;
+  esac
+}
+
+official_version() { "$OFFICIAL_CLI" --version 2>/dev/null || echo '?'; }
+
+deploy_dir_for() { # name or tag or empty (= current) -> absolute deploy dir
+  local n=${1:-current}
+  n=${n#axalon/}
+  local d=$DEPLOY_ROOT/$n
+  [ -e "$d" ] || die "no deploy named $n in $DEPLOY_ROOT (see: paseo-fork deploys)" 2
+  readlink -f "$d"
+}
+
+deploy_field() { jq -r ".$2 // empty" "$1/deploy.json"; }
+
+kind_of_version() { case $1 in *+axalon.*) echo fork ;; '') echo none ;; *) echo official ;; esac; }
+
+# Read the live state into CUR_* variables.
+read_current() {
+  local st
+  st=$(daemon_status)
+  CUR_STATE=$(jq -r '.localDaemon // "unknown"' <<<"$st")
+  CUR_PID=$(jq -r '.pid // empty' <<<"$st")
+  CUR_LISTEN=$(jq -r '.listen // empty' <<<"$st")
+  CUR_STARTED=$(jq -r '.startedAt // empty' <<<"$st")
+  CUR_VER=$(http_version)
+  [ -n "$CUR_VER" ] || CUR_VER=$(jq -r '.daemonVersion // empty' <<<"$st")
+  CUR_UNIT='' CUR_CLI=''
+  if [ "$CUR_STATE" = running ] && [ -n "$CUR_PID" ]; then
+    CUR_UNIT=$(unit_of_pid "$CUR_PID")
+    [ -z "$CUR_UNIT" ] || CUR_CLI=$(unit_cli "$CUR_UNIT")
+  fi
+}
+
+print_current() {
+  if [ "$CUR_STATE" != running ]; then
+    say "Daemon for $H: NOT RUNNING ($CUR_STATE)"
+    return
+  fi
+  local label
+  case $(kind_of_version "$CUR_VER") in
+    fork) label="FORK $CUR_VER" ;;
+    official) label="OFFICIAL $CUR_VER" ;;
+    *) label="version unknown" ;;
+  esac
+  say "Live daemon: $label"
+  say "  listening $CUR_LISTEN, supervisor PID $CUR_PID, running since $CUR_STARTED"
+  say "  systemd unit: ${CUR_UNIT:-none found}"
+  [ -z "$CUR_CLI" ] || say "  started from: $CUR_CLI ($(describe_cli "$CUR_CLI"))"
+}
+
+agents_json() { pcli ls -g --json 2>/dev/null; }
+
+agent_counts() { jq -r 'if length == 0 then "none" else group_by(.status) | map("\(.[0].status) \(length)") | join(", ") end' <<<"$1"; }
+
+plugins_running() { pcli plugin ls --json 2>/dev/null | jq -r '.[] | select(.status == "running") | .id' | sort; }
+
+# ------------------------------------------------------------------ status / deploys
+cmd_status() {
+  read_current
+  print_current
+  say "Official CLI installed: $(official_version) ($OFFICIAL_CLI)"
+  local cur=''
+  [ -L "$DEPLOY_ROOT/current" ] && cur=$(basename "$(readlink -f "$DEPLOY_ROOT/current")")
+  say "Fork deploy 'current': ${cur:-none} ($DEPLOY_ROOT)"
+  if [ "$CUR_STATE" = running ]; then
+    local a
+    if a=$(agents_json); then say "Agents: $(agent_counts "$a")"; fi
+    say "Plugins running: $(plugins_running | wc -l)"
+    health_ok && say "Health: ok (http://$LISTEN/api/health)" || say "Health: NOT OK (http://$LISTEN/api/health)"
+  fi
+}
+
+cmd_deploys() {
+  local cur='' live='' d
+  [ -L "$DEPLOY_ROOT/current" ] && cur=$(readlink -f "$DEPLOY_ROOT/current")
+  read_current
+  case $CUR_CLI in "$DEPLOY_ROOT"/*) live=$(readlink -f "$CUR_CLI"); live=$DEPLOY_ROOT/$(cut -d/ -f1 <<<"${live#"$DEPLOY_ROOT"/}") ;; esac
+  for d in $(ls -1dt "$DEPLOY_ROOT"/v*/ 2>/dev/null); do
+    d=${d%/}
+    local mark=''
+    [ "$d" = "$cur" ] && mark+=' [current]'
+    [ "$d" = "$live" ] && mark+=' [LIVE]'
+    say "$(basename "$d")  tag $(deploy_field "$d" tag)  commit $(deploy_field "$d" commit | cut -c1-9)  deployed $(deploy_field "$d" deployedAt)$mark"
+  done
+}
+
+cmd_prune() {
+  [[ $PRUNE_KEEP =~ ^[0-9]+$ ]] || die "--keep needs a number"
+  local cur='' live='' d i=0
+  [ -L "$DEPLOY_ROOT/current" ] && cur=$(readlink -f "$DEPLOY_ROOT/current")
+  read_current
+  case $CUR_CLI in "$DEPLOY_ROOT"/*) live=$DEPLOY_ROOT/$(cut -d/ -f1 <<<"${CUR_CLI#"$DEPLOY_ROOT"/}") ;; esac
+  for d in $(ls -1dt "$DEPLOY_ROOT"/v*/ 2>/dev/null); do
+    d=${d%/}
+    i=$((i + 1))
+    if [ $i -le "$PRUNE_KEEP" ] || [ "$d" = "$cur" ] || [ "$d" = "$live" ]; then
+      say "keep   $(basename "$d")"
+    else
+      say "delete $(basename "$d")"
+      rm -rf -- "$d"
+    fi
+  done
+}
+
+# ------------------------------------------------------------------ backup
+backup_home() { # <label>; prints the archive path last
+  mkdir -p "$BACKUP_DIR"
+  local out excl kb t0
+  out=$BACKUP_DIR/$(now)-$([ "$TEST" = 1 ] && echo test || echo live)-paseo-home-$1.tar.zst
+  # Left out: agent worktrees (git checkouts, GBs), speech models (re-downloadable),
+  # rotated daemon logs, and node_modules of git-installed plugins (npm ci restores them).
+  excl=(--exclude=./worktrees --exclude=./models --exclude='./*-daemon.log' --exclude='./plugins/*/*/checkout/node_modules')
+  kb=$(cd "$H" && du -sk "${excl[@]}" . | cut -f1)
+  say "Backing up $H (about $((kb / 1024)) MB without worktrees, models, old logs, plugin node_modules)"
+  t0=$(date +%s)
+  set +e
+  tar -C "$H" "${excl[@]}" --warning=no-file-changed --warning=no-file-ignored -cf - . | zstd -q -T0 -3 -o "$out"
+  local rc=("${PIPESTATUS[@]}")
+  set -e
+  # tar exit 1 = some file changed while reading (daemon running): still a usable backup.
+  if [ "${rc[0]}" -gt 1 ] || [ "${rc[1]}" -ne 0 ]; then
+    rm -f "$out"
+    say "Backup FAILED (tar ${rc[0]}, zstd ${rc[1]})"
+    return 1
+  fi
+  say "Backup: $out ($(du -h "$out" | cut -f1), $(($(date +%s) - t0))s)"
+  say "  restore (daemon stopped): mkdir -p $H && tar -C $H --zstd -xf $out"
+}
+
+# ------------------------------------------------------------------ deploy
+green_run_for() { # <sha> <tag> -> path of the newest built run of $BRANCH, if it is green for <sha>
+  local sha=$1 tag=$2 run report short
+  # Newest run that built something; a later failed build would have changed the worktree.
+  for run in $(ls -1d "$SYNC_HOME"/runs/*-"$BRANCH" 2>/dev/null | sort -r); do
+    [ -f "$run/build-server.log" ] || continue
+    report=$run/report.md
+    [ -f "$report" ] || { say "newest sync build $run has no report" >&2; return 1; }
+    grep -q '^- Build: ok' "$report" || { say "newest sync build $run is not green (Build)" >&2; return 1; }
+    grep -q '^- Tests: ok' "$report" || { say "newest sync build $run is not green (Tests)" >&2; return 1; }
+    grep -qF "\`$tag\`" "$report" || { say "newest sync build $run does not name deploy tag $tag" >&2; return 1; }
+    short=$(grep -o 'Deploy tag[^`]*`[^`]*` at [0-9a-f]*' "$report" | awk '{print $NF}' | tail -1)
+    [ -n "$short" ] && [[ $sha == "$short"* ]] || { say "newest sync build $run was for ${short:-another commit}, not ${sha:0:9}" >&2; return 1; }
+    echo "$run"
+    return 0
+  done
+  say "no paseo-fork-sync build of $BRANCH found in $SYNC_HOME/runs" >&2
+  return 1
+}
+
+remote_tag_sha() { # commit a tag points to on origin (empty if missing)
+  local out
+  # An exact pattern hides the peeled `^{}` line, so match a prefix and pick exact names below.
+  out=$(git -C "$REPO" ls-remote --tags origin "$1*") || die "git ls-remote origin failed"
+  awk -v peeled="refs/tags/$1^{}" -v plain="refs/tags/$1" '$2 == peeled { p = $1 } $2 == plain { t = $1 } END { print (p != "" ? p : t) }' <<<"$out"
+}
+
+cmd_deploy() {
+  [ "$TEST" = 0 ] || die "deploy has no test profile (it never touches a daemon)" 2
+  exec 9>"$SYNC_HOME/lock"
+  flock -n 9 || die "paseo-fork-sync is running (lock $SYNC_HOME/lock); deploy after it finishes"
+  [ -d "$WORKTREE" ] || die "fork worktree missing: $WORKTREE"
+  local sha ver tag run dirty
+  sha=$(git -C "$WORKTREE" rev-parse HEAD)
+  [ "$(git -C "$WORKTREE" symbolic-ref -q --short HEAD)" = "$BRANCH" ] || die "$WORKTREE is not on branch $BRANCH"
+  [ ! -d "$(git -C "$WORKTREE" rev-parse --git-dir)/rebase-merge" ] || die "a rebase is paused in $WORKTREE"
+  dirty=$(git -C "$WORKTREE" status --porcelain --untracked-files=no | grep -vE '^ M packages/(server|cli)/package.json$' || true)
+  [ -z "$dirty" ] || die "worktree has changes besides the version stamp:"$'\n'"$dirty"
+  ver=$(jq -r .version "$WORKTREE/packages/server/package.json")
+  [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+\+axalon\.[0-9]+$ ]] || die "worktree build is not stamped <ver>+axalon.N (server says $ver); run paseo-fork-sync"
+  [ "$(jq -r .version "$WORKTREE/packages/cli/package.json")" = "$ver" ] || die "cli and server version stamps differ"
+  tag=axalon/v$ver
+  [ -z "$TAG_ARG" ] || [ "$TAG_ARG" = "$tag" ] ||
+    die "the tested build in $WORKTREE is $tag, not $TAG_ARG. Only the current tested build can be deployed; older ones are kept in $DEPLOY_ROOT (paseo-fork deploys)." 2
+  say "Build: $tag at ${sha:0:9} ($WORKTREE)"
+  run=$(green_run_for "$sha" "$tag") || die "refusing: paseo-fork-sync has not reported green for ${sha:0:9}. Run paseo-fork-sync (or --finish) first." 2
+  say "Sync result: green ($run/report.md)"
+  [ -f "$WORKTREE/packages/server/dist/server/web-ui/index.html" ] || die "web UI build missing in worktree"
+  [ -z "$(find "$WORKTREE/packages/server/dist" "$WORKTREE/packages/cli/dist" -newer "$run/report.md" -print -quit)" ] ||
+    die "server dist changed after the green sync run; rerun paseo-fork-sync --finish"
+
+  # Tag: never anything but axalon/*, pushed by explicit refspec only.
+  [[ $tag == axalon/v* ]] || die "bad tag $tag"
+  local lsha rsha
+  lsha=$(git -C "$REPO" rev-parse -q --verify "refs/tags/$tag^{commit}" || true)
+  rsha=$(remote_tag_sha "$tag")
+  for s in "$lsha" "$rsha"; do
+    [ -z "$s" ] || [ "$s" = "$sha" ] || die "tag $tag already exists for another commit (${s:0:9}); refusing" 2
+  done
+  if [ -z "$lsha" ]; then
+    git -C "$REPO" tag -a "$tag" -m "Deployed fork build $ver (paseo-fork-sync run $(basename "$run"))" "$sha"
+    say "Created tag $tag"
+  fi
+  if [ -z "$rsha" ]; then
+    git -C "$REPO" push origin "refs/tags/$tag:refs/tags/$tag"
+    say "Pushed tag $tag to origin (only this tag)"
+  else
+    say "Tag $tag already on origin"
+  fi
+
+  local name=v$ver dest
+  dest=$DEPLOY_ROOT/$name
+  mkdir -p "$DEPLOY_ROOT"
+  if [ -f "$dest/deploy.json" ]; then
+    [ "$(deploy_field "$dest" commit)" = "$sha" ] || die "$dest exists for another commit" 2
+    say "Already deployed: $dest"
+  else
+    rm -rf -- "$dest.partial"
+    say "Copying $WORKTREE -> $dest (reflink copy, without .git)"
+    mkdir -p "$dest.partial"
+    local e
+    shopt -s dotglob nullglob
+    for e in "$WORKTREE"/*; do
+      [ "$(basename "$e")" = .git ] && continue
+      cp -a --reflink=auto "$e" "$dest.partial/"
+    done
+    shopt -u dotglob nullglob
+    local got
+    got=$("$NODE_BIN/node" "$dest.partial/packages/cli/bin/paseo" --version)
+    [ "$got" = "$ver" ] || die "copied CLI reports $got, expected $ver"
+    jq -n --arg tag "$tag" --arg version "$ver" --arg commit "$sha" --arg run "$run" \
+      --arg node "$NODE_BIN/node" --arg nodeVersion "$("$NODE_BIN/node" -v)" --arg at "$(date -Iseconds)" \
+      '{tag: $tag, version: $version, commit: $commit, syncRun: $run, node: $node, nodeVersion: $nodeVersion, deployedAt: $at}' \
+      >"$dest.partial/deploy.json"
+    mv -T "$dest.partial" "$dest"
+    say "Deployed: $dest ($(du -sh --apparent-size "$dest" | cut -f1) apparent; btrfs shares the blocks with the worktree)"
+  fi
+  ln -sfn "$name" "$DEPLOY_ROOT/current.tmp"
+  mv -T "$DEPLOY_ROOT/current.tmp" "$DEPLOY_ROOT/current"
+  say "current -> $name"
+  local n
+  n=$(ls -1d "$DEPLOY_ROOT"/v*/ 2>/dev/null | wc -l)
+  [ "$n" -le "$KEEP" ] || say "Note: $n deploys kept. Remove old ones with: paseo-fork prune"
+  say "Next: paseo-fork switch fork   (see the runbook first)"
+}
+
+# ------------------------------------------------------------------ switch
+STARTED_UNIT='' UP_AT=0
+start_daemon() { # <kind> <argv...>: start a daemon in a fresh transient unit, same style as the original
+  local kind=$1 unit_path
+  shift
+  unit_path=$CARRY_PATH
+  STARTED_UNIT=$UNIT_PREFIX-$kind-$(now).service
+  local env=(--setenv=PATH="$unit_path" --setenv=PASEO_HOME="$H")
+  [ "$TEST" = 0 ] || env+=(--setenv=PASEO_RELAY_ENABLED=false)
+  say "Starting $kind: systemd unit $STARTED_UNIT"
+  say "  $* daemon start --home $H --timeout 120"
+  systemd-run --user --quiet --unit="$STARTED_UNIT" --description="Paseo daemon ($kind) home $H" \
+    --remain-after-exit "${env[@]}" "$@" daemon start --home "$H" --timeout 120
+}
+
+stop_daemon() {
+  say "Stopping daemon (graceful, up to 90s; agents are closed and saved first)"
+  if ! pcli daemon stop --timeout 90; then
+    say "Graceful stop not confirmed; forcing"
+    pcli daemon stop --force --kill-timeout 10 || return 1
+  fi
+  local i
+  for i in $(seq 1 30); do port_busy || return 0; sleep 1; done
+  say "Port $PORT is still in use after the stop:"
+  ss -Hltnp "sport = :$PORT" || true
+  return 1
+}
+
+discard_unit() { # stop a unit WE just created (kills only what the failed daemon started)
+  [ -n "$1" ] || return 0
+  pcli daemon stop --force --kill-timeout 5 >/dev/null 2>&1 || true
+  systemctl --user stop "$1" 2>/dev/null || true
+  systemctl --user reset-failed "$1" 2>/dev/null || true
+  local i
+  for i in $(seq 1 15); do port_busy || return 0; sleep 1; done
+}
+
+cleanup_empty_units() { # stop old daemon units that have no processes left (never touches a non-empty one)
+  local u
+  for u in $(systemctl --user list-units --all --plain --no-legend "$UNIT_PREFIX*.service" 2>/dev/null | awk '{print $1}'); do
+    [ "$u" != "$STARTED_UNIT" ] || continue
+    [ "$(unit_procs "$u")" -eq 0 ] || continue
+    systemctl --user stop "$u" 2>/dev/null && say "Removed empty old unit $u" || true
+  done
+}
+
+verify() { # <expected-version> <unit> <strict-plugins 0|1>; prints checks, returns 0 if all pass
+  local want=$1 unit=$2 strict=$3 deadline st state pid listen ver main
+  deadline=$(($(date +%s) + 150))
+  say "Verifying (up to 150s)"
+  while :; do
+    st=$(daemon_status)
+    state=$(jq -r '.localDaemon // ""' <<<"$st") pid=$(jq -r '.pid // empty' <<<"$st") listen=$(jq -r '.listen // empty' <<<"$st")
+    [ "$state" = running ] && [ "$listen" = "$LISTEN" ] && health_ok && UP_AT=$(date +%s) && break
+    main=$(systemctl --user show -p ExecMainStatus --value "$unit" 2>/dev/null || echo 0)
+    if [ "$(systemctl --user show -p ExecMainCode --value "$unit" 2>/dev/null)" != 0 ] && [ "${main:-0}" != 0 ]; then
+      say "  FAIL: 'daemon start' exited with status $main"
+      return 1
+    fi
+    [ "$(date +%s)" -lt "$deadline" ] || { say "  FAIL: not running on $LISTEN after 150s (state ${state:-?}, listen ${listen:-none})"; return 1; }
+    sleep 2
+  done
+  say "  ok  running, supervisor PID $pid, listening $listen, /api/health ok"
+  local u
+  u=$(unit_of_pid "$pid")
+  [ "$u" = "$unit" ] || { say "  FAIL: supervisor PID $pid is in unit '${u:-none}', expected $unit"; return 1; }
+  say "  ok  supervisor runs in unit $unit"
+  ver=$(http_version)
+  [ "$ver" = "$want" ] || { say "  FAIL: daemon reports version '${ver:-?}', expected $want"; return 1; }
+  say "  ok  daemon version $ver"
+  local missing='' have i
+  if [ -n "$PLUGINS_BEFORE" ]; then
+    for i in $(seq 1 45); do
+      have=$(plugins_running)
+      missing=$(comm -23 <(echo "$PLUGINS_BEFORE") <(echo "$have"))
+      [ -n "$missing" ] || break
+      sleep 2
+    done
+    if [ -n "$missing" ]; then
+      say "  $([ "$strict" = 1 ] && echo FAIL || echo WARN): plugins not running: $(echo $missing)"
+      [ "$strict" = 0 ] || return 1
+    else
+      say "  ok  all $(echo "$PLUGINS_BEFORE" | wc -l) plugins that ran before are running"
+    fi
+  else
+    say "  ok  (no plugins were running before)"
+  fi
+  say "  ...  watching for 15s that it stays up"
+  sleep 15
+  st=$(daemon_status)
+  [ "$(jq -r '.pid // empty' <<<"$st")" = "$pid" ] && kill -0 "$pid" 2>/dev/null && health_ok ||
+    { say "  FAIL: daemon did not stay up (supervisor PID $pid gone or unhealthy)"; return 1; }
+  say "  ok  still up, same supervisor PID"
+}
+
+log_history() { mkdir -p "$STATE"; printf '%s home=%s %s\n' "$(date -Iseconds)" "$H" "$*" >>"$STATE/switch-history.log"; }
+
+print_recovery() {
+  say ""
+  say "MANUAL RECOVERY (start the official daemon by hand):"
+  say "  $OFFICIAL_CLI daemon stop --home $H --force"
+  say "  systemd-run --user --unit=$UNIT_PREFIX-official-manual-$(now) --remain-after-exit \\"
+  say "    --setenv=PATH=$CARRY_PATH --setenv=PASEO_HOME=$H \\"
+  say "    $OFFICIAL_CLI daemon start --home $H --timeout 120"
+  say "  $OFFICIAL_CLI daemon status --home $H"
+  say "Daemon log: $H/daemon.log"
+}
+
+cmd_switch() {
+  [ -n "$TARGET" ] || die "say which: paseo-fork switch fork | paseo-fork switch official"
+  mkdir -p "$STATE"
+  exec 8>"$STATE/switch-$(basename "$H")-$PORT.lock"
+  flock -n 8 || die "another switch for $H is running" 2
+  say "== paseo-fork switch $TARGET  ($(date '+%F %T'))  home $H, $LISTEN$([ "$TEST" = 1 ] && echo ', TEST PROFILE')"
+
+  # ---- target
+  local want argv=() ddir=''
+  if [ "$TARGET" = fork ]; then
+    ddir=$(deploy_dir_for "$DEPLOY_NAME")
+    [ -f "$ddir/deploy.json" ] || die "$ddir is not a complete deploy" 2
+    want=$(deploy_field "$ddir" version)
+    argv=("$(deploy_field "$ddir" node)" "$ddir/packages/cli/bin/paseo")
+    [ "$("${argv[@]}" --version)" = "$want" ] || die "deploy CLI does not report $want" 2
+    say "Target: FORK $want ($ddir, tag $(deploy_field "$ddir" tag))"
+  else
+    want=$(official_version)
+    argv=("$OFFICIAL_CLI")
+    say "Target: OFFICIAL $want ($OFFICIAL_CLI)"
+  fi
+
+  # ---- preflight (read-only)
+  say ""
+  say "-- Preflight (read-only)"
+  read_current
+  print_current
+  CARRY_PATH=$DEFAULT_UNIT_PATH
+  if [ -n "$CUR_UNIT" ]; then
+    local p
+    p=$(unit_path_env "$CUR_UNIT")
+    [ -z "$p" ] || CARRY_PATH=$p
+  fi
+  local blocking=0 agents='' running=''
+  PLUGINS_BEFORE=''
+  if [ "$CUR_STATE" = running ]; then
+    if [ "$CUR_VER" = "$want" ] && [ "$(readlink -f "$CUR_CLI")" = "$(readlink -f "${argv[-1]}")" ]; then
+      say "Already running the target build. Nothing to do."
+      return 0
+    fi
+    if agents=$(agents_json); then
+      say "Agents: $(agent_counts "$agents")"
+      running=$(jq -r '.[] | select(.status == "running" or .status == "initializing") | "    \(.shortId // .id)  \(.name // "-")  \(.cwd)"' <<<"$agents")
+      if [ -n "$running" ]; then
+        say "  These agents are in the middle of a turn. The switch would cut their turn off:"
+        say "$running"
+        blocking=1
+      fi
+      local idle errored
+      idle=$(jq '[.[] | select(.status == "idle")] | length' <<<"$agents")
+      errored=$(jq '[.[] | select(.status == "error")] | length' <<<"$agents")
+      say "  $idle idle agents: their OMP processes stop; each restarts when you open or message it."
+      [ "$errored" = 0 ] || say "  $errored agents in error: not woken or deleted; afterwards they show as closed instead of error."
+    else
+      say "  Could not list agents (daemon busy?)."
+      blocking=1
+    fi
+    PLUGINS_BEFORE=$(plugins_running)
+    say "Plugins running: $(echo "$PLUGINS_BEFORE" | grep -c . || true)"
+  elif port_busy; then
+    say "Port $PORT is in use but no daemon for $H is running:"
+    ss -Hltnp "sport = :$PORT" || true
+    die "refusing: something else holds $LISTEN" 2
+  fi
+  local due
+  due=$(for f in "$H"/schedules/*.json; do [ -f "$f" ] && jq -r --argjson soon "$(($(date +%s) + 600))" \
+    'select(.status == "active" and .nextRunAt != null and ((.nextRunAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) < $soon)) | "    \(.name // .id) at \(.nextRunAt)"' "$f" 2>/dev/null; done || true)
+  if [ -n "$due" ]; then
+    say "Schedules due in the next 10 minutes (a run due while the daemon is down is skipped):"
+    say "$due"
+  fi
+  if [ "$TARGET" = fork ]; then
+    local base=${want%%+*}
+    [ "$base" = "$(official_version)" ] ||
+      say "WARNING: fork is based on $base but the official CLI is $(official_version). Rollback would change the Paseo version. To match: npm i -g @getpaseo/cli@$base"
+  fi
+  if [ "$CHECK" = 1 ]; then
+    say ""
+    if [ "$blocking" = 1 ]; then say "Check only, nothing changed: NOT a good moment (see above)."; return 2; fi
+    say "Check only, nothing changed: ready to switch."
+    return 0
+  fi
+  if [ "$blocking" = 1 ] && [ "$ANYWAY" = 0 ]; then
+    say ""
+    say "Not switching. Wait until those turns finish (paseo ls), or rerun with --anyway."
+    return 2
+  fi
+
+  # ---- backup (before stopping; failure aborts a fork switch, only warns on rollback)
+  say ""
+  say "-- Backup"
+  if ! backup_home "before-$TARGET"; then
+    [ "$TARGET" = official ] || { say "Not switching without a backup."; return 2; }
+    say "Continuing the rollback without a backup."
+  fi
+
+  # ---- stop
+  say ""
+  say "-- Stop"
+  local t_stop
+  t_stop=$(date +%s)
+  if [ "$CUR_STATE" = running ]; then
+    stop_daemon || { say "Could not stop the current daemon cleanly."; print_recovery; log_history "switch $TARGET: FAILED to stop"; return 3; }
+    say "Stopped in $(($(date +%s) - t_stop))s"
+    # A persistent unit with Restart= (e.g. paseo.service after a reboot) would bring the
+    # old daemon back; stop the unit itself now that the daemon inside has exited.
+    local restart=''
+    [ -z "$CUR_UNIT" ] || restart=$(systemctl --user show -p Restart --value "$CUR_UNIT" 2>/dev/null || true)
+    if [ -n "$restart" ] && [ "$restart" != no ] && systemctl --user is-active --quiet "$CUR_UNIT"; then
+      say "Stopping unit $CUR_UNIT so it does not restart the old daemon"
+      systemctl --user stop "$CUR_UNIT" || true
+    fi
+  else
+    say "Nothing to stop."
+  fi
+
+  # ---- start + verify
+  say ""
+  say "-- Start"
+  if start_daemon "$TARGET" "${argv[@]}" && verify "$want" "$STARTED_UNIT" "$([ "$TARGET" = fork ] && echo 1 || echo 0)"; then
+    say ""
+    say "Daemon was unreachable for $((UP_AT - t_stop))s (stop to first healthy answer)"
+    cleanup_empty_units
+    log_history "switch $TARGET: ok $want unit=$STARTED_UNIT"
+    say ""
+    say "-- Result: SWITCHED to $(echo "$TARGET" | tr a-z A-Z) $want"
+    read_current
+    print_current
+    return 0
+  fi
+
+  # ---- failure: discard what we started; fork failure falls back to official
+  say ""
+  say "Switch to $TARGET FAILED. Recent warnings/errors from $H/daemon.log:"
+  tail -n 300 "$H/daemon.log" 2>/dev/null | grep -E '"level":(40|50|60)|"level":"(warn|error|fatal)"|^[^{]' | tail -n 12 | cut -c1-300 || true
+  discard_unit "$STARTED_UNIT"
+  if [ "$TARGET" = fork ]; then
+    say ""
+    say "-- Falling back to OFFICIAL"
+    local owant
+    owant=$(official_version)
+    if start_daemon official "$OFFICIAL_CLI" && verify "$owant" "$STARTED_UNIT" 0; then
+      cleanup_empty_units
+      log_history "switch fork: FAILED, fell back to official $owant unit=$STARTED_UNIT"
+      say ""
+      say "-- Result: fork FAILED; OFFICIAL $owant is running again."
+      return 1
+    fi
+    discard_unit "$STARTED_UNIT"
+  fi
+  log_history "switch $TARGET: FAILED, daemon may be down"
+  print_recovery
+  return 3
+}
+
+# ------------------------------------------------------------------ job wrapper
+run_as_job() { # run this command in its own transient unit so it survives the daemon stop
+  mkdir -p "$STATE/logs"
+  local ts unit log tpid rc
+  ts=$(now)
+  log=$STATE/logs/$ts-$CMD-${TARGET:-x}$([ "$TEST" = 1 ] && echo -test).log
+  unit=paseo-fork-job-$ts
+  : >"$log"
+  systemd-run --user --quiet --unit="$unit" --collect --property=Type=exec \
+    --setenv=HOME="$HOME" --setenv=PATH="$PATH" --working-directory="$HOME" \
+    "$SELF" _job "$log" "$CMD" "${ORIG_ARGS[@]}" || die "could not start job unit $unit"
+  echo "(runs as systemd user unit $unit; full log: $log)"
+  tail -n +1 -f "$log" &
+  tpid=$!
+  while systemctl --user is-active --quiet "$unit" 2>/dev/null; do sleep 1; done
+  sleep 0.5
+  kill "$tpid" 2>/dev/null || true
+  wait "$tpid" 2>/dev/null || true
+  rc=$(cat "$log.rc" 2>/dev/null || echo 3)
+  return "$rc"
+}
+
+if [ -n "$JOB_LOG" ]; then
+  exec >>"$JOB_LOG" 2>&1
+  trap 'echo $? >"$JOB_LOG.rc"' EXIT
+fi
+
+case $CMD in
+  status) cmd_status ;;
+  deploy) cmd_deploy ;;
+  deploys) cmd_deploys ;;
+  prune) cmd_prune ;;
+  backup)
+    read_current
+    backup_home manual
+    ;;
+  switch)
+    [ -n "$TARGET" ] || die "say which: paseo-fork switch fork | paseo-fork switch official"
+    # --check is read-only and runs right here; a real switch runs inside its own job unit.
+    if [ -n "$JOB_LOG" ] || [ "$CHECK" = 1 ]; then cmd_switch; else run_as_job; fi
+    ;;
+  *) usage; exit 1 ;;
+esac

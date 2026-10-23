@@ -47,7 +47,7 @@ HOME_DIR=${PASEO_FORK_SYNC_HOME:-$HOME/tmp-archive/paseo-fork-sync}
 RESOLVER_MODEL=${PASEO_FORK_RESOLVER_MODEL:-@opus}
 RESOLVER_MAX_TIME=${PASEO_FORK_RESOLVER_MAX_TIME:-45m}
 NOTES=/home/cx/agentspace/index/.scratch/paseo-fork/map.md
-RUNBOOK=/home/cx/agentspace/index/.scratch/paseo-fork/issues/05-switch-runbook.md
+RUNBOOK=/home/cx/agentspace/index/.scratch/paseo-fork/switch-runbook.md
 UPSTREAM=upstream
 ORIGIN=origin
 STAMP_FILES=(packages/server/package.json packages/cli/package.json)
@@ -366,7 +366,7 @@ if [ "$MODE" = finish ]; then
     finish 4 "build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\`, then rerun \`paseo-fork-sync --finish\`."
   fi
   push_branch || finish 1 "built and tested, push failed" "Check \`$RUN/push.log\`."
-  finish 0 "built and tested at $OLD" "Ready to switch: see the switch runbook ($RUNBOOK). Deploy tag: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
+  finish 0 "built and tested at $OLD" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
 fi
 
 # ---------------------------------------------------------------- plan
@@ -557,4 +557,4 @@ if ! build_and_test "$NEW"; then
   finish 4 "rebased onto $NEW, but build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\` (logs above), then \`paseo-fork-sync --finish\`. Rollback: \`git -C $WORKTREE reset --hard $BACKUP\`."
 fi
 push_branch || finish 1 "synced and tested, but push failed" "Check \`$RUN/push.log\`, then \`paseo-fork-sync --finish\`."
-finish 0 "synced $OLD → $NEW, built and tested" "Ready to switch: see the switch runbook ($RUNBOOK). Deploy tag for this build: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
+finish 0 "synced $OLD → $NEW, built and tested" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag for this build: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
