@@ -213,9 +213,9 @@ async function runProse(args: string, options: RunProseOptions = {}): Promise<{ 
 	return { notices, confirms, forkEntries, liveEntries, branchCalls, savedArtifacts };
 }
 
-describe("bare /prose", () => {
+describe("/prose fork", () => {
 	test("hands back the source session id as a runnable resume command", async () => {
-		const { notices, forkEntries } = await runProse("");
+		const { notices, forkEntries } = await runProse("fork");
 
 		const returnHint = `omp --resume ${SOURCE_ID}`;
 		expect(notices.some(notice => notice.includes(returnHint))).toBe(true);
@@ -248,7 +248,7 @@ describe("bare /prose", () => {
 		const pi = {
 			on: () => {},
 			registerCommand: (_name: string, command: { handler: CommandHandler }) => {
-				void command.handler("", ctx);
+				void command.handler("fork", ctx);
 			},
 		} as unknown as ExtensionAPI;
 		proseExtension(pi);
@@ -466,7 +466,7 @@ describe("artifact-backed prose recovery", () => {
 		expect(recovered).toContain(codeSnippet);
 	});
 	test("proseExtension saves archive to destination session and injects recovery links", async () => {
-		const { forkEntries, savedArtifacts, notices } = await runProse("", {
+		const { forkEntries, savedArtifacts, notices } = await runProse("fork", {
 			entries: branchWithTools,
 			saveArtifactReturnsId: "7",
 		});
@@ -484,7 +484,7 @@ describe("artifact-backed prose recovery", () => {
 	});
 
 	test("gracefully degrades when artifact saving is unsupported", async () => {
-		const { forkEntries, savedArtifacts } = await runProse("", {
+		const { forkEntries, savedArtifacts } = await runProse("fork", {
 			entries: branchWithTools,
 			saveArtifactSupported: false,
 		});
@@ -1082,8 +1082,10 @@ describe("/prose ^N trims in place", () => {
 		expect(notices.some(notice => notice.includes("Trimmed in place") && notice.includes("/tree"))).toBe(true);
 	});
 
-	test("^0 distills every turn and copies none verbatim", async () => {
-		const { notices, liveEntries } = await runProse("^0", { entries: pinBranch });
+	test("bare /prose distills every turn in place and copies none verbatim", async () => {
+		const { notices, liveEntries, forkEntries, branchCalls } = await runProse("", { entries: pinBranch });
+		expect(forkEntries).toEqual([]);
+		expect(branchCalls).toEqual([]);
 
 		expect(liveEntries[0]).toBe("[reset_boundary]");
 		const flat = JSON.stringify(liveEntries);
@@ -1096,17 +1098,24 @@ describe("/prose ^N trims in place", () => {
 		expect(notices.some(notice => notice.includes("Distilled in place: the whole conversation"))).toBe(true);
 	});
 
-	test("^0 on an empty context refuses without mutating", async () => {
-		const { notices, liveEntries } = await runProse("^0", { entries: [] });
+	test("^0 is the same as bare /prose", async () => {
+		const bare = await runProse("", { entries: pinBranch });
+		const pinned = await runProse("^0", { entries: pinBranch });
+		expect(contentOf(pinned.liveEntries.at(-1))).toBe(contentOf(bare.liveEntries.at(-1)));
+		expect(pinned.liveEntries.length).toBe(bare.liveEntries.length);
+	});
+
+	test("bare /prose on an empty context refuses without mutating", async () => {
+		const { notices, liveEntries } = await runProse("", { entries: [] });
 		expect(liveEntries.length).toBe(0);
 		expect(notices.some(notice => notice.includes("Nothing to distill"))).toBe(true);
 	});
 
-	test("plain 0 refuses and points at ^0 instead of claiming a range error", async () => {
+	test("plain 0 refuses and points at bare /prose instead of claiming a range error", async () => {
 		const { notices, liveEntries, branchCalls } = await runProse("0", { entries: pinBranch });
 		expect(liveEntries.length).toBe(0);
 		expect(branchCalls).toEqual([]);
-		expect(notices.some(notice => notice.includes("did you mean `^0`"))).toBe(true);
+		expect(notices.some(notice => notice.includes("did you mean bare `/prose`"))).toBe(true);
 		expect(notices.some(notice => notice.includes("turn(s)"))).toBe(false);
 	});
 
@@ -1381,8 +1390,8 @@ describe("sealed history stays sealed", () => {
 		expect(flat).not.toContain("SEALED-OLD");
 	});
 
-	test("bare /prose forks only the emitted region after a compaction or /clear", async () => {
-		const compacted = await runProse("", { entries: compactedBranch });
+	test("/prose fork forks only the emitted region after a compaction or /clear", async () => {
+		const compacted = await runProse("fork", { entries: compactedBranch });
 		const compactedFork = compacted.forkEntries.join("\n");
 		expect(compactedFork).toContain("kept question");
 		expect(compactedFork).toContain("SUMMARY-KEPT");
@@ -1392,25 +1401,35 @@ describe("sealed history stays sealed", () => {
 		expect(compactedFork).not.toContain("SEALED-OLD");
 		expect(compacted.savedArtifacts.map(artifact => artifact.content).join("\n")).not.toContain("SEALED-OLD");
 
-		const cleared = await runProse("", { entries: clearedBranch });
+		const cleared = await runProse("fork", { entries: clearedBranch });
 		const clearedFork = cleared.forkEntries.join("\n");
 		expect(clearedFork).toContain("fresh question");
 		expect(clearedFork).not.toContain("SEALED-OLD");
 	});
 
-	test("+compacted forks the sealed history too, but only from the bare form", async () => {
-		const { forkEntries } = await runProse("+compacted", { entries: compactedBranch });
+	test("+compacted forks the sealed history too, but only with fork", async () => {
+		const { forkEntries } = await runProse("fork +compacted", { entries: compactedBranch });
 		const fork = forkEntries.join("\n");
 		expect(fork).toContain("SEALED-OLD question");
 		expect(fork).toContain("SUMMARY-KEPT");
 		expect(fork).toContain("latest question");
 
 		// In place, reopening sealed turns would grow the live context: refuse.
-		for (const args of ["1 +compacted", "^1 +compacted"]) {
+		for (const args of ["+compacted", "1 +compacted", "^1 +compacted"]) {
 			const { notices, liveEntries, branchCalls } = await runProse(args, { entries: compactedBranch });
 			expect(liveEntries.length).toBe(0);
 			expect(branchCalls).toEqual([]);
-			expect(notices.some(notice => notice.includes("+compacted applies to the bare fork only"))).toBe(true);
+			expect(notices.some(notice => notice.includes("+compacted applies to /prose fork only"))).toBe(true);
+		}
+	});
+
+	test("fork refuses a turn count instead of picking one meaning", async () => {
+		for (const args of ["fork 1", "fork ^1", "fork ?"]) {
+			const { notices, liveEntries, forkEntries, branchCalls } = await runProse(args, { entries: pinBranch });
+			expect(liveEntries.length).toBe(0);
+			expect(forkEntries).toEqual([]);
+			expect(branchCalls).toEqual([]);
+			expect(notices.some(notice => notice.includes("fork takes the whole conversation"))).toBe(true);
 		}
 	});
 
@@ -1465,7 +1484,7 @@ const delegatedBranch = [
 
 describe("-sub archives subagent results", () => {
 	test("each delivery shrinks to one recoverable line; bash deliveries stay whole", async () => {
-		const { forkEntries, savedArtifacts } = await runProse("-sub", { entries: delegatedBranch, saveArtifactReturnsId: "5" });
+		const { forkEntries, savedArtifacts } = await runProse("fork -sub", { entries: delegatedBranch, saveArtifactReturnsId: "5" });
 		const fork = forkEntries.join("\n");
 		expect(fork).not.toContain(subagentReport);
 		const stub = forkEntries.find(entry => entry.startsWith("[2 subagent results:"));
@@ -1485,44 +1504,51 @@ describe("-sub archives subagent results", () => {
 	});
 
 	test("without -sub, subagent results stay whole", async () => {
-		const { forkEntries } = await runProse("", { entries: delegatedBranch });
+		const { forkEntries } = await runProse("fork", { entries: delegatedBranch });
 		expect(forkEntries.join("\n")).toContain(subagentReport);
 	});
 });
 
 describe("running background jobs", () => {
-	// newSession() cancels every job the session owns, so only the bare fork may ask.
+	// newSession() cancels every job the session owns, so only fork may ask.
 	const jobs: AsyncJobSnapshot = {
 		running: [{ id: "job_1", type: "task", status: "running", label: "SidebarAudit", startTime: Date.now() - 5 * 60_000 }],
 		recent: [],
 		delivery: { queued: 0, delivering: false },
 	};
 
-	test("bare /prose asks first and stays put when declined", async () => {
-		const { confirms, forkEntries } = await runProse("", { jobs, hasUI: true, confirm: false });
+	test("/prose fork asks first and stays put when declined", async () => {
+		const { confirms, forkEntries } = await runProse("fork", { jobs, hasUI: true, confirm: false });
 		expect(confirms.length).toBe(1);
 		expect(confirms[0]).toContain("subagent: SidebarAudit (running 5m)");
 		expect(forkEntries).toEqual([]);
 	});
 
-	test("bare /prose forks once the kill is confirmed", async () => {
-		const { confirms, forkEntries } = await runProse("", { jobs, hasUI: true, confirm: true });
+	test("/prose fork forks once the kill is confirmed", async () => {
+		const { confirms, forkEntries } = await runProse("fork", { jobs, hasUI: true, confirm: true });
 		expect(confirms.length).toBe(1);
 		expect(forkEntries.length).toBeGreaterThan(0);
 	});
 
 	test("a finished result still awaiting delivery also counts as lost", async () => {
 		const pending: AsyncJobSnapshot = { running: [], recent: [], delivery: { queued: 2, delivering: false } };
-		const { confirms, forkEntries } = await runProse("", { jobs: pending, hasUI: true, confirm: false });
+		const { confirms, forkEntries } = await runProse("fork", { jobs: pending, hasUI: true, confirm: false });
 		expect(confirms[0]).toContain("2 finished results not yet delivered");
 		expect(forkEntries).toEqual([]);
 	});
 
-	test("without a UI to ask, bare /prose refuses instead of killing", async () => {
-		const { notices, confirms, forkEntries } = await runProse("", { jobs, hasUI: false, confirm: true });
+	test("without a UI to ask, /prose fork refuses instead of killing", async () => {
+		const { notices, confirms, forkEntries } = await runProse("fork", { jobs, hasUI: false, confirm: true });
 		expect(confirms).toEqual([]);
 		expect(forkEntries).toEqual([]);
-		expect(notices.some(notice => notice.includes("/prose N"))).toBe(true);
+		expect(notices.some(notice => notice.includes("run bare /prose"))).toBe(true);
+	});
+
+	test("bare /prose never asks: it distills in place and the jobs stay alive", async () => {
+		const { confirms, forkEntries, liveEntries } = await runProse("", { entries: pinBranch, jobs, hasUI: true, confirm: false });
+		expect(confirms).toEqual([]);
+		expect(forkEntries).toEqual([]);
+		expect(liveEntries[0]).toBe("[reset_boundary]");
 	});
 
 	test("in-place trims never ask: the session and its jobs stay alive", async () => {

@@ -1,8 +1,8 @@
 /**
  * /prose — distill a conversation without asking a model to summarize it. A
- * bare command forks the whole branch into a new session; choosing a number
- * keeps only that many recent user turns and writes them as a sibling branch
- * in this session.
+ * bare command distills the whole conversation in place; `fork` writes the
+ * distillation to a new session instead; choosing a number keeps only that
+ * many recent user turns and writes them as a sibling branch in this session.
  *
  * Use it when a long session has become mostly machinery — the provider
  * bookkeeping and the reasoning are dead weight, but the conversation, skill
@@ -17,16 +17,17 @@
  *          stays a toolResult — arguments and output verbatim, uncapped
  *
  * Usage:
- *   /prose                    fork the conversation the host still emits (after
- *                            the latest /clear or compaction) to a new session
+ *   /prose                   distill the conversation the host still emits
+ *                            (after the latest /clear or compaction) in place,
+ *                            keeping no turn verbatim; this session and its
+ *                            background jobs keep running
+ *   /prose fork              the same distillation, forked to a new session
  *   /prose N                 distill the last N user turns in place
  *   /prose ^N (or bare ^)    keep the Nth-from-last user turn ONWARD verbatim —
  *                            tool calls, results, reasoning untouched — and
  *                            distill everything before it, in place (^ = ^1:
  *                            your last question). Same ^ vocabulary as /pivot.
- *   /prose ^0                distill the whole conversation in place, keeping
- *                            no turn verbatim — the bare fork's result without
- *                            leaving this session or its background jobs
+ *                            ^0 keeps no turn: the same as bare /prose.
  *   /prose ?  /prose ^?      pick the turn interactively (distill-from / keep-from)
  *   /prose story             same filters, but the whole exchange lands as ONE
  *                            user message with [@user]/[@assistant]/[@system]
@@ -44,8 +45,8 @@
  *                            [thinking]…[/thinking] blocks
  *   /prose -sub              background subagent results shrink to one
  *                            [subagent result: …] line each, full text archived
- *   /prose +compacted        bare fork only: also distill the history a /clear
- *                            or compaction sealed (can outgrow the source)
+ *   /prose fork +compacted   fork only: also distill the history a /clear or
+ *                            compaction sealed (can outgrow the source)
  *
  * The distilled region opens with a `prose-note` entry that tells the future
  * reader what was removed, and closes with an end-marker restating the one
@@ -58,14 +59,15 @@
  * stubs, compaction blocks, traces, and thinking delimiters are bracketed;
  * verbatim prose never is.
  *
- * Mechanism: the bare form uses `ctx.newSession({ parentSession, setup })`; the
+ * Mechanism: `fork` uses `ctx.newSession({ parentSession, setup })`; the
  * numbered form moves the live manager's leaf to the chosen turn's parent and
- * appends the filtered tail there. The ^ form never moves the leaf: it appends
- * a reset_boundary (the /clear mechanism — context emission restarts after it,
- * and session-context honors it on every rebuild) followed by the distilled
- * head and a verbatim copy of the kept turns. State entries (model, thinking
- * level, tier, mode, TTSR) stay above the boundary and remain effective; the
- * unfiltered journey stays reachable through /tree and /resume in every form.
+ * appends the filtered tail there. The bare and ^ forms never move the leaf:
+ * they append a reset_boundary (the /clear mechanism — context emission
+ * restarts after it, and session-context honors it on every rebuild) followed
+ * by the distilled head and a verbatim copy of the kept turns (none when
+ * bare). State entries (model, thinking level, tier, mode, TTSR) stay above
+ * the boundary and remain effective; the unfiltered journey stays reachable
+ * through /tree and /resume in every form.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
@@ -83,7 +85,7 @@ import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-s
 import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
 
 /** Ghost text after `/prose `, mirroring how builtins advertise their arguments. */
-const PROSE_HINT = "[N|^N|?|^?] [story] [±tools[=a,b]] [±skills] [-sub] [+think] [+compacted]";
+const PROSE_HINT = "[fork|N|^N|?|^?] [story] [±tools[=a,b]] [±skills] [-sub] [+think] [+compacted]";
 const PICKER_LIMIT = 30;
 
 /**
@@ -1072,7 +1074,9 @@ type ParsedFlags = {
 	turns?: number;
 	pin?: number;
 	picker?: "turns" | "pin";
-	/** Bare fork only: distill history sealed behind the latest /clear or compaction too. */
+	/** Leave this session: write the distillation to a new one instead. */
+	fork?: boolean;
+	/** Fork only: distill history sealed behind the latest /clear or compaction too. */
 	compacted?: boolean;
 	unknown?: string;
 };
@@ -1099,6 +1103,7 @@ export function parseFlags(args: string): ParsedFlags {
 		else if (token === "+skills") keep.skills = "full";
 		else if (token === "-skills") keep.skills = "bare";
 		else if (token === "story") keep.story = true;
+		else if (token === "fork") parsed.fork = true;
 		else if (token === "?") parsed.picker = "turns";
 		else if (token === "^?") parsed.picker = "pin";
 		else if (/^\d+$/.test(token)) {
@@ -1318,7 +1323,7 @@ const resumeCommand = (sessionId: string): string => `omp --resume ${sessionId}`
 const JOB_KIND: Record<string, string> = { task: "subagent", bash: "background bash", eval: "background eval" };
 
 /**
- * The bare fork goes through newSession(), which cancels every async job this
+ * `/prose fork` goes through newSession(), which cancels every async job this
  * session owns and drops finished results still queued for delivery
  * (AgentSession#cancelOwnAsyncJobs). Describes that loss for a confirm dialog;
  * undefined when nothing would be lost.
@@ -1437,7 +1442,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 	pi.on("session_switch", (_event, ctx) => adopt(ctx));
 
 	pi.registerCommand("prose", {
-		description: "[N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — fork; N distills recent turns in place; ^N keeps them and distills the rest; ^0 distills everything in place",
+		description: "[fork|N|^N|?] [story ±tools[=a,b] ±skills -sub +think +compacted] — distill everything in place; fork writes it to a new session; N distills recent turns; ^N keeps them and distills the rest",
 		// Offered only once a flag is being typed. An empty argument deliberately
 		// yields nothing: an open dropdown suppresses the editor's inline hint
 		// (it prefers the selected item's own `hint`), and the hint is what
@@ -1463,14 +1468,14 @@ export default function proseExtension(pi: ExtensionAPI) {
 					});
 				const pinMatches = [
 					{ value: "^?", label: "^?", description: "pick the kept turn from a list" },
-					{ value: "^0", label: "^0", description: "distill everything in place, keep no turn verbatim" },
+					{ value: "^0", label: "^0", description: "keep no turn verbatim (same as bare /prose)" },
 					...pinItems,
 				].filter(item => item.value.startsWith(argumentPrefix));
 				return pinMatches.length > 0 ? pinMatches : null;
 			}
 			const isFlag = argumentPrefix.startsWith("+") || argumentPrefix.startsWith("-");
-			const isStory = argumentPrefix.length > 0 && "story".startsWith(argumentPrefix);
-			if (!isFlag && !isStory) return null;
+			const isWord = argumentPrefix.length > 0 && ["story", "fork"].some(word => word.startsWith(argumentPrefix));
+			if (!isFlag && !isWord) return null;
 			const items: AutocompleteItem[] = [
 				{
 					value: "+tools",
@@ -1485,12 +1490,17 @@ export default function proseExtension(pi: ExtensionAPI) {
 				{
 					value: "+compacted",
 					label: "+compacted",
-					description: "bare fork: also distill history sealed by /clear or compaction",
+					description: "fork: also distill history sealed by /clear or compaction",
 				},
 				{
 					value: "story",
 					label: "story",
 					description: "fold everything into one user message with [@user]/[@assistant] markers",
+				},
+				{
+					value: "fork",
+					label: "fork",
+					description: "write the distillation to a new session instead of distilling in place",
 				},
 			];
 			const matches = items.filter(item => item.value.startsWith(argumentPrefix));
@@ -1504,20 +1514,26 @@ export default function proseExtension(pi: ExtensionAPI) {
 
 			const parsed = parseFlags(args);
 			if (parsed.unknown !== undefined) {
-				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes N, ^N, ?, ^?, story, ±tools[=a,b], ±skills, -sub, +think, and +compacted.`, "warning");
+				ctx.ui.notify(`Unknown option \`${parsed.unknown}\`. /prose takes fork, N, ^N, ?, ^?, story, ±tools[=a,b], ±skills, -sub, +think, and +compacted.`, "warning");
 				return;
 			}
-			if (parsed.compacted && (parsed.turns !== undefined || parsed.pin !== undefined || parsed.picker)) {
-				// An in-place trim that reopened sealed history would put collapsed
-				// turns back into this session's context and grow it.
-				ctx.ui.notify("+compacted applies to the bare fork only; N and ^N trims never reopen sealed history.", "warning");
+			const trims = parsed.turns !== undefined || parsed.pin !== undefined || parsed.picker !== undefined;
+			if (parsed.fork && trims) {
+				ctx.ui.notify("fork takes the whole conversation; N, ^N and ? trim in place.", "warning");
+				return;
+			}
+			if (parsed.compacted && !parsed.fork) {
+				// An in-place distillation that reopened sealed history would put
+				// collapsed turns back into this session's context and grow it.
+				ctx.ui.notify("+compacted applies to /prose fork only; in-place distillation never reopens sealed history.", "warning");
 				return;
 			}
 
 			const entries = ctx.sessionManager.getBranch();
 			const allStarts = turnStarts(entries);
 			let turns = parsed.turns;
-			let pin = parsed.pin;
+			// Bare /prose is ^0: distill the whole active context in place.
+			let pin = parsed.pin ?? (parsed.fork || trims ? undefined : 0);
 			// Only turns the host still emits are addressable: history sealed by a
 			// `/clear` boundary or a compaction must stay sealed, in either form.
 			const windowStart = emissionStart(entries);
@@ -1638,7 +1654,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 
 			if (turns !== undefined) {
 				if (turns === 0) {
-					ctx.ui.notify("Nothing to distill in the last 0 turns — did you mean `^0` (distill everything in place)?", "warning");
+					ctx.ui.notify("Nothing to distill in the last 0 turns — did you mean bare `/prose` (distill everything in place)?", "warning");
 					return;
 				}
 				if (!Number.isInteger(turns) || turns < 1 || turns > starts.length) {
@@ -1648,7 +1664,7 @@ export default function proseExtension(pi: ExtensionAPI) {
 				const cut = starts[turns - 1];
 				const turnEntry = entries[cut];
 				if (!turnEntry.parentId) {
-					ctx.ui.notify("That covers the whole conversation — use bare /prose to fork it, or `^0` to distill it in place.", "warning");
+					ctx.ui.notify("That covers the whole conversation — use bare `/prose` to distill it in place, or `/prose fork` to fork it.", "warning");
 					return;
 				}
 				const slice = entries.slice(cut);
@@ -1719,12 +1735,12 @@ export default function proseExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			// Only the bare form leaves this session; N and ^N rewrite it in place
+			// Only fork leaves this session; every other form rewrites it in place
 			// and background work keeps running.
 			const doomed = doomedJobsWarning(ctx.getAsyncJobSnapshot?.(), Date.now());
 			if (doomed !== undefined) {
 				if (!hasUI) {
-					ctx.ui.notify("Background jobs are still running and a fork would cancel them — wait for them, or use /prose N to trim in place.", "warning");
+					ctx.ui.notify("Background jobs are still running and a fork would cancel them — wait for them, or run bare /prose to distill in place.", "warning");
 					return;
 				}
 				// Cursor starts on No: a reflexive Enter must not kill the jobs.

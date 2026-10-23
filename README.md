@@ -18,7 +18,7 @@ Icon: a single white four-pointed sparkle with a black outline on a transparent 
 
 Symlink a folder into `~/.omp/agent/extensions/` (or a profile's) to enable it.
 
-- [prose](.omp/extensions/prose) — `/prose` distills or forks a conversation into readable prose; `^N` trims in place, keeping the last N turns verbatim; `^0` distills everything in place.
+- [prose](.omp/extensions/prose) — `/prose` distills a conversation into readable prose in place; `/prose fork` writes it to a new session instead; `^N` keeps the last N turns verbatim and distills the rest.
 - [pivot](.omp/extensions/pivot) — `/pivot` keeps one message verbatim and summarizes everything before it.
 - [minimap](.omp/extensions/minimap) — `/minimap` opens a keyboard-driven outline of the session.
 - [skill-directives](.omp/extensions/skill-directives) — `@imports` and `` !`shell` `` expansion in SKILL.md.
