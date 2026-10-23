@@ -155,6 +155,11 @@ rejection when you resume the fork.
   tracing is essentially free. `+tools` is the far end — native tool turns,
   still smaller than the original because thinking, provider payloads and
   signatures are the remaining mass.
+- **Edits to `prose.ts` reach running sessions.** The extension entry is
+  `hot.ts`, which re-imports `prose.ts` on the next `/prose` whenever the file
+  changed, so a long-lived agent doesn't need a restart. A `prose.ts` that fails
+  to load leaves the previous version running and says so. The command
+  description, the inline hint, and `hot.ts` itself still load once per process.
 
 ## Verdict
 
