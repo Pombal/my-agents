@@ -141,7 +141,6 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     action: { ...SMALL, color: colors.foreground, fontWeight: "500" },
     preview: { ...muted, marginTop: 1 },
     previewInline: { ...muted, flex: 1, minWidth: 0 },
-    recapLabel: { color: colors.foreground, fontWeight: "500" },
     expansion: { paddingLeft: GLYPH + 10, paddingBottom: 2 },
     folderHeader: {
       flexDirection: "row",
@@ -220,7 +219,6 @@ function Preview({ entry, styles, lines }: { entry: PastSession; styles: Styles;
   if (!preview) return null;
   return (
     <Text style={styles.preview} numberOfLines={lines}>
-      {preview.kind === "recap" ? <Text style={styles.recapLabel}>Recap </Text> : null}
       {preview.text}
     </Text>
   );

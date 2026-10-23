@@ -22,9 +22,9 @@ Hover or keyboard focus swaps the time for **Restore** / **Import** (the `termin
 the whole row is the button. The time's tooltip has the absolute date. Sizes are Paseo's
 defaults, 14 px titles and 12 px for the rest (plugins can't read the Interface size setting).
 
-Preview, in order: the `paseo-recap` summary (`~/.paseo/plugin-data/paseo-recap/recaps.json`),
-marked **Recap**; else the last assistant reply from the session's transcript; else nothing (the
-row is just its title line). Transcripts: the OMP session file (terminal rows, and OMP agents'
+Preview: the last assistant reply from the session's transcript; else nothing (the row is just its
+title line). (Until 2026-10-23 it preferred the `paseo-recap` plugin's summary; that plugin is
+uninstalled and its leftover file was stale, so that was removed.) Transcripts: the OMP session file (terminal rows, and OMP agents'
 native handle) or Claude Code's `~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in
 date folders that would need a search, so Codex rows have no preview (Stefan, 2026-10-20: skip it,
 keep the list fast). Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,

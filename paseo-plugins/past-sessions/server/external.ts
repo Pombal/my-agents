@@ -126,7 +126,7 @@ export async function externalHandler(
     context.home,
   );
   return {
-    entries: await withPreviews(entries, new Map()),
+    entries: await withPreviews(entries),
     providers,
     fetchedAt,
     elapsedMs: Math.round(performance.now() - started),

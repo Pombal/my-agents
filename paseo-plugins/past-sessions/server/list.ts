@@ -8,7 +8,6 @@ import type { listPastSessions, PastSession, Scope } from "../shared/rpc";
 import { byNewest, mergePastSessions, type AgentRecord } from "./merge";
 import { OmpSessionIndex, resolvedOrSelf, type OmpSessionRoot } from "./omp-sessions";
 import { TailCache } from "./preview";
-import { RecapStore } from "./recaps";
 
 type Paseo = PluginHandlerContext["paseo"];
 
@@ -47,9 +46,6 @@ async function sessionIndex(): Promise<OmpSessionIndex> {
   return index;
 }
 const tails = new TailCache();
-const recaps = new RecapStore(
-  path.join(process.env.PASEO_HOME ?? path.join(homedir(), ".paseo"), "plugin-data", "paseo-recap", "recaps.json"),
-);
 
 /**
  * The agent's transcript, when finding it costs at most a stat: OMP stores the session file as
@@ -71,22 +67,17 @@ export function transcriptFile(
 }
 
 /**
- * Adds previews (recap if `paseo-recap` has one, else the transcript's last reply) and dates rows
- * by their transcript's newest record, then re-sorts. 24 files are read at a time.
+ * Adds previews (the transcript's last reply) and dates rows by their transcript's newest
+ * record, then re-sorts. 24 files are read at a time.
  */
-export async function withPreviews(entries: PastSession[], recapsByAgent: Map<string, string>): Promise<PastSession[]> {
+export async function withPreviews(entries: PastSession[]): Promise<PastSession[]> {
   const out: PastSession[] = [];
   for (let start = 0; start < entries.length; start += 24) {
     out.push(
       ...(await Promise.all(
         entries.slice(start, start + 24).map(async (entry): Promise<PastSession> => {
           const tail = entry.file ? await tails.summary(entry.file) : null;
-          const recap = entry.agentId ? recapsByAgent.get(entry.agentId) : undefined;
-          const preview = recap
-            ? { kind: "recap" as const, text: recap }
-            : tail?.reply
-              ? { kind: "reply" as const, text: tail.reply }
-              : null;
+          const preview = tail?.reply ? { text: tail.reply } : null;
           return { ...entry, at: tail?.lastActiveAt ?? entry.at, preview };
         }),
       )),
@@ -233,7 +224,6 @@ export async function listHandler(
     },
   });
 
-  const recapsByAgent = await recaps.read();
   return {
     workspaceName: workspace.name,
     home,
@@ -241,8 +231,8 @@ export async function listHandler(
     projectRoot: workspace.projectRootPath,
     projectName: workspace.projectDisplayName,
     scope: input.scope,
-    entries: await withPreviews(entries, recapsByAgent),
-    sameFolder: await withPreviews(sameFolder, recapsByAgent),
+    entries: await withPreviews(entries),
+    sameFolder: await withPreviews(sameFolder),
     stats: {
       elapsedMs: Math.round(performance.now() - started),
       ompDirsScanned: stats.dirsScanned,
