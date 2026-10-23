@@ -1,7 +1,9 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { createPillIcon } from "./client/btw-sheet";
 import { BtwStore, formatElapsed } from "./client/btw-store";
+import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { tanStatus } from "./shared/tan";
 
 /** Plain aliases: OMP gets the `/follow-up` form, which never cancels a running reply. */
 const ALIASES = [
@@ -12,6 +14,9 @@ const ALIASES = [
 
 /** Paseo can echo the queued message with or without its transport prefix. */
 const BTW_SEND = /^(?:\/follow-up )?\/btw /;
+/** Paseo's echo of a /tan send; the rest is your text. */
+const TAN_SEND = /^(?:\/follow-up )?\/tan(?:\s+|$)/;
+const TAN_DISPATCH_RECORD = "background-tan-dispatch";
 
 export default function contribute(client: PluginClientContext) {
   const store = new BtwStore({
@@ -21,6 +26,9 @@ export default function contribute(client: PluginClientContext) {
     dismiss: async (agentId, id) => void (await client.rpc(btwDismiss, { agentId, id })),
   });
   const PillIcon = createPillIcon(store);
+  const tanRpc: TanRpc = {
+    status: async (agentId, tanId, at) => (await client.rpc(tanStatus, { agentId, tanId, at })).state,
+  };
 
   // One composer pill per chat with /btw answers; its icon hosts the answer sheet.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
@@ -93,11 +101,34 @@ export default function contribute(client: PluginClientContext) {
         void store.ask(agent.id, workspace.id, args);
       },
     }),
+    client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc) }),
     // The /btw send is plumbing, not a conversation turn: keep it out of the timeline.
+    // A /tan send becomes the tangent's row (live chats).
     client.addTimelineTransformer({
-      id: "hide-btw-send",
+      id: "btw-and-tan-sends",
       query: { itemType: "user_message" },
-      transform: ({ item }) => (BTW_SEND.test(item.text) ? { items: [] } : undefined),
+      transform: ({ item }) => {
+        if (BTW_SEND.test(item.text)) return { items: [] };
+        const tan = TAN_SEND.exec(item.text);
+        if (!tan) return undefined;
+        const data: TanRowData = { source: "echo", work: item.text.slice(tan[0].length) };
+        return { items: [{ type: "plugin", kind: "tan-row", version: 1, data }] };
+      },
+    }),
+    // OMP's dispatch record: how reloaded chats show a tangent (and live ones at the next turn, when it was busy).
+    client.addTimelineTransformer({
+      id: "tan-dispatch-record",
+      query: { itemType: "tool_call" },
+      transform: ({ item }) => {
+        if (item.name !== TAN_DISPATCH_RECORD) return undefined;
+        const details = item.metadata?.details;
+        if (typeof details !== "object" || details === null) return undefined;
+        const work = "work" in details && typeof details.work === "string" ? details.work : undefined;
+        const file = "sessionFile" in details && typeof details.sessionFile === "string" ? details.sessionFile : "";
+        const tanId = /(Tan-[A-Za-z0-9]+)\.jsonl$/.exec(file)?.[1];
+        const data: TanRowData = { source: "dispatch", ...(tanId ? { tanId } : {}), ...(work ? { work } : {}) };
+        return { items: [{ type: "plugin", kind: "tan-row", version: 1, data }] };
+      },
     }),
   ];
 

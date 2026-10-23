@@ -63,3 +63,23 @@ export function isAlive(pid: number): boolean {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+
+/** Linux `USER_HZ`: /proc reports process start times in these ticks since boot. */
+const CLOCK_TICKS_PER_SECOND = 100;
+
+/** When process `pid` started (epoch ms), from /proc; undefined once it exited. */
+export async function processStartedAt(pid: number, procRoot = "/proc"): Promise<number | undefined> {
+  try {
+    const [stat, uptime] = await Promise.all([
+      readFile(join(procRoot, String(pid), "stat"), "utf8"),
+      readFile(join(procRoot, "stat"), "utf8"),
+    ]);
+    // Field 22 (starttime) counts from after the command name, which may contain spaces.
+    const startTicks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+    const bootSeconds = Number(/^btime (\d+)$/m.exec(uptime)?.[1]);
+    if (!Number.isFinite(startTicks) || !Number.isFinite(bootSeconds)) return undefined;
+    return bootSeconds * 1000 + (startTicks / CLOCK_TICKS_PER_SECOND) * 1000;
+  } catch {
+    return undefined;
+  }
+}

@@ -10,6 +10,8 @@
  * built-ins: the hook ignores every input source but "rpc".
  *
  * - /tan, /omfg: OMP's TUI command controllers with TUI calls mapped to RPC UI.
+ *   Inside Paseo the /tan "Dispatched background tan bg_N" status is not posted:
+ *   the omp-slash-aliases plugin shows the tangent as a row of its own.
  * - /btw: OMP's headless RPC side-question engine (`RpcBtwController`, the
  *   handler of the RPC `btw` command): native prompt, full conversation memory,
  *   no history change, runs while a turn streams, answers saved to the
@@ -186,10 +188,18 @@ function btwCommand(session: LiveSession, ui: ExtensionUi): CommandRunner {
 	};
 }
 
+/** TanCommandController's status line after it registered the tangent's background job. */
+const TAN_DISPATCHED = /^Dispatched background tan \S+$/;
+
 const COMMANDS: Record<string, CommandFactory> = {
 	tan: (session, ui) => {
+		const dialogs = hostDialogs(ui);
+		const inPaseo = !!process.env.PASEO_AGENT_ID;
 		const controller = new TanCommandController({
-			...hostDialogs(ui),
+			...dialogs,
+			showStatus: (message: string) => {
+				if (!(inPaseo && TAN_DISPATCHED.test(message))) dialogs.showStatus(message);
+			},
 			session,
 			sessionManager: session.sessionManager,
 			settings: session.settings,

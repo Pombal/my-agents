@@ -3,6 +3,14 @@ OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction
 ## How
 
 - `/tan`, `/omfg` and `/queue` are composer aliases. OMP receives the `/follow-up` form (`/follow-up /tan …`, `/follow-up /omfg …`, `/follow-up <message>`), which Paseo sends out of band. The extension's input hook then runs OMP's real controller.
+- Each `/tan` shows as **one row** instead of a chat bubble, because the main agent is never asked; OMP only tells it a tangent is running:
+  - Your words sit on your side in a dashed bubble, muted until you hover over it.
+  - Under it, the tangent's line: `tan`, its agent (`Tan-41b9`, the last 4 characters of OMP's id), the status (`running 0:42`, `done in 1m 50s`, `failed after 12s` in red, `stopped after 17s`) and a muted peek: what it is doing right now while it runs (its newest tool call by its intent, e.g. `bash · Running sleep 120`), otherwise the first line of its answer.
+  - Click the line to open it: while running, every step so far (the current one has a spinner); afterwards the tangent's full answer as Markdown, then its full agent id, model and duration, and a Copy result button. The line's own copy icon copies your text; it shows on hover on desktop and always on phones and native apps.
+  - "Stopped" also covers a tangent cut off because its chat's OMP process was reloaded or closed (OMP aborts it).
+  - The state comes from OMP's session files, read by the plugin's daemon side (`tan.status`): the chat's file from Paseo's agent record (`persistence.nativeHandle`), then the tangent's own `<chat>/Tan-<id>.jsonl` and OMP's `async-result` delivery. Running rows poll once a second, finished ones not at all.
+  - Sources: in a live chat, Paseo's echo of the send (Paseo can echo it twice, as `/follow-up /tan …` and `/tan …`; one row is drawn). After a reload, and in a live chat at the agent's next turn when it was busy, OMP's `background-tan-dispatch` record; a live row for the same tangent wins, so it never shows twice.
+  - Under Paseo the extension no longer posts "Dispatched background tan bg_N"; the row replaces it.
 - `/btw <question>` asks OMP's own /btw engine, the same one behind OMP's RPC `btw` command. It uses the native prompt and the chat's full memory, including a reply that is still streaming. Nothing is added to the conversation, and the main reply keeps running. The client calls the plugin's daemon side (`btw.ask`), which sends `/follow-up /btw …`. The extension streams the answer to `$PASEO_HOME/omp-btw/<agentId>/<id>.json`. `PASEO_AGENT_ID` is the routing key, so an answer can only reach its own chat. The daemon side reads those files, and clients poll them (0.6 s while something is open or running, 4 s otherwise).
 - The answers show in a sheet that opens as soon as you send `/btw`: a centred dialog up to 600 px wide on wide layouts, a panel at the bottom on phones. The plugin draws this sheet itself with React Native's `Modal`, because Paseo's plugin `Modal` always adds a 64 px title row. The sheet's only header is one 24 px line: "/btw · 4 · from this chat's memory, not added to it" (shorter on phones) and a small ✕. Escape, the ✕ or a tap on the dimmed backdrop closes it. Each question and its answer form a card with its own surface and border, set off from the sheet (darker cards on the dark sheet, white cards on the light sheet):
   - A header strip holds the muted question, always cut to 2 lines, and the time. Tap a long question to show it in full under the strip, and tap again to hide it.
@@ -15,7 +23,7 @@ OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction
 - The plugin hides the `/follow-up /btw …` message and Paseo 0.12's normalized `/btw …` echo from the timeline, because they are plumbing and not a conversation turn.
 - Before sending, the plugin checks that the chat's live OMP process has the `/btw` handler. An agent started before the extension had `/btw` would otherwise pass the question to the model as an ordinary message. In that case you get: "This OMP agent started before /btw was installed. Reload or restart the agent" (`paseo agent reload <id>`, or close and reopen the chat).
 
-Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, a timeline transformer and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.
+Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, timeline transformers and renderers, and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.
 
 Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
 
@@ -25,15 +33,30 @@ Other providers get the original slash command unchanged. Plugin commands win co
 - Paseo's message-navigation rail (the small marks at the left edge) still counts the hidden `/follow-up /btw` message. Until a freshly loaded app has loaded its plugins, that message is briefly visible. `paseo logs` also shows it.
 - Desktop web: once the sheet is open, the pill's "By the way (/btw)" tooltip can show next to it. The sheet is rendered inside the pill (the only per-chat plugin UI), so React passes hover events from the sheet up to the pill's tooltip trigger. The plugin cannot turn the tooltip off.
 - The sheet is drawn by the plugin with React Native's `Modal`, not Paseo's sheet. On phones it is a plain panel without swipe-to-close, and it uses Paseo's default UI font, so a custom UI font set in Paseo's settings is not applied there.
-- `/tan` has no MCP tools. Paseo 0.11.4 shows only the first line of the tangent's completion notice (`omp/system-notice.js`). The main agent receives the full result and usually acts on it, as in the screenshots below.
+- `/tan` has no MCP tools.
+- `/tan`: OMP's "Background job bg_N has completed. Resume your work using the result below." notice stays under the row. Paseo 0.12 does not let plugins transform notifications (transformer item types: user and assistant messages, reasoning, tool calls, todos, errors, compaction), and the notice comes from OMP itself. Paseo also keeps only its first line; the full result is in the row.
+- `/tan` in a reloaded chat: a tangent sent while the agent was busy is listed at the agent's next turn, because that is where OMP records it. A live chat shows it where you sent it.
+- `/tan`: the tangent's file is matched to Paseo's echo by time (they are written within milliseconds; window 10 s), since the echo carries no id.
 - `/omfg` shows OMP's save-location question but not its draft-rule panel; check the saved file. Generation can take a while.
-- This depends on OMP internals (controller and `rpc-btw` modules) and on Paseo 0.11.4 behaviour (`/follow-up` out of band, `PASEO_AGENT_ID` in the provider environment).
+- This depends on OMP internals (controller and `rpc-btw` modules; the session-file entries `session_init`, `session_exit`, `async-result`, `background-tan-dispatch`) and on Paseo 0.12 behaviour (`/follow-up` out of band, the `/tan` echoes, `PASEO_AGENT_ID` in the provider environment).
 
 Disable with `paseo plugin disable omp-slash-aliases`. To keep the plugin but drop the OMP side, remove the `headless-builtins` symlink from `~/.omp/agent/extensions/`. Without it, the commands reach the model as plain text.
 
 ## Development
 
-`npm install`, `npm test` (vitest), `npm run typecheck`. The tests cover the Markdown parser and its one-line preview, ask/answer correlation and routing across chats, the timer and duration labels (`client/btw-store.test.ts`), the file contract with the extension's real writer (`server/btw-outbox.test.ts`), and the live-process readiness check. `paseo plugin reload omp-slash-aliases` applies edits.
+`npm install`, `npm test` (vitest), `npm run typecheck`. The tests cover the Markdown parser and its one-line preview, ask/answer correlation and routing across chats, the timer and duration labels (`client/btw-store.test.ts`), the file contract with the extension's real writer (`server/btw-outbox.test.ts`), the live-process readiness check, and the /tan state from session files (`server/tan-sessions.test.ts`: the tangent's own part of its file, step names, delivery vs. own exit, stopped when no OMP process could run it, splitting multi-job deliveries, matching by start time, files that grow mid-line). `paseo plugin reload omp-slash-aliases` applies edits.
+
+## /tan row proof (2026-10-23, web app, Paseo 0.12, OMP + Claude Haiku 5.5)
+
+Throwaway agent "TAN row test" (codeword CEDAR-LYNX-58) in `~/tmp-archive/paseo-tan-test`; agent, workspace, project and files were deleted afterwards.
+
+- Idle send from the composer: one row, `running`, then `done in 10s` with the answer's first line; opened, the Markdown answer with `Tan-15b162f8e05b41b9 · claude-haiku-5-5 · 10s`.
+- Busy send during `sleep 25`: the row showed at once and finished (`done in 8s`) while the main reply ran on. At the next turn OMP's dispatch record arrived and drew nothing (the live row won).
+- Steps while running (`screenshots/tan-row-desktop-running-open.webp`): `read Reading tan-note.txt`, `read Listing folder`, `bash Running sleep 20` with a spinner. The opened running row turned into the answer when it finished.
+- Reloading the agent during `sleep 120`: `stopped after 17s · Request was aborted`.
+- Hover: the bubble text went from the muted colour to the foreground colour, and only that row's copy icon appeared (opacity read from the page). `screenshots/tan-row-desktop-done-open.webp`; phone 390 px with copy icons always shown: `screenshots/tan-row-phone.webp`.
+- Plugin disabled: the chat went back to Paseo's own look (the `/tan` bubbles, "Background tan dispatch" rows after a reload, the completion notices). `/btw` still worked with the plugin back on.
+- Not tried live: a failed tangent (covered by the tests), desktop and native apps.
 
 ## Dense card proof (2026-10-19, web app, OMP + Claude Haiku 5.5)
 

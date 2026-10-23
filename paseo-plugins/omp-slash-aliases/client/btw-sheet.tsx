@@ -53,7 +53,7 @@ function isRunning(row: Row): boolean {
 }
 
 /** The current time, ticking every second while `active`. */
-function useNow(active: boolean): number {
+export function useNow(active: boolean): number {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
@@ -63,7 +63,7 @@ function useNow(active: boolean): number {
   return active ? now : Date.now();
 }
 
-function IconButton({
+export function IconButton({
   icon,
   label,
   onPress,
