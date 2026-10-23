@@ -1,0 +1,12 @@
+{
+  "id": "user-message-polish",
+  "name": "User message polish",
+  "requirements": {
+    "paseo": ">=0.12.0"
+  },
+  "media": [
+    "screenshots/after-mixed-open.webp",
+    "screenshots/after-nested-long-open.webp",
+    "screenshots/settings.webp"
+  ]
+}
