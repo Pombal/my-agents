@@ -61,6 +61,8 @@ function buildStyles(theme: Theme, compact: boolean) {
     name: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: theme.colors.foreground },
     nameMissing: { flexShrink: 1, maxWidth: "62%" as const, fontSize: 13, color: muted, textDecorationLine: "line-through" as const },
     where: { flex: 1, minWidth: 0, fontSize: 12, color: muted },
+    // `×N` after the host: how many distinct full URLs (query strings, fragments) a row folds.
+    variants: { fontSize: 11, color: muted, opacity: 0.7, fontVariant: ["tabular-nums" as const] },
     // Two lines fit the 28 px desktop row.
     snippet: { flex: 1, minWidth: 0, fontSize: 11, lineHeight: 13, color: muted },
     time: { flexShrink: 0, minWidth: 28, textAlign: "right" as const, fontSize: 12, color: muted, fontVariant: ["tabular-nums" as const] },
@@ -191,6 +193,7 @@ export function LinkRow(props: {
           ) : (
             <Text numberOfLines={1} style={styles.where}>
               {where ? whereLabel(link) : link.missing ? "missing" : ""}
+              {link.variants ? <Text style={styles.variants}>{`${where || link.missing ? " " : ""}×${link.variants.length}`}</Text> : null}
             </Text>
           )}
           {tab}

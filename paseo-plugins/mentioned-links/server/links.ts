@@ -23,15 +23,45 @@ export interface Prose {
   at: number;
 }
 
+/** One distinct full URL of a link, as merging tracks it. */
+interface VariantEntry {
+  url: string;
+  query: string;
+  title?: string;
+  /** Epoch ms of the mention `title` came from. */
+  titleAt: number;
+  count: number;
+  lastAt: number;
+  /** Order of its newest mention among all merges: breaks `lastAt` ties (one message, several URLs) as the row's own newest-wins rule does. */
+  seq: number;
+}
+
+let mentionSeq = 0;
+
 /**
- * A link plus what merging needs: whether the title came from the message, a file's path and line,
- * and `disk`, the path checked for `missing` (a file, or a webshare URL's file).
+ * A link plus what merging needs: `name` (the page or file name), the link texts seen, a file's
+ * path and line, `disk` (the path checked for `missing`: a file, or a webshare URL's file) and,
+ * for URLs, each distinct full URL by its normalized form.
  */
-interface Entry extends Omit<Link, "copy" | "missing"> {
-  titled: boolean;
+interface Entry extends Omit<Link, "title" | "copy" | "missing" | "variants"> {
+  name: string;
+  /** The newest mention's link text. */
+  text?: string;
+  /** Every distinct link text. */
+  texts: Set<string>;
+  /** Some link text named a variant (`[tree](page.html?v=tree)`), not the page. */
+  labelled: boolean;
   file?: string;
   line?: string;
   disk?: string;
+  variants: Map<string, VariantEntry>;
+}
+
+/** One mention, classified: the row it makes plus, for URLs, which full URL it was. */
+export interface Classified extends Omit<Entry, "lastAt" | "texts" | "labelled" | "variants"> {
+  /** How the mention reads: its link text, else `name`. */
+  title: string;
+  variant?: { id: string; url: string; query: string; label: boolean };
 }
 
 /** Links of one chat by dedupe key. */
@@ -49,14 +79,18 @@ export function shortDir(dir: string, home: string): string {
   return `${shown.startsWith("~") ? "~/…/" : "…/"}${parts.slice(-2).join("/")}`;
 }
 
-/** Scheme + host lowercased, no trailing `/`, no fragment. */
-function urlKey(url: URL): string {
-  return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}${url.search}`;
+/**
+ * The page a URL names: scheme and host lowercased, default port dropped (both by `URL`), no
+ * trailing `/`, no query, no fragment; on the webshare `/dir/index.html` is `/dir/`.
+ */
+function pagePath(url: URL, site: Site): string {
+  const pathname = url.origin === site.webshareOrigin ? url.pathname.replace(/\/index\.html$/, "/") : url.pathname;
+  return pathname.replace(/\/+$/, "");
 }
 
 /** The last path segment (`pull/12` for numeric ones), else the host. */
-function urlTitle(url: URL): string {
-  const segments = url.pathname.split("/").filter(Boolean).map((segment) => {
+function urlTitle(host: string, pathname: string): string {
+  const segments = pathname.split("/").filter(Boolean).map((segment) => {
     try {
       return decodeURIComponent(segment);
     } catch {
@@ -64,8 +98,31 @@ function urlTitle(url: URL): string {
     }
   });
   const last = segments.at(-1);
-  if (!last) return url.host;
+  if (!last) return host;
   return /^\d+$/.test(last) && segments.length > 1 ? `${segments.at(-2)}/${last}` : last;
+}
+
+/** Link text that names a variant: a query parameter's value, name or `name=value`, or the fragment. */
+function isVariantLabel(text: string, url: URL): boolean {
+  const label = text.trim().toLowerCase();
+  if (label && label === url.hash.slice(1).toLowerCase()) return true;
+  for (const [name, value] of url.searchParams) {
+    if ([value, name, `${name}=${value}`].some((part) => part.toLowerCase() === label)) return true;
+  }
+  return false;
+}
+
+/** The row's key, name and variant for a URL; `text` is the mention's link text. */
+function urlParts(url: URL, site: Site, text: string | undefined) {
+  const page = pagePath(url, site);
+  const key = `${url.protocol}//${url.host}${page}`;
+  const query = `${url.search}${url.hash}`;
+  return {
+    key,
+    name: urlTitle(url.host, page),
+    url: url.href,
+    variant: { id: `${key}${query}`, url: url.href, query, label: !!text && !!query && isVariantLabel(text, url) },
+  };
 }
 
 function isDirectory(file: string): boolean {
@@ -77,7 +134,8 @@ function isDirectory(file: string): boolean {
 }
 
 /** What a mention is in the popover: web/image (opens a URL) or file (copies the path). */
-export function classify(mention: Mention, site: Site): Omit<Entry, "lastAt"> | null {
+export function classify(mention: Mention, site: Site): Classified | null {
+  const text = mention.title;
   if (mention.kind === "url") {
     let url: URL;
     try {
@@ -94,14 +152,14 @@ export function classify(mention: Mention, site: Site): Omit<Entry, "lastAt"> | 
         // Not a path we can check.
       }
     }
+    const parts = urlParts(url, site, text);
     return {
-      key: urlKey(url),
+      ...parts,
       kind: image ? "image" : "web",
-      title: mention.title ?? urlTitle(url),
-      titled: !!mention.title,
+      title: text ?? parts.name,
+      ...(text ? { text } : {}),
       where: url.host,
       glyph: image ? "Image" : url.origin === site.webshareOrigin ? "AppWindow" : "Globe",
-      url: url.href,
       ...(disk ? { disk } : {}),
     };
   }
@@ -113,21 +171,22 @@ export function classify(mention: Mention, site: Site): Omit<Entry, "lastAt"> | 
     const url = new URL(`${site.webshareOrigin}${encodeURI(file.slice(site.webshareDir.length) || "/")}${dir && file !== site.webshareDir ? "/" : ""}`);
     const image = IMAGE_EXT.test(file);
     return {
-      key: urlKey(url),
+      ...urlParts(url, site, text),
       kind: image ? "image" : "web",
-      title: mention.title ?? name,
-      titled: !!mention.title,
+      name,
+      title: text ?? name,
+      ...(text ? { text } : {}),
       where,
       glyph: image ? "Image" : "AppWindow",
-      url: url.href,
       disk: file,
     };
   }
   return {
     key: `file:${file}`,
     kind: "file",
-    title: mention.title ?? name,
-    titled: !!mention.title,
+    name,
+    title: text ?? name,
+    ...(text ? { text } : {}),
     where,
     file,
     disk: file,
@@ -137,24 +196,60 @@ export function classify(mention: Mention, site: Site): Omit<Entry, "lastAt"> | 
 }
 
 /**
- * Folds one mention in: the newest mention sets the row (where, URL, time, snippet); a title from
- * link text beats a derived one; a file keeps the newest `:line` seen.
+ * Folds one mention in: the newest mention sets the row (where, URL, time, snippet); the newest
+ * link text is kept over a derived name; a file keeps the newest `:line` seen. A URL also counts
+ * toward its variant (its distinct full URL).
  */
-export function merge(links: LinkMap, link: Omit<Entry, "lastAt">, at: number): void {
+export function merge(links: LinkMap, link: Classified, at: number): void {
+  const { title: _title, variant, ...row } = link;
   const prev = links.get(link.key);
+  const variants = prev?.variants ?? new Map<string, VariantEntry>();
+  const texts = prev?.texts ?? new Set<string>();
+  if (link.text) texts.add(link.text);
+  if (variant) {
+    const seq = ++mentionSeq;
+    const seen = variants.get(variant.id);
+    if (!seen) {
+      variants.set(variant.id, { url: variant.url, query: variant.query, ...(link.text ? { title: link.text } : {}), titleAt: at, count: 1, lastAt: at, seq });
+    } else {
+      seen.count += 1;
+      if (at >= seen.lastAt) {
+        seen.lastAt = at;
+        seen.seq = seq;
+        seen.url = variant.url;
+      }
+      if (link.text && (!seen.title || at >= seen.titleAt)) {
+        seen.title = link.text;
+        seen.titleAt = at;
+      }
+    }
+  }
+  const labelled = (prev?.labelled ?? false) || !!variant?.label;
   if (!prev) {
-    links.set(link.key, { ...link, lastAt: at });
+    links.set(link.key, { ...row, lastAt: at, texts, labelled, variants });
     return;
   }
-  const [newer, older] = at >= prev.lastAt ? [{ ...link, lastAt: at }, prev] : [prev, link];
-  const titleFrom = !newer.titled && older.titled ? older : newer;
+  const [newer, older] = at >= prev.lastAt ? [{ ...row, lastAt: at }, prev] : [prev, row];
+  const text = newer.text ?? older.text;
   links.set(link.key, {
     ...newer,
-    title: titleFrom.title,
-    titled: titleFrom.titled,
+    texts,
+    labelled,
+    variants,
+    ...(text ? { text } : {}),
     ...(newer.line ?? older.line ? { line: newer.line ?? older.line } : {}),
     ...(newer.snippet ?? older.snippet ? { snippet: newer.snippet ?? older.snippet } : {}),
   });
+}
+
+/**
+ * The row's name: the page or file name when a link text named a variant or the variants'
+ * texts disagree; else the one link text (newest one for a single URL); else the name.
+ */
+function rowTitle(entry: Entry): string {
+  if (entry.labelled) return entry.name;
+  if (entry.variants.size > 1) return entry.texts.size === 1 ? [...entry.texts][0]! : entry.name;
+  return entry.text ?? entry.name;
 }
 
 export function addProse(links: LinkMap, prose: Prose, site: Site): void {
@@ -172,11 +267,22 @@ export function addProse(links: LinkMap, prose: Prose, site: Site): void {
 export function listLinks(links: LinkMap): Link[] {
   return [...links.values()]
     .sort((a, b) => b.lastAt - a.lastAt)
-    .map(({ titled: _titled, file, line, disk, ...link }) => ({
-      ...link,
-      ...(file ? { copy: `${file}${line ?? ""}` } : {}),
-      ...(disk && !existsSync(disk) ? { missing: true } : {}),
-    }));
+    .map((entry) => {
+      const { name: _name, text: _text, texts: _texts, labelled: _labelled, variants, file, line, disk, ...link } = entry;
+      return {
+        ...link,
+        title: rowTitle(entry),
+        ...(file ? { copy: `${file}${line ?? ""}` } : {}),
+        ...(disk && !existsSync(disk) ? { missing: true } : {}),
+        ...(variants.size > 1
+          ? {
+              variants: [...variants.values()]
+                .sort((a, b) => b.lastAt - a.lastAt || b.seq - a.seq)
+                .map(({ url, query, title, count, lastAt }) => ({ url, query, ...(title ? { title } : {}), count, lastAt })),
+            }
+          : {}),
+      };
+    });
 }
 
 /**

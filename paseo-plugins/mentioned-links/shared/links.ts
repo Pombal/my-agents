@@ -8,17 +8,32 @@ import { z } from "zod";
 export const LinkKindSchema = z.enum(["web", "image", "file"]);
 export type LinkKind = z.infer<typeof LinkKindSchema>;
 
+/** One full URL of a link that was mentioned with several (other query strings, fragments). */
+export const LinkVariantSchema = z.object({
+  /** The full URL as last written. */
+  url: z.string(),
+  /** What sets it apart, shown muted: the query string plus any fragment (`?v=tree&title=1`, `#notes`); empty for the bare URL. */
+  query: z.string(),
+  /** The newest Markdown link text or image alt this URL had. */
+  title: z.string().optional(),
+  /** Mentions of this exact URL. */
+  count: z.number(),
+  /** Epoch ms of its newest mention. */
+  lastAt: z.number(),
+});
+export type LinkVariant = z.infer<typeof LinkVariantSchema>;
+
 export const LinkSchema = z.object({
-  /** Dedupe key: a normalized URL, or `file:` + absolute path. */
+  /** Dedupe key: a normalized URL without query or fragment, or `file:` + absolute path. */
   key: z.string(),
   kind: LinkKindSchema,
-  /** Markdown link text or image alt; else the file name or the URL's last path segment. */
+  /** One consistent Markdown link text or image alt; else the page or file name (the URL's last path segment). */
   title: z.string(),
   /** Muted: the host, or the folder shortened to `~/…/a/b`. */
   where: z.string(),
   /** Lucide icon name for the row. */
   glyph: z.string(),
-  /** web/image: what opens. */
+  /** web/image: what opens, the newest variant's full URL. */
   url: z.string().optional(),
   /** file: the absolute path plus the newest `:line` suffix seen. */
   copy: z.string().optional(),
@@ -30,6 +45,8 @@ export const LinkSchema = z.object({
   missing: z.boolean().optional(),
   /** The newest mention's sentence as plain text, about 120 characters. */
   snippet: z.string().optional(),
+  /** Only when the link was mentioned with 2+ distinct full URLs: each of them, newest first. */
+  variants: z.array(LinkVariantSchema).optional(),
 });
 export type Link = z.infer<typeof LinkSchema>;
 

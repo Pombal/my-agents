@@ -36,7 +36,9 @@ Links are sorted by what a click does.
 
 ![Type tabs, sub-agents switch on, sub-agent rows](screenshots/subagents-dark.webp)
 
-A webshare path and its `http://axalon:8080` URL are one row. Non-image files in the webshare (for example `~/www/webshare/pages/x.html`) are Web rows. The same path with different line suffixes is one row.
+**One row per page.** A URL's row ignores its query string and fragment, the host's case, a default port and a trailing `/`; on the webshare `/dir/index.html` is `/dir/`. A webshare path and its `http://axalon:8080` URL are one row. Non-image files in the webshare (for example `~/www/webshare/pages/x.html`) are Web rows. The same path with different line suffixes is one row.
+
+**Variants.** Each distinct full URL of a row (`?v=tree&title=1`, `?v=card&title=1`, `#install`, the bare URL) is kept as a variant with its link text, mention count and last time; the RPC sends them as `variants` (newest first) only when a row has two or more. A click opens the newest variant's full URL, the one the agent pointed at last; the hover sentence is the newest mention's. Such a row is named by its page (`post-anatomy.html`) unless all its mentions share one link text, and also when a link text names a variant (`[tree](…?v=tree)`, a query value or the fragment); titles never come from the query string. For now a row with variants shows only a small muted `×24` after its host: how to show the variants themselves is still being designed. The links page names the tab that mentioned a page last and shows that tab's variants.
 
 **Sub-agent links.** When the chat's sub-agents mentioned links that the chat itself never did, a small text switch sits right-aligned in the header: **+18 subagents**, faint while off, full colour while on. It isn't a tab: switching it on merges those links into the list by time, each marked `↳ <sub-agent>` in the muted host/folder column, and they count in the type tabs like any other link; the pill keeps counting only the chat's own links. A link the chat also mentioned stays a plain row, so a chat with no sub-agents, or whose sub-agents only repeated its links, gets no switch. With only one type, the header holds just the switch. The choice is kept per chat until the app reloads.
 
@@ -55,7 +57,7 @@ Only what you and the agent wrote in the chat: tool calls and tool output are le
 - Image embeds `![alt](…)`, Markdown links `[text](…)`, autolinks `<https://…>`, bare http(s) URLs, and code spans holding exactly a URL or an absolute or `~/` path (with `:12`, `:12-20`, `:12:3` or `#L12-L20`).
 - Fenced code blocks are skipped. Harness wrappers in user messages (`<system-notice>`, `<paseo-system>` and the like) and OMP `[ran …; recover: …]` records are removed first.
 - Dropped: harness addresses (`artifact://`, `agent://`, `local://` and so on), placeholders containing `< > { } $ * …`, `example.com` hosts, relative paths, and paths whose top folder doesn't exist on the daemon machine (so `/btw` and `/v1/chat/completions` don't count). A code span path with spaces counts only if it exists.
-- Names: the link text or image alt when there is one, else the file name or the URL's last path segment (`pull/12` for numbered ones).
+- Names: the link text or image alt when there is one (see Variants for rows with several URLs), else the file name or the URL's last path segment (`pull/12` for numbered ones).
 
 ## Where the data comes from
 
@@ -82,6 +84,7 @@ After editing the source, run `npm run typecheck` and `paseo plugin reload menti
 
 ## Proof (live web app, 2026-10-21, `screenshots/`)
 
+- `dedupe-dark.webp` (2026-10-23): the nilo-observatory chat `f3046c55` (The Observatory). Its 24 distinct `post-anatomy.html` URLs (`?v=now&title=1`, `?v=tree3&pathpos=below&…&sep=space`, the bare URL …) were 24 rows, 11 of them identical-looking `post-anatomy.html axalon:8080` and the rest named `now`, `card`, `tree`, `tree2` … They are now one row, `post-anatomy.html axalon:8080 ×24`, whose click target is the `…&sep=space` URL the agent sent last. The chat went from 63 rows (Web 36) to 40 (Web 13), the pill reads `40 links`. On the Paseo Plugins links page, searching `mocks-3` showed one `mentioned-links-mocks-3 axalon:8080 ×3` row for the `?f=` URLs.
 - `desktop-dark.webp` (re-shot 2026-10-21 after the label change): the Links chat (index › Paseo Plugins), pill `28 links` next to Paseo's `6 subagents` with the same height, padding and font (32 px, 12 px, 13.3 px measured), no icon; popover with images, webshare pages and `+6 files`.
 - The other screenshots predate the label change and show the old `links N` pill with an icon; the `types-*.webp` ones also show the old one-type-at-a-time chips with a `+N hidden` label and a `N links in this chat` title, both gone since 2026-10-21.
 - **Workspace page (2026-10-21)**, index › Paseo Plugins, desktop 1440 px and 390 px, T3 Chat Dark and Light themes:
