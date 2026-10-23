@@ -57,12 +57,27 @@ terminal section alike. Where a session shows is unchanged.
   sidebar's **Search** row.
 - In the list: a filled star is the rightmost thing on starred rows, after the time, so it stays
   put when hover swaps the time for Restore/Import. On web/desktop hovering a row
-  shows an outline star; click it to star or unstar. On phones, long-press a row (a toast confirms).
+  shows an outline star; click it to star or unstar. On phones, long-press a row and pick
+  **Star** in its menu (a toast confirms).
 - Stored in `~/.paseo/plugin-data/past-sessions/stars.json`, keyed like the list
   (`paseo:<agentId>`, `omp:<sessionId>`, `ext:<provider>:<sessionId>`). Importing a starred
   terminal or Claude Code/Codex session moves its star to the new agent; restoring keeps it.
 - An open Past sessions view picks up a chat closed with **Star and close** on its next quiet
   refresh (see "Freshness") or the refresh button.
+
+## Hide
+
+Hide takes a session out of the list (test chats, throwaways); nothing is deleted, in Paseo or
+on disk. Called "Hide" because Paseo already uses Archive (closing an agent) and Delete.
+- Web/desktop: hovering a row shows an eye-off button left of the star; click it. Phones:
+  long-press a row, then **Hide from Past sessions** in its menu.
+- **Show N hidden** at the end of the list (only when this scope has hidden rows) lists them
+  dimmed, each with its eye-off mark; click the mark (phones: the menu) to unhide. Restoring or
+  importing a hidden session also unhides it.
+- Stored in `~/.paseo/plugin-data/past-sessions/hidden.json`, keyed like stars. The search
+  placeholder counts only listed sessions.
+- Phones: the click a browser sends when the long-pressing finger lifts is swallowed
+  (`swallowNextClick`), or it would land on the menu sheet's backdrop and dismiss it.
 
 ## Where
 

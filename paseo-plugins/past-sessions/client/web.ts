@@ -1,16 +1,22 @@
 import { Platform } from "react-native";
 
 // Paseo's plugin types leave out the DOM library; declare only what this module uses.
+interface DomEvent {
+  key?: string;
+  stopPropagation(): void;
+  preventDefault(): void;
+}
+type DomListener = (event: DomEvent) => void;
 declare const document: {
-  addEventListener(type: "keydown" | "pointerdown", listener: (event: { key?: string }) => void, capture: boolean): void;
-  removeEventListener(type: "keydown" | "pointerdown", listener: (event: { key?: string }) => void, capture: boolean): void;
+  addEventListener(type: "keydown" | "pointerdown" | "click", listener: DomListener, capture: boolean): void;
+  removeEventListener(type: "keydown" | "pointerdown" | "click", listener: DomListener, capture: boolean): void;
 };
 interface TitledElement {
   setAttribute(name: "title", value: string): void;
 }
 
 let keyboard = false;
-const onKey = (event: { key?: string }) => {
+const onKey = (event: DomEvent) => {
   if (event.key === "Tab" || event.key?.startsWith("Arrow")) keyboard = true;
 };
 const onPointer = () => {
@@ -33,6 +39,26 @@ export function startFocusModality(): () => void {
 
 export function focusFromKeyboard(): boolean {
   return keyboard;
+}
+
+/**
+ * Swallows the click a browser sends when a long-pressing finger lifts (waiting at most 1 s): it
+ * would land on whatever the long press put under the finger, such as the backdrop of the sheet
+ * it opened, and dismiss it. Native apps send no such click.
+ */
+export function swallowNextClick(): void {
+  if (Platform.OS !== "web" || typeof document === "undefined") return;
+  const stop = () => {
+    document.removeEventListener("click", swallow, true);
+    clearTimeout(timer);
+  };
+  const swallow = (event: DomEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
+    stop();
+  };
+  document.addEventListener("click", swallow, true);
+  const timer = setTimeout(stop, 1000);
 }
 
 /**

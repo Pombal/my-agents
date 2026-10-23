@@ -1,16 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
-import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { FlatList, Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Image, Platform, StyleSheet, Text, View } from "react-native";
 import {
   listExternalSessions,
   listPastSessions,
-  listStars,
+  listMarks,
   reopenPastSession,
-  setStar,
+  setMark,
+  type Mark,
+  type MarkKeys,
   type PastSession,
   type ExternalSessionsListing,
   type PastSessionsListing,
@@ -21,7 +23,7 @@ import { absoluteTime, folderChip, relativeTime, tildify } from "./format";
 import { Interactive } from "./interactive";
 import { buildListItems, mergeByNewest, sourceWord, type ListItem } from "./model";
 import { ProviderGlyph, useSnapshotIcons } from "./provider-glyph";
-import { tooltip } from "./web";
+import { swallowNextClick, tooltip } from "./web";
 
 interface Props {
   workspaceId: string;
@@ -107,6 +109,8 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     rowCompact: { paddingVertical: 6 },
     rowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
     rowHovered: { backgroundColor: colors.surface1 },
+    // A hidden row, listed only while "Show hidden" is on.
+    rowHidden: { opacity: 0.5 },
     rowPressed: { backgroundColor: colors.surface2 },
     split: { flexDirection: "row", gap: 10 },
     glyph: { width: GLYPH, height: BASE.lineHeight, alignItems: "center", justifyContent: "center" },
@@ -136,6 +140,9 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     // Rightmost in the row; the negative right margin lines the 12 px glyph up with the text edge.
     star: { width: 20, height: 20, marginLeft: -2, marginRight: -4, borderRadius: 5, alignItems: "center", justifyContent: "center" },
     starIdle: { opacity: 0 },
+    // Left of the star; zero-width until the row is hot, so the time doesn't move over for it.
+    hide: { width: 20, height: 20, borderRadius: 5, alignItems: "center", justifyContent: "center" },
+    hideIdle: { width: 0, marginLeft: -6, opacity: 0, overflow: "hidden" },
     meta: muted,
     tag: { ...muted, opacity: 0.72 },
     dot: { ...muted, opacity: 0.5 },
@@ -175,6 +182,17 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     },
     stateButtonText: { ...SMALL, color: colors.foreground },
     footer: { ...muted, paddingHorizontal: gutter, paddingTop: 10, paddingBottom: 24 },
+    footerHidden: { flexDirection: "row", paddingHorizontal: gutter - 6, paddingTop: 8 },
+    menuOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    menuText: { ...BASE, color: colors.foreground },
   });
 }
 
@@ -255,43 +273,43 @@ interface RowProps {
   density: Density;
   compact: boolean;
   starred: boolean;
+  hidden: boolean;
   serverId: string;
   snapshotSvg: string | undefined;
   styles: Styles;
   theme: PluginTheme;
   onOpen(entry: PastSession): void;
-  onStar(input: { key: string; starred: boolean }): void;
-  /** Pointer over this row (`part` "row") or its star, so the list can hold re-sorts meanwhile. */
+  onMark(input: { key: string; mark: Mark; on: boolean }): void;
+  /** Phones: a long press opens the row's menu (star, hide). */
+  onMenu(entry: PastSession): void;
+  /** Pointer over this row (`part` "row") or one of its buttons, so the list can hold re-sorts meanwhile. */
   onHover(id: string, over: boolean): void;
 }
 
 /**
- * A long press stars a row on phones and the list re-sorts at once; the click a browser may send
- * when the finger lifts would land on whichever row moved under it and restore that one.
- */
-let ignorePressUntil = 0;
-
-/**
- * Comfortable: glyph | title, folder chip, "★ terminal · 2 d ago" / two preview lines.
+ * Comfortable: glyph | title, folder chip, "terminal · 2 d ago ⊘ ★" / two preview lines.
  * Compact: one line with the preview as a muted tail; hover opens the two-line preview below.
  * Hover or keyboard focus swaps the time for the action; the "terminal" word stays. The star
- * shows on starred rows and, on hover, as an outline to click; phones star by long press.
+ * shows on starred rows and, on hover, as an outline to click; the hide button (left of it)
+ * shows on hover and on hidden rows. Phones star and hide from a long-press menu.
  */
 const SessionRow = memo(function SessionRow(props: RowProps) {
-  const { entry, chipLabel, chipPath, density, compact, starred, styles, theme, onHover } = props;
+  const { entry, chipLabel, chipPath, density, compact, starred, hidden, styles, theme, onHover } = props;
   const fromPaseo = entry.source === "paseo";
   const dense = density === "compact";
   const actionLabel = fromPaseo ? "Restore" : "Import";
   const starLabel = starred ? "Unstar" : "Star: list it first";
-  const toggleStar = () => props.onStar({ key: entry.key, starred: !starred });
-  // react-native-web ends the row's hover when the pointer enters the nested star button; the
-  // star's own hover keeps the row hot, so the star stays shown and Restore stays put.
+  const hideLabel = hidden ? "Unhide: list it again" : "Hide from Past sessions";
+  // react-native-web ends the row's hover when the pointer enters a nested button; the button's
+  // own hover keeps the row hot, so the buttons stay shown and Restore stays put.
   const [overStar, setOverStar] = useState(false);
-  // A row removed while hovered (opened, filtered out) never gets its hover-out.
+  const [overHide, setOverHide] = useState(false);
+  // A row removed while hovered (opened, hidden, filtered out) never gets its hover-out.
   useEffect(
     () => () => {
       onHover(`${entry.key}:row`, false);
       onHover(`${entry.key}:star`, false);
+      onHover(`${entry.key}:hide`, false);
     },
     [entry.key, onHover],
   );
@@ -302,14 +320,12 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
       testID={`past-session-${entry.key}`}
       onHoverIn={() => onHover(`${entry.key}:row`, true)}
       onHoverOut={() => onHover(`${entry.key}:row`, false)}
-      onPress={() => {
-        if (Date.now() >= ignorePressUntil) props.onOpen(entry);
-      }}
+      onPress={() => props.onOpen(entry)}
       onLongPress={
         compact
           ? () => {
-              ignorePressUntil = Date.now() + 1000;
-              toggleStar();
+              swallowNextClick();
+              props.onMenu(entry);
             }
           : undefined
       }
@@ -317,14 +333,15 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
         styles.row,
         dense ? styles.rowCompact : null,
         props.divider && !dense ? styles.rowDivider : null,
-        hovered || overStar ? styles.rowHovered : null,
+        hovered || overStar || overHide ? styles.rowHovered : null,
         pressed ? styles.rowPressed : null,
         focused ? styles.focusRingInset : null,
+        hidden && !(hovered || overStar || overHide) ? styles.rowHidden : null,
       ]}
     >
       {({ hovered, focused }) => {
-        const hot = hovered || focused || overStar;
-        // Phones: a plain mark (a tap anywhere restores; long press stars). Web: a button.
+        const hot = hovered || focused || overStar || overHide;
+        // Phones: plain marks (a tap anywhere restores; a long press opens the menu). Web: buttons.
         const star = compact ? (
           starred ? (
             <View style={styles.star}>
@@ -338,7 +355,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
             accessibilityLabel={starLabel}
             accessibilityState={{ checked: starred }}
             testID={`past-session-star-${entry.key}`}
-            onPress={toggleStar}
+            onPress={() => props.onMark({ key: entry.key, mark: "starred", on: !starred })}
             onHoverIn={() => {
               setOverStar(true);
               onHover(`${entry.key}:star`, true);
@@ -360,6 +377,46 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
                   filled={starred}
                   size={12}
                   color={starred || over ? theme.colors.foreground : theme.colors.foregroundMuted}
+                />
+              </View>
+            )}
+          </Interactive>
+        );
+        const hide = compact ? (
+          hidden ? (
+            <View style={styles.hide}>
+              <Icon name="EyeOff" size={13} color={theme.colors.foregroundMuted} />
+            </View>
+          ) : null
+        ) : (
+          // Always mounted, so the pointer finds it; zero-width until the row is hot.
+          <Interactive
+            accessibilityRole="button"
+            accessibilityLabel={hideLabel}
+            accessibilityState={{ checked: hidden }}
+            testID={`past-session-hide-${entry.key}`}
+            onPress={() => props.onMark({ key: entry.key, mark: "hidden", on: !hidden })}
+            onHoverIn={() => {
+              setOverHide(true);
+              onHover(`${entry.key}:hide`, true);
+            }}
+            onHoverOut={() => {
+              setOverHide(false);
+              onHover(`${entry.key}:hide`, false);
+            }}
+            style={({ hovered: over, focused: ring }) => [
+              styles.hide,
+              hidden || hot || ring ? null : styles.hideIdle,
+              over ? styles.iconButtonHovered : null,
+              ring ? styles.focusRing : null,
+            ]}
+          >
+            {({ hovered: over }) => (
+              <View ref={tooltip(hideLabel)}>
+                <Icon
+                  name={hidden && over ? "Eye" : "EyeOff"}
+                  size={13}
+                  color={over ? theme.colors.foreground : theme.colors.foregroundMuted}
                 />
               </View>
             )}
@@ -410,6 +467,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
                 {props.time}
               </Text>
             )}
+            {hide}
             {star}
           </View>
         );
@@ -578,7 +636,15 @@ function useDensity(): [Density, (density: Density) => void] {
   ];
 }
 
-const NO_STARS: ReadonlySet<string> = new Set();
+type MarkSets = Record<Mark, ReadonlySet<string>>;
+const NO_MARKS: MarkSets = { starred: new Set(), hidden: new Set() };
+const MARKS_KEY = ["past-sessions-marks"];
+const toMarkSets = (keys: MarkKeys): MarkSets => ({ starred: new Set(keys.starred), hidden: new Set(keys.hidden) });
+/** Phones get a toast, since the row moves or leaves under the finger. */
+const MARK_TOAST: Record<Mark, { on: string; off: string }> = {
+  starred: { on: "Starred: listed first", off: "Unstarred" },
+  hidden: { on: "Hidden. “Show hidden” at the end of the list brings it back.", off: "Listed again" },
+};
 const NO_KEYS: ReadonlySet<string> = new Set();
 /** How long a fetched list counts as current: no refetch when coming back within it. */
 const LIST_FRESH_MS = 30_000;
@@ -587,35 +653,37 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
   const styles = useMemo(() => createStyles(theme, compact), [theme, compact]);
   const list = useRpc(listPastSessions);
   const reopen = useRpc(reopenPastSession);
-  const getStars = useRpc(listStars);
-  const saveStar = useRpc(setStar);
+  const getMarks = useRpc(listMarks);
+  const saveMark = useRpc(setMark);
   const queryClient = useQueryClient();
   const toast = useToast();
   const snapshotIcons = useSnapshotIcons();
-  const stars = useQuery({
-    queryKey: ["past-sessions-stars"],
-    queryFn: async () => new Set((await getStars({})).keys),
+  const marks = useQuery({
+    queryKey: MARKS_KEY,
+    queryFn: async () => toMarkSets(await getMarks({})),
     staleTime: LIST_FRESH_MS,
-  });
-  const starred = stars.data ?? NO_STARS;
-  // Optimistic: the row moves at once; a failed save puts it back.
-  const starMutation = useMutation({
-    mutationFn: (input: { key: string; starred: boolean }) => saveStar(input),
-    onMutate: ({ key, starred: next }) => {
-      const before = queryClient.getQueryData<Set<string>>(["past-sessions-stars"]);
-      const after = new Set(before);
-      if (next) after.add(key);
-      else after.delete(key);
-      queryClient.setQueryData(["past-sessions-stars"], after);
-      if (compact) toast.show(next ? "Starred: listed first" : "Unstarred");
+  }).data ?? NO_MARKS;
+  // Optimistic: the row moves or leaves at once; a failed save puts it back.
+  const markMutation = useMutation({
+    mutationFn: (input: { key: string; mark: Mark; on: boolean }) => saveMark(input),
+    onMutate: ({ key, mark, on }) => {
+      const before = queryClient.getQueryData<MarkSets>(MARKS_KEY) ?? NO_MARKS;
+      const changed = new Set(before[mark]);
+      if (on) changed.add(key);
+      else changed.delete(key);
+      queryClient.setQueryData<MarkSets>(MARKS_KEY, { ...before, [mark]: changed });
+      if (compact) toast.show(MARK_TOAST[mark][on ? "on" : "off"]);
       return before;
     },
-    onSuccess: ({ keys }) => queryClient.setQueryData(["past-sessions-stars"], new Set(keys)),
+    onSuccess: (keys) => queryClient.setQueryData(MARKS_KEY, toMarkSets(keys)),
     onError: (error, _input, before) => {
-      queryClient.setQueryData(["past-sessions-stars"], before);
-      toast.error(`Couldn't save the star: ${error instanceof Error ? error.message : String(error)}`);
+      queryClient.setQueryData(MARKS_KEY, before);
+      toast.error(`Couldn't save: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
+  // Phones: the row a long press opened the menu for.
+  const [menuFor, setMenuFor] = useState<PastSession | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [density, setDensity] = useDensity();
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -694,7 +762,7 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
       );
       void queryClient.invalidateQueries({ queryKey: ["past-sessions"] });
       void queryClient.invalidateQueries({ queryKey: ["external-sessions"] });
-      void queryClient.invalidateQueries({ queryKey: ["past-sessions-stars"] });
+      void queryClient.invalidateQueries({ queryKey: MARKS_KEY });
       if (navigation) navigation.openAgent({ agentId });
       else toast.show(`${entry.source === "paseo" ? "Restored" : "Imported"}. It's in the sidebar now.`, { variant: "success" });
     },
@@ -748,9 +816,18 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     }
   }, [held, leaving]);
   const items = useMemo(
-    () => (data ? buildListItems(data, { query, sameFolderOpen, starred }) : []),
-    [data, query, sameFolderOpen, starred],
+    () =>
+      data ? buildListItems(data, { query, sameFolderOpen, starred: marks.starred, hidden: marks.hidden, showHidden }) : [],
+    [data, query, sameFolderOpen, marks, showHidden],
   );
+  const hiddenCount = useMemo(
+    () => (data ? [...data.entries, ...data.sameFolder].filter((entry) => marks.hidden.has(entry.key)).length : 0),
+    [data, marks],
+  );
+  // With nothing hidden here the switch is gone; the next hide must hide, not just dim.
+  useEffect(() => {
+    if (hiddenCount === 0) setShowHidden(false);
+  }, [hiddenCount]);
   const now = Date.now();
 
   const externalControl = externalScope ? (
@@ -842,7 +919,11 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
         onChangeText={setQuery}
         onFocus={() => setSearchFocused(true)}
         onBlur={() => setSearchFocused(false)}
-        placeholder={data ? `Search ${data.entries.length + data.sameFolder.length} sessions` : "Search sessions"}
+        placeholder={
+          data
+            ? `Search ${data.entries.length + data.sameFolder.length - (showHidden ? 0 : hiddenCount)} sessions`
+            : "Search sessions"
+        }
         placeholderTextColor={muted}
         autoCorrect={false}
         autoCapitalize="none"
@@ -973,36 +1054,64 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
           divider={items[index - 1]?.kind === "row"}
           density={density}
           compact={compact}
-          starred={starred.has(item.entry.key)}
+          starred={marks.starred.has(item.entry.key)}
+          hidden={marks.hidden.has(item.entry.key)}
           serverId={serverId}
           snapshotSvg={snapshotIcons.get(item.entry.provider)}
           styles={styles}
           theme={theme}
           onOpen={mutation.mutate}
-          onStar={starMutation.mutate}
+          onMark={markMutation.mutate}
+          onMenu={setMenuFor}
           onHover={onRowHover}
         />
       );
     };
-    const hidden = data.stats.hiddenKnownToPaseo;
+    const repeated = data.stats.hiddenKnownToPaseo;
     body = (
       <FlatList
         style={{ flex: 1, minHeight: 0 }}
         data={items}
-        extraData={[density, starred]}
+        extraData={[density, marks]}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
         initialNumToRender={30}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={externalControl ? <View style={styles.externalRow}>{externalControl}</View> : null}
         ListFooterComponent={
-          hidden > 0 ? (
-            <Text style={styles.footer} testID="past-sessions-footer">
-              {hidden} terminal {hidden === 1 ? "session is" : "sessions are"} already in Paseo and not repeated.
-            </Text>
-          ) : (
-            <View style={{ height: 24 }} />
-          )
+          <>
+            {hiddenCount > 0 ? (
+              <View style={styles.footerHidden}>
+                <Interactive
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: showHidden }}
+                  testID="past-sessions-show-hidden"
+                  onPress={() => setShowHidden((shown) => !shown)}
+                  style={({ hovered, focused }) => [
+                    styles.externalButton,
+                    hovered ? styles.iconButtonHovered : null,
+                    focused ? styles.focusRing : null,
+                  ]}
+                >
+                  {({ hovered }) => (
+                    <>
+                      <Icon name={showHidden ? "EyeOff" : "Eye"} size={13} color={hovered ? theme.colors.foreground : muted} />
+                      <Text style={[styles.externalText, hovered ? styles.externalTextHot : null]}>
+                        {showHidden ? `Hide ${hiddenCount} hidden` : `Show ${hiddenCount} hidden`}
+                      </Text>
+                    </>
+                  )}
+                </Interactive>
+              </View>
+            ) : null}
+            {repeated > 0 ? (
+              <Text style={styles.footer} testID="past-sessions-footer">
+                {repeated} terminal {repeated === 1 ? "session is" : "sessions are"} already in Paseo and not repeated.
+              </Text>
+            ) : (
+              <View style={{ height: 24 }} />
+            )}
+          </>
         }
       />
     );
@@ -1018,6 +1127,40 @@ export function PastSessionsList({ workspaceId, scope, onScopeChange, theme, ser
     >
       {header}
       {body}
+      <Modal
+        title={menuFor?.title ?? ""}
+        open={menuFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setMenuFor(null);
+        }}
+      >
+        <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
+          {menuFor
+            ? (["starred", "hidden"] as const).map((mark) => {
+                const on = marks[mark].has(menuFor.key);
+                const option = {
+                  starred: on ? { icon: "Star", label: "Unstar" } : { icon: "Star", label: "Star: list it first" },
+                  hidden: on ? { icon: "Eye", label: "Unhide: list it again" } : { icon: "EyeOff", label: "Hide from Past sessions" },
+                }[mark];
+                return (
+                  <Interactive
+                    key={mark}
+                    accessibilityRole="button"
+                    testID={`past-sessions-menu-${mark}`}
+                    onPress={() => {
+                      markMutation.mutate({ key: menuFor.key, mark, on: !on });
+                      setMenuFor(null);
+                    }}
+                    style={({ pressed }) => [styles.menuOption, pressed ? styles.rowPressed : null]}
+                  >
+                    <Icon name={option.icon} size={18} color={theme.colors.foreground} />
+                    <Text style={styles.menuText}>{option.label}</Text>
+                  </Interactive>
+                );
+              })
+            : null}
+        </Modal.Content>
+      </Modal>
     </View>
   );
 }

@@ -89,29 +89,36 @@ export const reopenPastSession = defineRpc({
       cwd: z.string(),
       /** What `paseo import` takes: the OMP session file, or the provider's session id. */
       handle: z.string(),
-      /** The row's list key; its star moves to the imported agent. */
+      /** The row's list key; its star moves to the imported agent, and it is no longer hidden. */
       key: z.string(),
     }),
   ]),
   output: z.object({ agentId: z.string() }),
 });
 
-/** Starred list keys. Starred rows sort first; nothing else changes. */
-export const listStars = defineRpc({
-  name: "past-sessions.stars",
+/**
+ * List keys per mark. Starred rows sort first; hidden rows leave the list (not deleted: "Show
+ * hidden" brings them back). Restoring or importing a row clears its hidden mark.
+ */
+const MarkKeys = z.object({ starred: z.array(z.string()), hidden: z.array(z.string()) });
+export type MarkKeys = z.infer<typeof MarkKeys>;
+export type Mark = keyof MarkKeys;
+
+export const listMarks = defineRpc({
+  name: "past-sessions.marks",
   input: z.object({}),
-  output: z.object({ keys: z.array(z.string()) }),
+  output: MarkKeys,
 });
 
-export const setStar = defineRpc({
-  name: "past-sessions.star",
-  input: z.object({ key: z.string(), starred: z.boolean() }),
-  output: z.object({ keys: z.array(z.string()) }),
+export const setMark = defineRpc({
+  name: "past-sessions.mark",
+  input: z.object({ key: z.string(), mark: z.enum(["starred", "hidden"]), on: z.boolean() }),
+  output: MarkKeys,
 });
 
 /** Stars a live agent, then archives it: the agent stops and its tab closes. */
 export const starAndArchive = defineRpc({
   name: "past-sessions.star-and-archive",
   input: z.object({ agentId: z.string() }),
-  output: z.object({ keys: z.array(z.string()) }),
+  output: MarkKeys,
 });

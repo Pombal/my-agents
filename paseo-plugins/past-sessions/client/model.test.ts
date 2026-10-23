@@ -15,14 +15,11 @@ describe("buildListItems", () => {
     sameFolder: [session("omp:1", "Cuneiform."), session("omp:2", "Fix diff colors")],
   };
   const none = new Set<string>();
+  const plain = { query: "", sameFolderOpen: false, starred: none, hidden: none, showHidden: false };
 
   it("keeps the same-folder section collapsed below the main list until opened", () => {
-    expect(shape(buildListItems(data, { query: "", sameFolderOpen: false, starred: none }))).toEqual([
-      "paseo:a",
-      "paseo:b",
-      "header:2:false",
-    ]);
-    expect(shape(buildListItems(data, { query: "", sameFolderOpen: true, starred: none }))).toEqual([
+    expect(shape(buildListItems(data, plain))).toEqual(["paseo:a", "paseo:b", "header:2:false"]);
+    expect(shape(buildListItems(data, { ...plain, sameFolderOpen: true }))).toEqual([
       "paseo:a",
       "paseo:b",
       "header:2:true",
@@ -32,19 +29,25 @@ describe("buildListItems", () => {
   });
 
   it("opens the section for a search and counts only matches", () => {
-    expect(shape(buildListItems(data, { query: "diff", sameFolderOpen: false, starred: none }))).toEqual([
-      "paseo:a",
-      "header:1:true",
-      "omp:2",
-    ]);
+    expect(shape(buildListItems(data, { ...plain, query: "diff" }))).toEqual(["paseo:a", "header:1:true", "omp:2"]);
   });
 
   it("puts an empty placeholder before the section when the main list has nothing", () => {
-    expect(
-      shape(buildListItems({ entries: [], sameFolder: data.sameFolder }, { query: "", sameFolderOpen: false, starred: none })),
-    ).toEqual(["empty", "header:2:false"]);
-    expect(shape(buildListItems({ entries: [], sameFolder: [] }, { query: "", sameFolderOpen: false, starred: none }))).toEqual([
+    expect(shape(buildListItems({ entries: [], sameFolder: data.sameFolder }, plain))).toEqual(["empty", "header:2:false"]);
+    expect(shape(buildListItems({ entries: [], sameFolder: [] }, plain))).toEqual(["empty"]);
+  });
+
+  it("leaves hidden rows out of the list, the section and its count until shown", () => {
+    const hidden = new Set(["paseo:a", "paseo:b", "omp:1"]);
+    expect(shape(buildListItems(data, { ...plain, hidden, sameFolderOpen: true }))).toEqual([
       "empty",
+      "header:1:true",
+      "omp:2",
+    ]);
+    expect(shape(buildListItems(data, { ...plain, hidden, showHidden: true }))).toEqual([
+      "paseo:a",
+      "paseo:b",
+      "header:2:false",
     ]);
   });
 
@@ -54,7 +57,7 @@ describe("buildListItems", () => {
       sameFolder: ["omp:1", "omp:2", "omp:3"].map((key) => session(key, key)),
     };
     const starred = new Set(["paseo:d", "paseo:b", "omp:3", "omp:gone"]);
-    expect(shape(buildListItems(list, { query: "", sameFolderOpen: true, starred }))).toEqual([
+    expect(shape(buildListItems(list, { ...plain, sameFolderOpen: true, starred }))).toEqual([
       "paseo:b",
       "paseo:d",
       "paseo:a",

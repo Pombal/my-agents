@@ -22,14 +22,22 @@ function starredFirst(entries: PastSession[], starred: ReadonlySet<string>): Pas
  * Flattens the main list and the optional "same folder" section into one virtualized list.
  * The main list always yields at least one item (an `empty` placeholder), so the section header
  * never floats alone. A search opens the section, since hiding matches would read as "no results".
- * Starred rows lead the main list and the section.
+ * Starred rows lead the main list and the section. Hidden rows are left out unless `showHidden`.
  */
 export function buildListItems(
   data: { entries: PastSession[]; sameFolder: PastSession[] },
-  view: { query: string; sameFolderOpen: boolean; starred: ReadonlySet<string> },
+  view: {
+    query: string;
+    sameFolderOpen: boolean;
+    starred: ReadonlySet<string>;
+    hidden: ReadonlySet<string>;
+    showHidden: boolean;
+  },
 ): ListItem[] {
-  const main = starredFirst(data.entries.filter((entry) => matchesQuery(entry, view.query)), view.starred);
-  const extra = starredFirst(data.sameFolder.filter((entry) => matchesQuery(entry, view.query)), view.starred);
+  const keep = (entry: PastSession) =>
+    (view.showHidden || !view.hidden.has(entry.key)) && matchesQuery(entry, view.query);
+  const main = starredFirst(data.entries.filter(keep), view.starred);
+  const extra = starredFirst(data.sameFolder.filter(keep), view.starred);
   const items: ListItem[] =
     main.length > 0
       ? main.map((entry) => ({ kind: "row", key: entry.key, entry }))
