@@ -133,7 +133,8 @@ function createStyles(theme: PluginTheme, compact: boolean) {
     chipHot: { backgroundColor: colors.surface0 },
     chipText: { ...muted, flexShrink: 1 },
     right: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
-    star: { width: 20, height: 20, marginRight: -2, borderRadius: 5, alignItems: "center", justifyContent: "center" },
+    // Rightmost in the row; the negative right margin lines the 12 px glyph up with the text edge.
+    star: { width: 20, height: 20, marginLeft: -2, marginRight: -4, borderRadius: 5, alignItems: "center", justifyContent: "center" },
     starIdle: { opacity: 0 },
     meta: muted,
     tag: { ...muted, opacity: 0.72 },
@@ -393,7 +394,6 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
         ) : null;
         const right = (
           <View style={styles.right}>
-            {star}
             {fromPaseo ? null : (
               <>
                 <Text style={styles.tag}>{sourceWord(entry)}</Text>
@@ -410,6 +410,7 @@ const SessionRow = memo(function SessionRow(props: RowProps) {
                 {props.time}
               </Text>
             )}
+            {star}
           </View>
         );
 

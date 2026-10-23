@@ -55,7 +55,8 @@ terminal section alike. Where a session shows is unchanged.
   which stops the agent and closes its tab (what closing an agent tab does anyway in 0.12,
   `resolveCloseAgentTabPolicy` → `archive-on-close`). On phones the Command Center is the
   sidebar's **Search** row.
-- In the list: a filled star sits before the time on starred rows. On web/desktop hovering a row
+- In the list: a filled star is the rightmost thing on starred rows, after the time, so it stays
+  put when hover swaps the time for Restore/Import. On web/desktop hovering a row
   shows an outline star; click it to star or unstar. On phones, long-press a row (a toast confirms).
 - Stored in `~/.paseo/plugin-data/past-sessions/stars.json`, keyed like the list
   (`paseo:<agentId>`, `omp:<sessionId>`, `ext:<provider>:<sessionId>`). Importing a starred
