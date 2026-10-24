@@ -8,6 +8,7 @@
 // - A message starting with another `/command`, `!` or a `$ ` shell line is never a skill prompt.
 // Whether the name is real is not visible in the text; the server checks OMP's session file.
 
+/** Global regex: reset `lastIndex` before each use (`matchAll` copies it). */
 export const SKILL_TOKEN = /(^|\s)\/skill:([^\s/]+(?:\/[^\s/]+)?)(?=\s|$)/g;
 
 export interface SkillInvocation {

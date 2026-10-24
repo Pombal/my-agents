@@ -3,6 +3,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
 import { rememberOutput, startCommandStyling } from "./client/commands";
 import { createSettingsScreen } from "./client/settings";
+import { createSkillStore } from "./client/skills";
 import { startPolishing } from "./client/web";
 import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
 
@@ -19,7 +20,8 @@ export default function contribute(client: PluginClientContext) {
     }, () => { /* Host unreachable: keep what is drawn. */ });
   };
   // Window focus re-reads the settings in case a save announcement was missed.
-  const polisher = startPolishing(refresh);
+  const skills = createSkillStore(client);
+  const polisher = startPolishing(refresh, skills);
   const commands = startCommandStyling();
   const apply = (values: Preferences) => {
     polisher.apply(values);
@@ -55,6 +57,7 @@ export default function contribute(client: PluginClientContext) {
     screen();
     void transformer();
     polisher.dispose();
+    skills.dispose();
     commands.dispose();
   };
 }

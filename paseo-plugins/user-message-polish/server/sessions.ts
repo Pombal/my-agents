@@ -45,11 +45,14 @@ const FileMention = z.object({
 });
 const UserMessage = z.object({ type: z.literal("message"), message: z.object({ role: z.literal("user"), content: TextContent }) });
 
-/** The wrapper without OMP's trailing `User: <args>`: the bubble already shows that text. */
+const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** The wrapper without OMP's trailing `User: <args>`: the bubble already shows that text.
+ *  OMP's template drops trailing spaces on each line, so compare whitespace-insensitively. */
 function wrapperOf(content: string, args: string): string {
   if (!args) return content;
   const at = content.lastIndexOf("\nUser: ");
-  return at !== -1 && content.slice(at + 7).trim() === args ? content.slice(0, at) : content;
+  return at !== -1 && squash(content.slice(at + 7)) === squash(args) ? content.slice(0, at) : content;
 }
 
 function take(parsed: Parsed, line: string) {

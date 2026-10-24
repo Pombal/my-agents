@@ -413,6 +413,7 @@ function markSkillTokens(body: HTMLElement[], firstIsUnknown: boolean) {
     if (!text.includes("/skill:")) continue;
     const parts: (Node | string)[] = [];
     let last = 0;
+    SKILL_TOKEN.lastIndex = 0;
     for (const match of text.matchAll(SKILL_TOKEN)) {
       const start = match.index + match[1]!.length;
       const end = match.index + match[0].length;
@@ -508,8 +509,12 @@ const CSS = `
 .ump > .ump-sk-file { margin: 10px -8px -6px; }
 .ump > .ump-sk-file + .ump-sk-file { margin-top: 4px; }
 [data-ump-only] .ump > .ump-sk-skill { margin-bottom: -6px; }
-/* Nothing else sizes a skill-only bubble, so its opened text gets a reading width of its own. */
-[data-ump-only] .ump-sk[data-open] { width: min(640px, 100vw - 120px); }
+/* While a skill or file is open, the bubble takes at least half the chat's width (320 px on a
+   narrow window), so a short message doesn't squeeze the opened text into a thin column. Paseo's
+   bubble sits in a content-sized column inside the full-width message row: widen that column, then
+   let the bubble fill it. */
+[data-testid="user-message"] > :has(> * > [data-ump-view] > .ump-sk[data-open]) { min-width: min(100%, max(50%, 320px)) !important; }
+:has(> [data-ump-view] > .ump-sk[data-open]) { align-self: stretch !important; }
 .ump-sk { border-radius: 8px; overflow: hidden; }
 .ump-skh { display: flex; align-items: center; gap: 6px; height: 26px; box-sizing: border-box; padding: 0 8px; font-size: 12px; line-height: 16px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
 .ump-skh:hover { background: ${MIX(7)}; }
@@ -520,7 +525,7 @@ const CSS = `
 .ump-skn { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: ${MIX(58)}; }
 .ump-sksub { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: ${MIX(38)}; }
 .ump-sksub::before { content: "·"; margin-right: 6px; }
-.ump-skchev { width: 12px; height: 12px; flex: none; margin-left: auto; padding-left: 6px; box-sizing: content-box; fill: none; stroke: ${MIX(38)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
+.ump-skchev { width: 12px; height: 12px; flex: none; margin-left: auto; fill: none; stroke: ${MIX(38)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
 /* Opened: the header stays, its text steps down, the chevron turns and goes full strength. */
 .ump-sk[data-open] { background: ${MIX(3.5)}; }
 .ump-sk[data-open] > .ump-skh { background: ${MIX(7)}; }

@@ -1,5 +1,6 @@
 Makes your own sent messages nicer in the Paseo web and desktop apps: pasted tag blocks fold into
-one-line fold rows, Markdown renders, and slash commands go quiet. The phone apps are unchanged.
+one-line fold rows, Markdown renders, slash commands go quiet, and a `/skill:` message shows what
+the agent actually got. The phone apps are unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
 `<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included,
@@ -58,8 +59,48 @@ output scrolls inside 320 px. Setting: **Quiet slash commands** (on by default).
 - The original output text comes from a read-only timeline transformer: OMP's answers arrive
   without a message id; the plugin keeps their text and never changes the item, so copy, rewind
   and the phone apps see Paseo's own item.
-- Skipped, because other plugins draw them: `/tan`, `/btw`, `/omfg`, `/queue`, `/skill:…`.
-  Messages with pictures or attached files keep their bubble.
+- Skipped, because they're drawn elsewhere: `/tan`, `/btw`, `/omfg`, `/queue` (other plugins) and
+  `/skill:…` (the skill view below). Messages with pictures or attached files keep their bubble.
+
+**Skills** (Stefan's pick 2026-10-24: one tinted bubble, no side line, small-caps `USER`, lightbulb,
+chevron on the right, theme accent, on `http://axalon:8080/pages/user-message-polish-skill-view-mocks/`).
+The bubble shows the message as the agent received it. OMP sends a loaded skill as one message:
+`[IMPORTANT: User invoked the "<name>" skill…]`, the whole SKILL.md, the skill-directory lines, then
+`User: <your text>`. So:
+
+- The bubble takes a very slight tint of the theme's accent (Paseo's `--colors-accent-bright`
+  CSS variable, so plugin themes like T3 work too), only when a skill really loaded.
+- A header row on top: lightbulb, skill name, chevron at the right. Clicking it opens, in place and
+  as one piece, the skill text exactly as OMP sent it (read from OMP's session file): Paseo's code
+  size, lines 1.5× that, at most 320 px tall and scrolling, with the skill-directory lines pinned
+  under the scroll area. While anything is open the bubble is at least half the chat wide (320 px
+  on a narrow window), so a short message doesn't squeeze it into a thin column.
+- Below it, your text as the agent read it after `User:`, starting with a small-caps `USER`. OMP
+  cuts the `/skill:` token out and joins the text around it with one space (`please use /skill:pith
+  to reply` reaches the agent as `please use to reply`), so that's what shows. If the text starts
+  with a list or code block, `USER` gets its own short row above it.
+- Only the first `/skill:` loads. Any later one stays in the text, dashed-underlined, tagged
+  `not loaded`. If the first name isn't a skill, nothing loads (not even a valid later one): the
+  header says `no skill loaded`, the bubble keeps its normal colour, and the tokens are tagged
+  `not a skill` / `not loaded`. A message that is only `/skill:name` is just the header: no text,
+  no `USER` (OMP sends no `User:` line then).
+- `@path` mentions OMP attached: a file chip in the text where you wrote it, plus a row after the
+  text, `notes.md · attached after your message · 31 lines`, that opens the file as sent.
+- Live and after a reload look the same. While chatting Paseo shows what you typed; after a reload
+  it rebuilds the bubble as `/skill:<name> <cut text>`. Both parse to the same skill and text.
+- How the plugin knows a skill loaded: the bubble alone can't tell a real skill from a typo. The
+  server part reads the OMP session files of the chats in view (the chat, or every live chat of the
+  workspace, from the page address) and returns OMP's `skill-prompt` and `fileMention` records;
+  each file is read once and then only from where it stopped. Until that answer arrives a bubble
+  that invokes a skill by OMP's rules is drawn as loaded; one OMP never recorded flips to `no skill
+  loaded` after 2.5 s (a just-sent message reaches the session file a moment after its bubble).
+  Chats of other providers: `/skill:` stays plain text.
+- Setting: **Show skills as the agent got them** (on by default).
+- Checked live 2026-10-24 in the web app with throwaway OMP + Claude Haiku chats: token at the end,
+  mid-sentence, two skills, mistyped first skill, skill only, @file, skill + list + fold row; a
+  newly typed message goes from drawn-from-text to OMP-confirmed in about 3 s with no visible
+  change; copy gives the typed text; the opened bubble is 402 of 804 px (desktop) and 320 of 358 px
+  (390 px window), no page overflow; disabling the plugin removes it all without a reload.
 
 Paseo 0.12 shows messages from other agents (Dispatcher etc.) as a "Message received" row, not as
 your bubble, so `<paseo-system>` envelopes need nothing here (checked live).
@@ -68,7 +109,9 @@ Screenshots (`screenshots/`): `before-mixed.webp` → `after-mixed.webp` / `afte
 `before-nested-long.webp` → `after-nested-long-open.webp` (120-line paste open, nested `<context>`,
 quote, lists, diff fence), `after-stays-raw.png` (inline tags, a fence holding tags, one-line
 blocks), `after-light.webp`, `web-390px.webp`, `settings.webp`, `before-commands.webp` →
-`after-commands.webp` (`/session`, `/reload-plugins`, hovered).
+`after-commands.webp` (`/session`, `/reload-plugins`, hovered), `skill-list.png` (skill + list +
+fold row), `skill-open.webp` (skill text open), `skill-unknown.webp` (mistyped first skill),
+`file-open.webp` (@file attached, open).
 
 Limits:
 
@@ -90,3 +133,11 @@ Limits:
 - An answer drawn before the page loaded the plugin, or one whose letters Paseo's Markdown changed,
   falls back to Paseo's rendered text (lines kept, list markers lost). Not checked in the light
   theme; colours mix the answer's own text colour.
+- Skills: the server part reads OMP's session files directly (format of OMP 18.12.6: top-level
+  `custom_message` with `customType: "skill-prompt"`, `message` with role `fileMention`). An OMP
+  update that changes it makes skill messages fall back to "drawn from the text": header and cut
+  text still show, the skill text can't be opened, and a mistyped name is no longer caught.
+- Skills: the page address must name the chat or its workspace (`/h/<server>/agent/<id>` or
+  `/h/<server>/workspace/<id>`); on other pages skill messages are drawn from the text alone.
+- Skills: the first skill message seen in a big workspace makes the server read every OMP session
+  file in it once (about 30 ms per 4 MB file measured); later visits only read what was appended.
