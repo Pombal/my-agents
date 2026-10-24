@@ -262,8 +262,12 @@
       frame.style.transform = "";
       return;
     }
-    const top = designBar.getBoundingClientRect().bottom + 40;
-    const bottom = window.innerHeight - situationBar.getBoundingClientRect().top + 24;
+    // Frame starts below the design bar, or below the caption line when the
+    // section has notes (the line is reserved, so flipping never shifts it).
+    if (!designBar.hidden) caption.style.top = designBar.getBoundingClientRect().bottom + 6 + "px";
+    const above = [designBar, caption].filter((n) => !n.hidden).map((n) => n.getBoundingClientRect().bottom);
+    const top = Math.max(14, ...above) + 34;
+    const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
     const availW = window.innerWidth - 48;
     const scale = Math.min(1, availW / vp.w, availH / vp.h);
@@ -277,6 +281,10 @@
   // ---------------------------------------------------------------- bars
   const designBar = document.createElement("div");
   designBar.className = "kit-bar kit-design";
+  // Variant note: a quiet line under the design bar, outside it, so the bar
+  // keeps one width whatever variant is shown.
+  const caption = document.createElement("div");
+  caption.className = "kit-caption";
   const situationBar = document.createElement("div");
   situationBar.className = "kit-bar kit-situation";
 
@@ -301,7 +309,7 @@
   }
   function cycleControl(name, values, value, labels, onPick) {
     const wrap = el("span", "kit-ctl");
-    wrap.append(el("span", "kit-ctl-name", name));
+    if (name) wrap.append(el("span", "kit-ctl-name", name));
     const b = el("button", "kit-cycle-btn");
     b.dataset.cycle = values.map((v) => labels?.[v] || v).join("|");
     b.dataset.value = labels?.[value] || value;
@@ -313,28 +321,29 @@
 
   function renderBars() {
     const sec = current();
-    designBar.replaceChildren(el("span", "kit-tag", "Design"));
-    const title = html.dataset.mockTitle || document.title;
-    if (title) designBar.append(el("span", "kit-title", title));
+    designBar.replaceChildren();
     if (sections.length > 1) {
       designBar.append(segmented(sections.map((s) => ({ key: s.id, label: s.title })), sec.id, (id) => set({ section: id })));
     }
     if (sec.variants.length) {
       designBar.append(segmented(sec.variants.map((v) => ({ key: v.id, badge: v.id, label: v.label, title: v.note })), state.variant, (id) => set({ variant: id })));
-      const note = sec.variants.find((v) => v.id === state.variant)?.note;
-      if (note) designBar.append(el("span", "kit-note", note));
     }
-    if (sections.length === 1 && !sec.variants.length) designBar.append(el("span", "kit-note", "no variants"));
+    designBar.hidden = !designBar.childElementCount;
+    caption.hidden = designBar.hidden || !sec.variants.some((v) => v.note);
+    caption.textContent = sec.variants.find((v) => v.id === state.variant)?.note || "";
 
-    situationBar.replaceChildren(el("span", "kit-tag", "Situation"));
-    if (themes.length > 1) situationBar.append(cycleControl("theme", themes, state.theme, THEME_LABELS, (v) => set({ theme: v })));
+    // Theme and viewport values name themselves ("Pure black", "Phone");
+    // app-state axes get their name as a quiet label ("session normal").
+    situationBar.replaceChildren();
+    if (themes.length > 1) situationBar.append(cycleControl(null, themes, state.theme, THEME_LABELS, (v) => set({ theme: v })));
     if (viewports.length > 1) {
       const vpLabels = Object.fromEntries(viewports.map((v) => [v, VIEWPORTS[v].label]));
-      situationBar.append(cycleControl("viewport", viewports, state.vp, vpLabels, (v) => set({ vp: v })));
+      situationBar.append(cycleControl(null, viewports, state.vp, vpLabels, (v) => set({ vp: v })));
     }
     for (const [axis, values] of sec.axes) {
       if (values.length > 1 && shownAxes.has(axis)) situationBar.append(cycleControl(axis, values, state.states[axis], null, (v) => set({ states: { ...state.states, [axis]: v } })));
     }
+    situationBar.hidden = !situationBar.childElementCount;
   }
 
   function set(patch) {
@@ -390,7 +399,7 @@
   if (exportMode) {
     document.body.replaceChildren(frame);
   } else {
-    document.body.replaceChildren(stage, designBar, situationBar);
+    document.body.replaceChildren(stage, designBar, caption, situationBar);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {

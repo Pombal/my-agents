@@ -102,7 +102,7 @@ html.kit-export .mock-frame {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 10px;
-  padding: 6px 10px 6px 6px;
+  padding: 5px;
   background: var(--kit-panel);
   backdrop-filter: blur(12px);
   border: 1px solid var(--kit-line);
@@ -120,23 +120,27 @@ html.kit-export .mock-frame {
   bottom: 14px;
   --kit-accent: var(--kit-situation);
 }
-.kit-tag {
-  padding: 3px 8px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #15151a;
-  background: var(--kit-accent);
+.kit-bar[hidden],
+.kit-caption[hidden] {
+  display: none;
 }
-.kit-title {
-  color: var(--kit-text);
-  font-weight: 600;
-}
-.kit-note {
+/* Variant note, under the design bar and outside it. Its line is reserved
+ * whenever the section has notes, so nothing moves while flipping. */
+.kit-caption {
+  position: fixed;
+  top: 54px;
+  left: 0;
+  right: 0;
+  min-height: 16px;
+  padding: 0 24px;
+  text-align: center;
+  font: italic 11px/16px var(--kit-font);
   color: var(--kit-dim);
-  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 10;
 }
 .kit-seg {
   display: flex;
