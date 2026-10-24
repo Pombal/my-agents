@@ -2,102 +2,96 @@
 
 My agentic stuff.
 
-<details><summary>OMP extensions that <a href=".omp/extensions/prose">turn a session into readable prose</a>, <a href=".omp/extensions/pivot">keep one message and summarize everything before it</a>, <a href=".omp/extensions/minimap">outline a session</a>, <a href=".omp/extensions/stage-note">add to context without starting a turn</a>, <a href=".omp/extensions/delay-message">schedule a prompt</a>, <a href=".omp/extensions/strip-keywords">hide magic words from the model</a>, and <a href=".omp/extensions/usage-guard">stop subagents when a quota runs low</a>.</summary>
+## OMP extensions
 
-`/prose` works in place or into a fork, for when a long session has become
-mostly machinery and the conversation is the only part worth keeping. `/pivot`
-is for when the agent's last message is the artifact and the research behind
-it is dead weight. `/minimap` leaves the tool traffic out of the outline.
-`/delay` keeps the scheduled prompt out of context until it fires;
-`strip-keywords` strips them from what the model sees but the session file
-keeps them. `usage-guard` warns, stops new subagents, or pauses the whole
-process until you say resume. [`pi/extensions/`](pi/extensions) has a port of
-`/prose` for plain Pi, bare fork only.
+- [Turn a session into readable prose](.omp/extensions/prose), in place or into a fork. Ported to [plain Pi](pi/extensions/prose) too.
+- [Keep one message verbatim and summarize everything before it](.omp/extensions/pivot)
+- [Outline a session](.omp/extensions/minimap), tool traffic left out
+- [Add to context without starting a turn](.omp/extensions/stage-note)
+- [Schedule a prompt](.omp/extensions/delay-message), kept out of context until it fires
+- [Hide magic words from the model](.omp/extensions/strip-keywords); the session file keeps them
+- [Warn, stop subagents, or pause when a provider quota runs low](.omp/extensions/usage-guard)
+- [Keep a running ledger of a long planning conversation](.omp/extensions/scribe), written by a cheap side model
+- [`@imports` and `` !`shell` `` expansion in SKILL.md](.omp/extensions/skill-directives)
+- [One theme](.omp/themes), in Nilo's colours; user messages white on brand green so they're easy to spot when scrolling
 
-</details>
+## Old sessions
 
-<details><summary><a href="scripts/@omp-find">Search every OMP session</a>, <a href="tools/omp-session-recap">recap a folder's sessions and open OMP with the recap loaded</a>, <a href="tools/shadow-agent">have cheap observer agents journal a live session</a>; in Paseo, <a href="paseo-plugins/past-sessions">reopen past sessions</a> and <a href="paseo-plugins/mentioned-links">list every link and file a chat mentioned</a>.</summary>
+- [Search every OMP session](scripts/@omp-find), reasoning and tool traffic included
+- [Recap every session in a folder, then open OMP with the recap loaded](tools/omp-session-recap)
+- [Cheap observer agents that journal a live session](tools/shadow-agent)
+- [Reopen past sessions in Paseo](paseo-plugins/past-sessions), including OMP ones no agent owns anymore
+- [Every link, image and file a chat mentioned](paseo-plugins/mentioned-links)
 
-`@omp-find` searches reasoning and tool traffic too, and a session matches
-only when every needle does. `past-sessions` includes OMP sessions no Paseo
-agent owns anymore. Under several of these sits `omp-transcript`, which reads
-OMP, Claude Code, Codex and T3 Code transcripts and lives, of all places, in
-[`skills/tool-specific/omp-meta/scripts/`](skills/tool-specific/omp-meta/scripts).
-[`scribe`](.omp/extensions/scribe) keeps a running ledger of a long planning
-conversation, written by a cheap side model.
+Several of these shell out to `omp-transcript`, which lives, of all places, in [`skills/tool-specific/omp-meta/scripts/`](skills/tool-specific/omp-meta/scripts).
 
-</details>
+## OMP inside Paseo
 
-<details><summary>Inside Paseo: <a href=".omp/extensions/headless-builtins">/tan, /btw and /omfg over RPC</a>, <a href="paseo-plugins/omp-slash-aliases">drawn as rows and sheets instead of chat bubbles</a>; <a href="paseo-plugins/session-tree">OMP's /tree, to branch from any earlier message</a>; <a href="paseo-plugins/side-agent">/side for a child agent</a>; <a href="paseo-plugins/agent-commands">your prompt files one click away</a>; and <a href="paseo-plugins/sleeping-tabs">sleeping OMP chats</a> on <a href="tools/paseo-fork">my daemon fork</a>.</summary>
+- [`/tan`, `/btw` and `/omfg` over RPC](.omp/extensions/headless-builtins), where they used to fall through to the model as plain prompts
+- [Those three drawn as rows and sheets instead of chat bubbles, plus `/queue`](paseo-plugins/omp-slash-aliases). Needs the extension above.
+- [OMP's `/tree`: go back to any earlier message and branch from there](paseo-plugins/session-tree). Also two halves, [OMP side here](.omp/extensions/session-tree).
+- [`/side`: a visible child agent](paseo-plugins/side-agent) with Paseo's curated history or OMP's full memory
+- [Your `.agents/commands/*.md` prompts one click away](paseo-plugins/agent-commands)
+- [A tool that parks the session in Paseo's "needs input" state](.omp/extensions/await-decision)
+- [Sleeping OMP chats](paseo-plugins/sleeping-tabs): idle ones closed, 250–290 MB each freed. Only on my daemon fork.
+- [Build and test the fork against each upstream release](tools/paseo-fork-sync), conflicts to a non-interactive Opus resolver; [deploy it](tools/paseo-fork), but only a commit the sync passed
 
-Some OMP built-ins only have a TUI handler, so over RPC `/tan`, `/btw` and
-`/omfg` fell through to the model as plain prompts. `headless-builtins` runs
-them headlessly; `omp-slash-aliases` draws them and adds `/queue`. The plugin
-needs the extension. `session-tree` is two halves as well, an OMP extension and
-a Paseo plugin. `side-agent` carries either Paseo's curated history or OMP's
-full memory into the child. [`await-decision`](.omp/extensions/await-decision)
-gives the model a tool that parks the session in Paseo's "needs input" state.
+## Paseo UI
 
-On the fork, an idle OMP chat gets closed and its memory (250–290 MB each)
-freed. [`paseo-fork-sync`](tools/paseo-fork-sync) brings the fork up to each
-upstream release, builds and tests it, and hands merge conflicts to a
-non-interactive Opus resolver; `paseo-fork` refuses to deploy a commit the
-sync didn't pass.
+- [Dots on workspace rows for tabs that need you](paseo-plugins/tab-dots)
+- [Pick the working indicator](paseo-plugins/turn-status)
+- [One-word tab titles](paseo-plugins/titles), by Haiku
+- [Your own provider icons](paseo-plugins/provider-icons)
+- [Sidebar filters by project group](paseo-plugins/filter-presets)
+- [Tidier sent messages](paseo-plugins/user-message-polish): pasted tag blocks fold, Markdown renders
+- [Quieter diff colouring](paseo-plugins/chat-diff-highlight)
+- [More app themes](paseo-plugins/popular-themes), and [T3 Chat's](paseo-plugins/t3-chat-theme)
+- [Hide the composer controls you never use](paseo-plugins/composer-declutter)
+- [My CSS tweaks, in one file](paseo-plugins/style-overrides)
 
-</details>
+New plugins start as a mock in [`paseo-mock-base/`](paseo-mock-base), a static copy of Paseo's screen with a switch for flipping design variants. I review by link; only then does it become a plugin.
 
-<details><summary>Paseo UI: <a href="paseo-plugins/tab-dots">dots for tabs that need you</a>, <a href="paseo-plugins/turn-status">a working indicator you pick</a>, <a href="paseo-plugins/titles">one-word tab titles</a>, <a href="paseo-plugins/provider-icons">your own provider icons</a>, <a href="paseo-plugins/filter-presets">sidebar filters by project group</a>, <a href="paseo-plugins/user-message-polish">tidier sent messages</a>, <a href="paseo-plugins/chat-diff-highlight">quieter diffs</a>, <a href="paseo-plugins/popular-themes">more themes</a>, <a href="paseo-plugins/style-overrides">my CSS tweaks</a>; all <a href="paseo-mock-base">mocked first</a>.</summary>
+## Several models on one problem
 
-`style-overrides` keeps the tweaks in one file instead of spread across
-plugins. New plugins start as a mock in `paseo-mock-base/`, a static copy of
-Paseo's screen with a switch for flipping design variants; I review by link,
-and only then does it become a plugin. On the OMP side there's
-[one theme](.omp/themes), in Nilo's colours, with user messages white on brand
-green so they're easy to spot when scrolling.
+- [Fan a question to GPT, Claude and Gemini](skills/hermes/council), each answer relayed as it lands
+- [Adversarial sessions on the same task](skills/hermes/adversarial-omp)
+- [Blind multi-model PR review](skills/unorganised/panel-review): cluster, refute, report
+- [Two independent reviewers and a synthesis](skills/hermes/pr-review-two-omp)
 
-</details>
+## Herdr
 
-<details><summary>Skills that put several models on one problem: <a href="skills/hermes/council">fan a question to GPT, Claude and Gemini</a>, <a href="skills/hermes/adversarial-omp">adversarial sessions on the same task</a>, <a href="skills/unorganised/panel-review">a blind multi-model PR review</a>, <a href="skills/hermes/pr-review-two-omp">two independent reviewers and a synthesis</a>.</summary>
+Herdr is the terminal multiplexer I run agents in.
 
-`/council` relays each answer as it lands. `panel-review` clusters, refutes
-and reports. The counterweight is `usage-guard`, above.
+- [Fork the focused OMP session into a pane](.herdr/plugins/omp-fork-pane); one variant runs `/prose` on the fork
+- [PR number → worktree workspace](.herdr/plugins/pr-worktree)
+- [Name tabs from their conversation](.herdr/plugins/tab-namer); agentless tabs show their foreground process
+- [Break a pane out into a tab and back](.herdr/plugins/pane-breakout)
+- [Run a hook in every new worktree](.herdr/plugins/worktree-setup), read from the original checkout so a branch can't change how its own worktree gets prepared
+- [Restart settled OMP agents in their panes](scripts/restart-omp-sessions)
+- [Parked plugin ideas](docs/herdr-plugin-ideas.md); nothing in there is started
 
-</details>
+## Skills
 
-<details><summary>Herdr plugins: <a href=".herdr/plugins/omp-fork-pane">fork a session into a pane</a>, <a href=".herdr/plugins/pr-worktree">PR number → worktree</a>, <a href=".herdr/plugins/tab-namer">name tabs from their conversation</a>, <a href=".herdr/plugins/pane-breakout">break a pane out into a tab</a>, <a href=".herdr/plugins/worktree-setup">run a hook in every new worktree</a>; plus <a href="scripts/restart-omp-sessions">restart settled OMP agents in their panes</a>.</summary>
+Loosely (!) by topic. `hermes/` and `t3-code/` are named for the harness that gets them. `_archive/` is retired. `vendor-*` is gitignored, so other people's skills don't get committed here.
 
-Herdr is the terminal multiplexer I run agents in. One fork variant runs
-`/prose` on the fork. Agentless tabs get their foreground process as a name.
-The worktree hook is always read from the original checkout, so a branch can't
-change how its own worktree gets prepared. `restart-omp-sessions` treats Herdr
-as the only source of truth about what's where.
-[`docs/herdr-plugin-ideas.md`](docs/herdr-plugin-ideas.md) is the parked
-backlog; nothing in it is started.
+- [Rehearse an implementation without running anything](skills/dev/dry-dev)
+- [Merge main](skills/dev/merge-main)
+- [Write a PR description](skills/dev/pr-description)
+- [Write for agents](skills/misc/writing-for-agents), read before writing a skill
+- [Write like Paul Graham](skills/misc/pith)
+- [Write Simplified Technical English](skills/unorganised/ste100)
+- [Generate images](skills/generative-ai) through fal or OpenRouter
+- [Get spoilers a word at a time](skills/fun/spoiler-surfer), because I love testing my wild theories against what's coming but don't want the full answer dumped on me
+- [Repair symlinks after a reorganization](scripts/link-doctor)
 
-</details>
+## Tampermonkey
 
-<details><summary>Skills: <a href="skills/dev/dry-dev">rehearse an implementation without running it</a>, <a href="skills/dev/merge-main">merge main</a>, <a href="skills/dev/pr-description">write a PR description</a>, <a href="skills/misc/writing-for-agents">write for agents</a>, <a href="skills/misc/pith">write like Paul Graham</a>, <a href="skills/unorganised/ste100">write Simplified Technical English</a>, <a href="skills/generative-ai">generate images</a>, <a href="skills/fun/spoiler-surfer">get spoilers a word at a time</a>.</summary>
+[Install links](tampermonkey/README.md). Installs update from this repo's `main`.
 
-[`skills/`](skills) is by topic, loosely (!). `hermes/` and `t3-code/` are
-named for the harness that gets them; `t3-code/` is for Claude Code and Codex,
-kept out of OMP. `_archive/` is retired skills. `vendor-*` is gitignored, so
-other people's skills don't get committed here. `spoiler-surfer` exists
-because I love testing my wild theories against what's coming but don't want
-the full answer dumped on me. [`skill-directives`](.omp/extensions/skill-directives)
-adds `@imports` and `` !`shell` `` expansion to SKILL.md. When skills get
-reorganized, [`link-doctor`](scripts/link-doctor) repairs the symlinks that
-pointed at the old paths.
+- [Discord thread → markdown](tampermonkey/discord-thread-markdown.user.js), permalinks and attachment URLs kept
+- [Tweet and its replies → one PNG](tampermonkey/x-tweet-shot.user.js), permalinks in the footer
+- [Gmail search attachments → files](tampermonkey/gmail-attachment-harvester.user.js), named `Sender - filename`
 
-</details>
+---
 
-<details><summary>Tampermonkey: <a href="tampermonkey/discord-thread-markdown.user.js">Discord thread → markdown</a>, <a href="tampermonkey/x-tweet-shot.user.js">tweet → PNG</a>, <a href="tampermonkey/gmail-attachment-harvester.user.js">Gmail attachments → files</a>. <a href="tampermonkey/README.md">Install links</a>.</summary>
-
-The markdown keeps permalinks and attachment URLs; the PNG is a tweet with its
-own replies, permalinks in the footer; the files are named `Sender - filename`.
-Two of them say "(for AI agents)" right in their name. Installs update from
-this repo's `main`.
-
-</details>
-
-If a folder has an `OVERVIEW.md` or `README.md`, that's the doc. Otherwise
-the source is.
+If a folder has an `OVERVIEW.md` or `README.md`, that's the doc. Otherwise the source is.
