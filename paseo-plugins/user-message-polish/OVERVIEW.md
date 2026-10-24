@@ -1,5 +1,5 @@
 Makes your own sent messages nicer in the Paseo web and desktop apps: pasted tag blocks fold into
-one-line fold rows, and Markdown renders. The phone apps are unchanged.
+one-line fold rows, Markdown renders, and slash commands go quiet. The phone apps are unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
 `<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included,
@@ -40,13 +40,33 @@ Paseo's markers (checked live). Colours are mixes of the bubble's text colour, s
 (checked in T3 Chat dark and Paseo Light). Turning the plugin off removes every trace at once
 without a reload (checked).
 
+**Slash commands** (Stefan's pick 2026-10-24: "bubble F + answer F" on
+`http://axalon:8080/pages/user-message-polish-command-mocks/`). A one-line message that starts with
+`/name` loses its bubble: just the command, right-aligned, muted, in the code font. Paseo's time,
+rewind and copy row under it stays (copy gives `/session`, checked live). OMP's own answer to a
+command (no model ran: `/session`, `/tools`, `/reload-plugins`, …) becomes a muted code block
+without the "Worked for 0s" footer, showing the output exactly as OMP printed it, line breaks and
+list markers included (Paseo's Markdown joins the lines or turns `* bash` into bullets). Longer
+output scrolls inside 320 px. Setting: **Quiet slash commands** (on by default).
+
+- How it tells OMP's answer from a model reply, with no list of command names: Paseo gives OMP's
+  answers a made-up row id (`assistant_<time>_…`), a model reply carries the model's message id
+  (`msg_…`) from its first word. An `assistant_` row right after a `/` bubble is OMP's answer.
+  Checked live on OMP + Claude Haiku: `/notacommand …` answered by the model keeps its normal reply.
+- The original output text comes from a read-only timeline transformer: OMP's answers arrive
+  without a message id; the plugin keeps their text and never changes the item, so copy, rewind
+  and the phone apps see Paseo's own item.
+- Skipped, because other plugins draw them: `/tan`, `/btw`, `/omfg`, `/queue`, `/skill:…`.
+  Messages with pictures or attached files keep their bubble.
+
 Paseo 0.12 shows messages from other agents (Dispatcher etc.) as a "Message received" row, not as
 your bubble, so `<paseo-system>` envelopes need nothing here (checked live).
 
 Screenshots (`screenshots/`): `before-mixed.webp` → `after-mixed.webp` / `after-mixed-open.webp`,
 `before-nested-long.webp` → `after-nested-long-open.webp` (120-line paste open, nested `<context>`,
 quote, lists, diff fence), `after-stays-raw.png` (inline tags, a fence holding tags, one-line
-blocks), `after-light.webp`, `web-390px.webp`, `settings.webp`.
+blocks), `after-light.webp`, `web-390px.webp`, `settings.webp`, `before-commands.webp` →
+`after-commands.webp` (`/session`, `/tools`).
 
 Limits:
 
@@ -60,3 +80,11 @@ Limits:
   renames them, your messages show plain again; nothing breaks.
 - The Markdown reader is the plugin's own small one (no library), so rare syntax (tables, setext
   headings, reference links, HTML) stays as text.
+- OMP's command answers are not in OMP's session file: after the agent is reloaded, the command and
+  its answer are gone from the chat (checked 2026-10-24). Paseo's doing, not the plugin's.
+- Paseo bug seen 2026-10-24 (plugin off too): after running the same OMP command twice, every page
+  reload adds another copy of its answer (2 → 3 → 5). Copies that follow another answer instead of
+  your `/` bubble keep Paseo's look.
+- An answer drawn before the page loaded the plugin, or one whose letters Paseo's Markdown changed,
+  falls back to Paseo's rendered text (lines kept, list markers lost). Not checked in the light
+  theme; colours mix the answer's own text colour.

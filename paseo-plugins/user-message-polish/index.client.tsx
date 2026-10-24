@@ -1,9 +1,10 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { Platform } from "react-native";
+import { rememberOutput, startCommandStyling } from "./client/commands";
 import { createSettingsScreen } from "./client/settings";
 import { startPolishing } from "./client/web";
-import { DEFAULTS, preferences } from "./shared/preferences";
+import { DEFAULTS, preferences, type Preferences } from "./shared/preferences";
 
 const PLUGIN_ID = "user-message-polish";
 
@@ -14,13 +15,29 @@ export default function contribute(client: PluginClientContext) {
       if (disposed) return;
       const parsed = result.status === "ready" ? preferences.schema.safeParse(result.values) : null;
       // Unreadable settings: polish with the defaults rather than not at all.
-      polisher.apply(parsed?.success ? parsed.data : DEFAULTS);
+      apply(parsed?.success ? parsed.data : DEFAULTS);
     }, () => { /* Host unreachable: keep what is drawn. */ });
   };
   // Window focus re-reads the settings in case a save announcement was missed.
   const polisher = startPolishing(refresh);
-  const screen = client.addSettingsScreen({ id: "polish", title: "My messages", icon: "MessageSquareText", Component: createSettingsScreen(polisher.apply) });
+  const commands = startCommandStyling();
+  const apply = (values: Preferences) => {
+    polisher.apply(values);
+    commands.setEnabled(values.commands);
+  };
+  const screen = client.addSettingsScreen({ id: "polish", title: "My messages", icon: "MessageSquareText", Component: createSettingsScreen(apply) });
   if (Platform.OS !== "web") return screen;
+
+  // Read-only: OMP's own command output arrives without a message id; its original text
+  // (line breaks intact) feeds the code block. The item itself is never changed.
+  const transformer = client.addTimelineTransformer({
+    id: "command-output",
+    query: { itemType: "assistant_message" },
+    transform({ item }) {
+      if (!item.messageId) rememberOutput(item.text);
+      return undefined;
+    },
+  });
 
   // The daemon announces every settings save; `snapshot` also fires on (re)connect.
   refresh();
@@ -36,6 +53,8 @@ export default function contribute(client: PluginClientContext) {
     disposed = true;
     void events.release().catch(() => {});
     screen();
+    void transformer();
     polisher.dispose();
+    commands.dispose();
   };
 }

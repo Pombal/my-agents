@@ -50,6 +50,9 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           <SettingsSwitch label="Render Markdown" hint="Bold, lists, code, links, quotes."
             value={current.markdown} disabled={settings.saving}
             onValueChange={(markdown) => save({ ...current, markdown })} />
+          <SettingsSwitch label="Quiet slash commands" hint="A one-line /command loses its bubble; OMP's own answer shows as a muted code block."
+            value={current.commands} disabled={settings.saving}
+            onValueChange={(commands) => save({ ...current, commands })} />
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="Tags · comma-separated">
