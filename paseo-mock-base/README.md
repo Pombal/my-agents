@@ -24,14 +24,16 @@ designing, tag the differences. Served at `http://axalon:8080/pages/paseo-base/`
   viewport and app state (empty chat, crashed agent, panel open…). A situation
   never changes the design; a variant never changes the situation.
 
-Both bars build themselves from tags. There is no config file.
+Both bars build themselves from tags. There is no config file. The bars carry
+no headings: their position and colour say which is which. A bar with nothing
+to offer is not shown (the starter has no design bar).
 
 ## Tags
 
 | Tag | Where | Effect |
 |---|---|---|
 | `data-section="id" data-title="Label"` | a top-level screen (e.g. `.app`) | One Design button per section. No sections → whole body is one screen. |
-| `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in this order. `— note` shows next to them. Optional: ids are otherwise collected from `data-variant`. |
+| `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in this order. `— note` shows as a quiet caption under the bar (its line is reserved, so flipping moves nothing). Optional: ids are otherwise collected from `data-variant`. |
 | `data-variant="B C"` | any element | Exists only in those variants. Tag the **difference only**; never copy a whole screen per variant. |
 | `data-viewport="phone"` | any element | Exists only in that viewport: `desktop`, `laptop`, `phone`, or `wide` (= desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | Declares app-state axes; first value is the default. |
