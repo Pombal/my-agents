@@ -5,6 +5,20 @@ Use it for every Paseo plugin mockup: copy the starter, edit only what you are
 designing, tag the differences. Served at `http://axalon:8080/pages/paseo-base/`
 (symlink `~/www/webshare/pages/paseo-base` → this folder).
 
+## How to work (read first)
+
+Stefan wants to see the result on screen as fast as possible, then keep
+improving it with you while you talk.
+
+- Make the edit, then send the link right away. The page updates on reload,
+  so the link is the result.
+- Don't screenshot every small change. Stefan looks at the link himself.
+- Need screenshots, a visual check or follow-up fixes? Hand them to a
+  subagent and keep talking to Stefan while it works.
+- Ask nothing that the link can answer.
+
+This applies to building this base and to every mock built on it.
+
 ## Make a mock
 
 1. `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`
