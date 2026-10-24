@@ -300,7 +300,7 @@
   background: var(--c-surface3);
   border-radius: var(--r-2xl) var(--r-sm) var(--r-2xl) var(--r-2xl);
   font-size: var(--fs-content);
-  line-height: 21px;
+  line-height: var(--lh-content, 21px);
   color: var(--c-foreground);
   white-space: pre-wrap;
 }
@@ -317,7 +317,7 @@
 .msg-text {
   padding: 12px 8px;
   font-size: var(--fs-content);
-  line-height: 21px;
+  line-height: var(--lh-content, 21px);
   color: var(--c-foreground);
 }
 .msg-text p { margin: 0 0 12px; }
@@ -431,7 +431,7 @@
   min-height: 46px;
   padding-right: 110px;
   font-size: var(--fs-content);
-  line-height: 21px;
+  line-height: var(--lh-content, 21px);
   color: var(--c-foreground);
   white-space: pre-wrap;
 }

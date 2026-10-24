@@ -37,7 +37,9 @@ with him.
   sit in a second bar below it; on a section without variants its slot stays
   empty, so nothing moves.
 - **Bottom (violet): situation.** Where the chosen option is seen: theme,
-  viewport, app state. It belongs to the workbench, like the canvas.
+  viewport, app state. It belongs to the workbench, like the canvas. Its
+  `Aa` button holds Paseo's appearance settings (fonts, sizes, content
+  width), remembered across every mock in this browser.
 
 A situation never changes the design, and a variant never changes the
 situation. The bars build themselves from the tags below. A bar with nothing

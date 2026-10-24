@@ -202,6 +202,8 @@
 
   // ---------------------------------------------------------------- apply
   const listeners = [];
+  // Kit modules (appearance.js) add their own controls to the situation bar.
+  const situationExtras = [];
   let shownAxes = new Set();
   function apply() {
     const sec = current();
@@ -383,6 +385,7 @@
         situationBar.append(cycleControl(values, state.states[axis], labels, (v) => set({ states: { ...state.states, [axis]: v } })));
       }
     }
+    situationBar.append(...situationExtras);
     situationBar.hidden = !situationBar.childElementCount;
   }
 
@@ -487,7 +490,7 @@
       apply();
     });
   }
-  Promise.all([loadScript("icons.js"), loadScript("icons-extra.js")]).then(() => {
+  Promise.all([loadScript("icons.js"), loadScript("icons-extra.js"), loadScript("appearance.js")]).then(() => {
     renderIcons(frame);
     frame.querySelectorAll("[data-cycle]").forEach((b) => enhanceCycle(b));
     wire();
@@ -499,6 +502,10 @@
       set,
       onChange: (fn) => listeners.push(fn),
       enhanceCycle,
+      addSituationControl: (n) => {
+        situationExtras.push(n);
+        apply();
+      },
       icon,
       renderIcons,
     };

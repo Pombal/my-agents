@@ -78,7 +78,10 @@ const scale = (name, obj, unit = px) =>
 const rootLines = [
   ...scale("sp", common.spacing),
   ...scale("fs", common.fontSize),
-  ...scale("lh", common.lineHeight),
+  // Paseo's applyAppearance() (appearance/apply.ts) overwrites the authored diff line-height
+  // at startup with round(code × 1.5); chat text uses round(content × 1.4) (components/message.tsx).
+  ...scale("lh", { ...common.lineHeight, diff: Math.round(common.fontSize.code * 1.5) }),
+  `  --lh-content: ${Math.round(common.fontSize.content * 1.4)}px;`,
   ...scale("icon", common.iconSize),
   ...scale("fw", common.fontWeight, (v) => (v === "normal" ? 400 : v === "bold" ? 700 : v)),
   ...scale("r", common.borderRadius),
