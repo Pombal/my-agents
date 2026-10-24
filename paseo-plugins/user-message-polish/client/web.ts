@@ -208,10 +208,11 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
   path.setAttribute("d", CHEVRON);
   chevron.append(path);
-  const head = el("div", { class: "ump-head", role: "button", tabindex: "0", "data-paseo-markdown-ignore": "true" }, [
+  const head = el("div", { class: "ump-head", role: "button", tabindex: "0", "data-paseo-markdown-ignore": "true", "data-pmono": "" }, [
     chevron,
     el("span", { class: "ump-open" }, [fold.open]),
-    el("span", { class: "ump-shut" }, [`… ${fold.close}`]),
+    el("span", { class: "ump-peek" }, [fold.body.replace(/\s+/g, " ").trim().slice(0, 300)]),
+    el("span", { class: "ump-shut" }, [fold.close]),
   ]);
   head.title = fold.open;
   const box = el("div", { class: "ump-fold" }, [head]);
@@ -219,7 +220,7 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
     box.toggleAttribute("data-open", open);
     head.setAttribute("aria-expanded", String(open));
     if (open && box.childNodes.length === 1) {
-      const foot = el("div", { class: "ump-head ump-foot", "data-paseo-markdown-ignore": "true" }, [fold.close]);
+      const foot = el("div", { class: "ump-head ump-foot", "data-paseo-markdown-ignore": "true", "data-pmono": "" }, [fold.close]);
       foot.addEventListener("click", toggle);
       box.append(el("div", { class: "ump-body", "data-pmono": "" }, [fold.body]), foot);
     }
@@ -265,12 +266,17 @@ const CSS = `
 .ump-head:focus-visible { outline: 1px solid ${MIX(45)}; outline-offset: -1px; border-radius: 8px; }
 .ump-chev { width: 12px; height: 12px; flex: none; fill: none; stroke: ${MIX(52)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
 .ump-fold[data-open] .ump-chev { transform: rotate(90deg); stroke: currentColor; }
-/* One clamped line instead of nowrap: a long opening tag still sizes a wide bubble, but can't
-   force the bubble wider than a narrow window (nowrap text can't shrink below its full width). */
-.ump-open { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+/* One clamped line instead of nowrap: long text still sizes a wide bubble, but can't force the
+   bubble wider than a narrow window (nowrap text can't shrink below its full width). The clamp
+   draws the ellipsis; break-all fills the line to its edge, so no gap opens before the next part. */
+.ump-open, .ump-peek { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; white-space: normal; word-break: break-all; }
 .ump-open, .ump-shut { color: ${MIX(78)}; }
+/* The tags keep their full text first; only a very long opening tag gets cut. The preview takes
+   what is left and the closing tag follows it directly. */
+.ump-open { flex: none; max-width: 70%; }
+.ump-peek { flex: 0 1 auto; color: ${MIX(32)}; }
 .ump-shut { flex: none; }
-.ump-fold[data-open] .ump-shut { display: none; }
+.ump-fold[data-open] .ump-peek, .ump-fold[data-open] .ump-shut { display: none; }
 .ump-fold[data-open] .ump-open, .ump-foot { color: ${MIX(52)}; }
 .ump-foot { padding-left: 26px; }
 /* width 0 + min-width 100%: opening never widens the bubble; the body wraps to the header's width. */

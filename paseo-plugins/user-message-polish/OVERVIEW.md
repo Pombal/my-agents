@@ -2,14 +2,16 @@ Makes your own sent messages nicer in the Paseo web and desktop apps: pasted tag
 one-line fold rows, and Markdown renders. The phone apps are unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
-`<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included:
-`› <file path="docs/badges.md"> … </file>`. Click it (or Enter/Space) to open it in place: the row
-stays where it is as the header and shows only the opening tag, its text goes a step quieter, the
-chevron turns and goes full strength, the content continues below in the same rounded shape at
-half the tint (raw text, at most 320 px tall, scrolls inside, long lines wrap), and a footer row
-with the closing tag ends the shape; clicking the footer folds it too. Stefan picked style B,
-opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`, then asked for literal
-tags instead of a tag name, hint and line count.
+`<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included,
+with the content squeezed onto one very muted line between them and cut with an ellipsis:
+`› <file path="docs/badges.md"> # Badges Count only live a… </file>`. The tags sit left and keep
+their full text first; the preview takes what room is left. Click it (or Enter/Space) to open it
+in place: the row stays where it is as the header and shows only the opening tag, its text goes a
+step quieter, the chevron turns and goes full strength, the content continues below in the same
+rounded shape at half the tint (raw text, at most 320 px tall, scrolls inside, long lines wrap),
+and a footer row with the closing tag ends the shape; clicking the footer folds it too. Stefan
+picked style B, opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`, then
+asked for literal tags with a one-line preview instead of a tag name, hint and line count.
 
 - What folds: the opening tag starts a line, a matching closing tag ends a later line (or the
   same line), and the content has 2+ lines. Same-name tags nested inside are part of one fold;
