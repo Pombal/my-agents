@@ -9,7 +9,7 @@
   Situation axes used here (bottom bar): panel (right explorer), drawer (phone sidebar).
   Delete what your mock doesn't need.
 -->
-<html lang="en" data-mock-title="Starter" data-states="panel: closed | open; drawer: closed | open">
+<html lang="en" data-mock-title="Starter" data-states="sidebar: shown=Sidebar shown | hidden=Sidebar hidden; panel: closed | open; drawer: closed | open">
 <head>
 <meta charset="utf-8">
 <title>Paseo mock starter</title>
@@ -24,7 +24,7 @@
 <div class="app" data-section="chat" data-title="Chat">
 
   <!-- ============================== LEFT SIDEBAR (desktop + small desktop) -->
-  <aside class="sidebar" data-viewport="wide">
+  <aside class="sidebar" data-viewport="wide" data-when="sidebar: shown">
     <nav class="sb-nav">
       <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
       <div class="sb-row"><i data-icon="history"></i>History</div>
@@ -35,15 +35,15 @@
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
-      <div class="sb-ws is-selected"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-pink)" data-status="done">F</span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-amber)">A</span><span class="sb-ws-title">Tax return, again</span><span class="sb-ws-meta">1d</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Plant-watering robot</span><span class="sb-ws-meta">2d</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-violet)">T</span><span class="sb-ws-title">Tabs vs. spaces RFC</span><span class="sb-ws-meta">3d</span></div>
+      <div class="sb-ws is-selected" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-pink)" data-status="done">F</span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-amber)">A</span><span class="sb-ws-title">Tax return, again</span><span class="sb-ws-meta">1d</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Plant-watering robot</span><span class="sb-ws-meta">2d</span></div>
+      <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-violet)">T</span><span class="sb-ws-title">Tabs vs. spaces RFC</span><span class="sb-ws-meta">3d</span></div>
     </div>
     <!-- SLOT sidebar-footer: plugin rows above the footer icons; Paseo draws the separator -->
     <div class="slot" data-slot="sidebar-footer"></div>
@@ -60,7 +60,7 @@
   <main class="main">
     <!-- ============================== DESKTOP HEADER + TABS -->
     <header class="ws-header" data-viewport="wide">
-      <button class="icon-btn"><i data-icon="panel-left"></i></button>
+      <button class="icon-btn" data-toggle="sidebar"><i data-icon="panel-left"></i></button>
       <span class="ws-title">Rewrite left-pad in Rust</span><span class="ws-sub">left-pad</span>
       <button class="icon-btn"><i data-icon="ellipsis"></i></button>
       <span class="spacer"></span>
@@ -70,12 +70,12 @@
         <button class="btn"><i data-icon="git-commit-horizontal"></i>Commit</button>
         <button class="btn"><i data-icon="chevron-down"></i></button>
       </span>
-      <button class="icon-btn"><i data-icon="panel-right"></i></button>
+      <button class="icon-btn" data-toggle="panel"><i data-icon="panel-right"></i></button>
     </header>
     <div class="tabs" data-viewport="wide">
-      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Benchmarks</span></div>
-      <div class="tab is-active"><i data-icon="provider-omp"></i><span class="tab-label">Hot path allocations</span></div>
-      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Changelog</span></div>
+      <div class="tab" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Benchmarks</span></div>
+      <div class="tab is-active" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Hot path allocations</span></div>
+      <div class="tab" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Changelog</span></div>
       <button class="icon-btn"><i data-icon="plus" data-size="14"></i></button>
       <span class="spacer"></span>
       <button class="icon-btn"><i data-icon="ellipsis" data-size="14"></i></button>
@@ -83,7 +83,7 @@
 
     <!-- ============================== PHONE HEADER -->
     <header class="phone-header" data-viewport="phone">
-      <button class="icon-btn"><i data-icon="menu" data-size="20"></i></button>
+      <button class="icon-btn" data-set="drawer: open"><i data-icon="menu" data-size="20"></i></button>
       <div class="titles">
         <div class="t1">Rewrite left-pad in Rust</div>
         <div class="t2">left-pad · <i data-icon="server" data-size="12"></i>devbox</div>
@@ -129,8 +129,8 @@
       <!-- SLOT composer-pills: plugin pills above the composer (use .pill) -->
       <div class="pills slot" data-slot="composer-pills"></div>
       <div class="composer">
-        <div class="composer-input" data-placeholder="Message the agent, tag @files, or use /commands and /skills" data-viewport="wide"></div>
-        <div class="composer-input" data-placeholder="Message, @files, /commands" data-viewport="phone"></div>
+        <div class="composer-input" data-editable data-placeholder="Message the agent, tag @files, or use /commands and /skills" data-viewport="wide"></div>
+        <div class="composer-input" data-editable data-placeholder="Message, @files, /commands" data-viewport="phone"></div>
         <span class="composer-hint">Ctrl+L to focus</span>
         <div class="composer-bar">
           <button class="cbtn"><i data-icon="plus"></i></button>
@@ -150,8 +150,8 @@
   <!-- ============================== RIGHT EXPLORER PANEL (situation: panel = open) -->
   <aside class="right-panel" data-viewport="wide" data-when="panel: open">
     <div class="rp-tabs">
-      <div class="tab"><i data-icon="files"></i><span class="tab-label">Files</span></div>
-      <div class="tab is-active"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
+      <div class="tab" data-pick="rp-tabs"><i data-icon="files"></i><span class="tab-label">Files</span></div>
+      <div class="tab is-active" data-pick="rp-tabs"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
       <!-- SLOT explorer-tabs: plugin panels add tabs here (use .tab) -->
       <span class="slot" data-slot="explorer-tabs" style="display:contents"></span>
     </div>
@@ -164,10 +164,10 @@
   </aside>
 
   <!-- ============================== PHONE DRAWER (situation: drawer = open) -->
-  <div class="drawer-overlay" data-viewport="phone" data-when="drawer: open"></div>
+  <div class="drawer-overlay" data-viewport="phone" data-when="drawer: open" data-set="drawer: closed"></div>
   <div class="drawer" data-viewport="phone" data-when="drawer: open">
     <nav class="sb-nav">
-      <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><i data-icon="x"></i></div>
+      <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><span data-set="drawer: closed" style="display:inline-flex"><i data-icon="x"></i></span></div>
       <div class="sb-row"><i data-icon="history"></i>History</div>
       <div class="sb-row"><i data-icon="search"></i>Search</div>
       <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
@@ -175,11 +175,11 @@
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
-      <div class="sb-ws is-selected"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
+      <div class="sb-ws is-selected" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span></div>
+      <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
+      <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
     </div>
     <div class="slot" data-slot="sidebar-footer"></div>
     <div class="sb-footer">

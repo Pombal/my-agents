@@ -381,6 +381,46 @@
     e.preventDefault();
   }
 
+  // ---------------------------------------------------------------- mock interactions
+  // The mock's own controls drive the same state as the bars, so the two never disagree:
+  //   data-toggle="panel"          click steps that app-state axis to its next value
+  //   data-set="drawer: closed"    click sets axes (";" joins several)
+  //   data-pick="tabs"             click moves the highlight within that group
+  //                                (whichever of is-active / is-selected the group uses)
+  //   data-editable                you can type in it; Enter does nothing
+  function wire() {
+    frame.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-toggle],[data-set],[data-pick]");
+      if (!t || !frame.contains(t)) return;
+      const axes = current().axes;
+      if (t.dataset.toggle) {
+        const values = axes.get(t.dataset.toggle);
+        if (values) set({ states: { ...state.states, [t.dataset.toggle]: step(values, state.states[t.dataset.toggle], 1) } });
+      }
+      if (t.dataset.set) {
+        const patch = {};
+        for (const [axis, vals] of parseWhen(t.dataset.set)) if (axes.has(axis)) patch[axis] = vals[0];
+        set({ states: { ...state.states, ...patch } });
+      }
+      if (t.dataset.pick) {
+        const group = [...frame.querySelectorAll(`[data-pick="${t.dataset.pick}"]`)];
+        const cls = group.some((n) => n.classList.contains("is-selected")) ? "is-selected" : "is-active";
+        group.forEach((n) => n.classList.toggle(cls, n === t));
+      }
+    });
+    frame.querySelectorAll("[data-editable]").forEach((n) => {
+      n.contentEditable = "plaintext-only";
+      n.spellcheck = false;
+      n.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) e.preventDefault();
+      });
+      // keep :empty (placeholder) working after the text is deleted
+      n.addEventListener("input", () => {
+        if (!n.textContent) n.replaceChildren();
+      });
+    });
+  }
+
   // ---------------------------------------------------------------- icons
   // <i data-icon="plus" data-size="14"></i> → Lucide SVG (Paseo's icon set,
   // stroke 1.5, default 16px). Classes on the <i> carry over.
@@ -420,6 +460,7 @@
   Promise.all([loadScript("icons.js"), loadScript("icons-extra.js")]).then(() => {
     renderIcons(frame);
     frame.querySelectorAll("[data-cycle]").forEach((b) => enhanceCycle(b));
+    wire();
     apply();
     window.MockKit = {
       state,

@@ -59,6 +59,9 @@ his, and no UI from his other plugins unless the mock is about it.
 | `data-when="session: empty crashed"` | any element | Exists only in those states; `;` joins axes. An axis button hides while none of its elements can appear. |
 | `data-cycle="Off \| 30 min \| 1 h"` | a button | Kit cycle button: left third steps back, the rest forward; fixed width. `data-cycle-chevrons` adds ‹ ›. Fires `cycle` `{ value, index }`. |
 | `data-scroll="bottom"` | a scroll area | Starts scrolled to the end, like a chat. |
+| `data-toggle="panel"`, `data-set="drawer: closed"` | a mock control | Click steps that app-state axis, or sets axes (`;` joins). The mock's buttons and the bottom bar share one state, so they never disagree. |
+| `data-pick="tabs"` | each item of a group | Click moves the highlight (`is-active`/`is-selected`) within the group. Content stays the same. |
+| `data-editable` | a text area | Typable; Enter does nothing. |
 | `data-slot="sidebar-header"` | already in the starter | Where real Paseo shows plugin UI: `sidebar-header` (rows under Schedules), `sidebar-footer` (rows above the footer icons, with separator), `composer-pills`, `explorer-tabs`. Put the plugin's markup inside; an empty slot takes no space. Add new slots to the starter, never ad hoc. |
 | `<i data-icon="name" data-size="14">` | anywhere | Lucide icon, Paseo's set. Non-Lucide: `kit/icons-extra.js` (`provider-omp`). |
 | `data-themes`, `data-viewports` | `<html>` | Override the lists (default `dark pureBlack light`, `desktop laptop phone`). |

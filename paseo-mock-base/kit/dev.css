@@ -253,3 +253,7 @@ html.kit-export .mock-frame {
 .kit-cycle:has(.kit-cycle-next:hover) > .kit-cycle-r {
   opacity: 1;
 }
+
+/* mock interactions (dev.js wire()): pointer on wired controls, no focus ring on the composer */
+.mock-frame [data-toggle], .mock-frame [data-set], .mock-frame [data-pick] { cursor: pointer; }
+.mock-frame [data-editable] { cursor: text; outline: none; white-space: pre-wrap; }
