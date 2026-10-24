@@ -30,15 +30,23 @@ with him.
    value in the bottom bar.
 4. **Send the link.**
 
-## The two bars
+## The bars
 
-- **Top (amber): design.** The options being decided: sections and variants.
+- **Top (amber): design.** The options being decided. The first bar holds the
+  sections and looks the same on every section. The current section's variants
+  sit in a second bar below it; on a section without variants its slot stays
+  empty, so nothing moves.
 - **Bottom (violet): situation.** Where the chosen option is seen: theme,
   viewport, app state. It belongs to the workbench, like the canvas.
 
 A situation never changes the design, and a variant never changes the
-situation. Both bars build themselves from the tags below. A bar with nothing
+situation. The bars build themselves from the tags below. A bar with nothing
 to offer stays hidden.
+
+Nothing in the dev UI may shift when a choice changes; Stefan treats layout
+shifts as bugs. A control that exists only after another choice goes in a
+bar of its own below, never beside the choice. Option lists are cycle buttons
+(fixed width, ‹ ›); a row of buttons is only for the main choice (sections).
 
 ## Public-safe content
 
@@ -52,7 +60,7 @@ his, and no UI from his other plugins unless the mock is about it.
 | Tag | On | Effect |
 |---|---|---|
 | `data-section="id" data-title="Label"` | a top-level screen | One top-bar button per section. Without sections, the body is one screen. |
-| `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in order. `— note` is a caption under the bar; use it for facts that sway the choice ("phones can't show this"). |
+| `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a cycle button in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="buttons"` on the section shows a row of buttons instead, only when the variants are the main thing to compare. |
 | `data-variant="B C"` | any element | Exists only in those variants. |
 | `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | App-state axes; first value is the default. The button reads "normal session"; custom wording: `open=Files open`. |

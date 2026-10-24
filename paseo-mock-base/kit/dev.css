@@ -257,3 +257,8 @@ html.kit-export .mock-frame {
 /* mock interactions (dev.js wire()): pointer on wired controls, no focus ring on the composer */
 .mock-frame [data-toggle], .mock-frame [data-set], .mock-frame [data-pick] { cursor: pointer; }
 .mock-frame [data-editable] { cursor: text; outline: none; white-space: pre-wrap; }
+
+/* Second top bar (this section's variants). Positioned by dev.js; on a section
+ * without variants it keeps its slot but shows nothing, so nothing below moves. */
+.kit-design-2 { top: 54px; }
+.kit-design-2.kit-vacant { visibility: hidden; }

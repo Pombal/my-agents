@@ -272,11 +272,26 @@
       frame.style.transform = "";
       return;
     }
-    // Frame starts below the design bar, or below the caption line when the
-    // section has notes (the line is reserved, so flipping never shifts it).
-    if (!designBar.hidden) caption.style.top = designBar.getBoundingClientRect().bottom + 6 + "px";
-    const above = [designBar, caption].filter((n) => !n.hidden).map((n) => n.getBoundingClientRect().bottom);
-    const top = Math.max(14, ...above) + 46;
+    // Top stack, all slots reserved so nothing moves when switching section:
+    // bar 1 = sections (identical everywhere), bar 2 = this section's variants
+    // (its slot is kept, empty, on sections without variants), then the
+    // caption line when any section has notes.
+    let y = 14;
+    let slotH = 0;
+    if (!designBar.hidden) {
+      const r = designBar.getBoundingClientRect();
+      slotH = r.height;
+      y = r.bottom + 8;
+    }
+    if (!variantBar.hidden) {
+      variantBar.style.top = y + "px";
+      y += (slotH || variantBar.getBoundingClientRect().height) + 6;
+    }
+    if (!caption.hidden) {
+      caption.style.top = y + "px";
+      y += 16;
+    }
+    const top = y + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
     const availW = window.innerWidth - 48;
@@ -291,6 +306,9 @@
   // ---------------------------------------------------------------- bars
   const designBar = document.createElement("div");
   designBar.className = "kit-bar kit-design";
+  // Second top bar: controls that exist only for the current section (its variants).
+  const variantBar = document.createElement("div");
+  variantBar.className = "kit-bar kit-design kit-design-2";
   // Variant note: a quiet line under the design bar, outside it, so the bar
   // keeps one width whatever variant is shown.
   const caption = document.createElement("div");
@@ -332,11 +350,23 @@
     if (sections.length > 1) {
       designBar.append(segmented(sections.map((s) => ({ key: s.id, label: s.title })), sec.id, (id) => set({ section: id })));
     }
-    if (sec.variants.length) {
-      designBar.append(segmented(sec.variants.map((v) => ({ key: v.id, badge: v.id, label: v.label, title: v.note })), state.variant, (id) => set({ variant: id })));
-    }
     designBar.hidden = !designBar.childElementCount;
-    caption.hidden = designBar.hidden || !sec.variants.some((v) => v.note);
+
+    // Variants: a cycle button by default; data-variants-as="buttons" on the
+    // section asks for a row of buttons when the variants are the main choice.
+    variantBar.replaceChildren();
+    if (sec.variants.length) {
+      if (sec.el.dataset.variantsAs === "buttons") {
+        variantBar.append(segmented(sec.variants.map((v) => ({ key: v.id, badge: v.id, label: v.label, title: v.note })), state.variant, (id) => set({ variant: id })));
+      } else {
+        const ids = sec.variants.map((v) => v.id);
+        const labels = Object.fromEntries(sec.variants.map((v) => [v.id, v.label ? `${v.id} · ${v.label}` : v.id]));
+        variantBar.append(cycleControl(ids, state.variant, labels, (id) => set({ variant: id })));
+      }
+    }
+    variantBar.hidden = !sections.some((s) => s.variants.length);
+    variantBar.classList.toggle("kit-vacant", !sec.variants.length);
+    caption.hidden = !sections.some((s) => s.variants.some((v) => v.note));
     caption.textContent = sec.variants.find((v) => v.id === state.variant)?.note || "";
 
     // Every value names itself: "Pure black", "Phone", "normal session",
@@ -449,7 +479,7 @@
   if (exportMode) {
     document.body.replaceChildren(frame);
   } else {
-    document.body.replaceChildren(stage, designBar, caption, situationBar);
+    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {
