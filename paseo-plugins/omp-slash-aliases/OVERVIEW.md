@@ -25,7 +25,7 @@ OMP slash commands for Paseo's `omp` provider: `/tan <work>`, `/omfg <correction
 
 Clients: web, desktop, iOS and Android. Only the public plugin API is used (slash commands, composer pills, `Modal`, timeline transformers and renderers, and plugin RPC), and the Markdown renderer is plain React Native. It was tested live on the web only. Refresh or reopen an open app after installing or updating the plugin.
 
-Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
+"OMP chats" means provider `omp` and every custom provider in `~/.paseo/config.json` whose `extends` chain reaches `omp` (e.g. `omp-nilo`, the nilo profile). Only the daemon side can read that config, so it answers `providers.omp` and checks it again before `/btw`; the client asks once and asks again about a provider it hasn't seen. That profile needs the `headless-builtins` symlink too (`~/.omp/profiles/nilo/agent/extensions/`). Other providers get the original slash command unchanged. Plugin commands win collisions with provider commands, and Paseo's built-in client commands win over plugins. These commands do not run with attachments (a Paseo limit).
 
 ## Limits
 
@@ -58,6 +58,7 @@ Throwaway agent "TAN row test" (codeword CEDAR-LYNX-58) in `~/tmp-archive/paseo-
 - Plugin disabled: the chat went back to Paseo's own look (the `/tan` bubbles, "Background tan dispatch" rows after a reload, the completion notices). `/btw` still worked with the plugin back on.
 - Not tried live: a failed tangent (covered by the tests), desktop and native apps.
 - Model display (2026-10-24, same setup, throwaway agent deleted afterwards): hovering over `Tan-92db` on a running row showed `Tan-92db · claude-haiku-5-5` and nothing without hover (`screenshots/tan-row-model-hover.webp`); the opened running row showed `Tan-15b2a3e7c2db92db · claude-haiku-5-5` under its steps (`screenshots/tan-row-running-model.webp`), and after it finished `… · claude-haiku-5-5 · 42s`.
+- Custom OMP providers (2026-10-24; throwaway Haiku agents on `omp-nilo`, `omp` and `claude`, codeword AMBER-KITE-19, all deleted afterwards). Before the fix, a live `/tan` in an `omp-nilo` chat was a plain bubble. After: in `omp-nilo`, the idle `/tan` was a row (`done in 2s · NILO_IDLE_OK`), and the `/tan` sent during `sleep 25` was a row at once (`done in 4s · NILO_BUSY_OK`) while the reply ran on to `BUSY_DONE`. `/btw` answered `AMBER-KITE-19` (`screenshots/tan-row-omp-nilo.webp`). Plain `omp`: row as before. `claude`: `/tan say hi` stayed a plain bubble and `/btw` went to Claude itself.
 
 ## Dense card proof (2026-10-19, web app, OMP + Claude Haiku 5.5)
 

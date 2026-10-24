@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 import { z } from "zod";
 import { TanIdSchema, type TanState } from "../shared/tan";
 import { IconButton, useNow } from "./btw-sheet";
+import type { OmpProviders } from "./omp-providers";
 import { formatDuration, formatElapsed } from "./btw-store";
 import { plainText } from "./markdown";
 import { BODY, MarkdownView, UI_FONT } from "./markdown-view";
@@ -158,14 +159,15 @@ function useCopy(text: string) {
   return { copied, copy };
 }
 
-export function createTanRow(rpc: TanRpc) {
+export function createTanRow(rpc: TanRpc, providers: OmpProviders) {
   return function TanRow({ agentId, item, timestamp, theme, layout }: PluginTimelineItemProps<TanRowData>) {
     const data = item.data;
     const at = timestamp.getTime();
     const touch = layout.compact || layout.platform !== "web";
     // The echo of a plugin /tan send to another provider is just that provider's message.
     const provider = useAgent(agentId, agent => agent.provider);
-    const omp = data.source === "dispatch" || provider === "omp";
+    const providerIsOmp = useSyncExternalStore(providers.subscribe, () => (provider ? providers.peek(provider) : undefined));
+    const omp = data.source === "dispatch" || providerIsOmp === true;
     const state = useTanState(rpc, agentId, data.tanId, at, omp);
     const tanId = data.tanId ?? state?.tanId;
     const key = tanId ? `${agentId}/${tanId}` : undefined;
@@ -187,7 +189,7 @@ export function createTanRow(rpc: TanRpc) {
     const now = useNow(state?.status === "running");
     if (shadowed) return null;
     if (!omp) {
-      return provider ? (
+      return provider && providerIsOmp === false ? (
         <View style={[styles.echo, { backgroundColor: theme.colors.surface2 }]}>
           <Text selectable style={[BODY, { color: theme.colors.foreground }]}>{`/tan ${data.work ?? ""}`}</Text>
         </View>

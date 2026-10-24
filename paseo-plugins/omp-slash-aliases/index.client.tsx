@@ -1,8 +1,10 @@
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { createPillIcon } from "./client/btw-sheet";
 import { BtwStore, formatElapsed } from "./client/btw-store";
+import { OmpProviders } from "./client/omp-providers";
 import { createTanRow, TanRowData, type TanRpc } from "./client/tan-row";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
 
 /** Plain aliases: OMP gets the `/follow-up` form, which never cancels a running reply. */
@@ -29,6 +31,8 @@ export default function contribute(client: PluginClientContext) {
   const tanRpc: TanRpc = {
     status: async (agentId, tanId, at) => (await client.rpc(tanStatus, { agentId, tanId, at })).state,
   };
+  // `omp` and custom providers built on it (e.g. `omp-nilo`), from Paseo's config.
+  const providers = new OmpProviders(async () => (await client.rpc(ompProviders, {})).providers);
 
   // One composer pill per chat with /btw answers; its icon hosts the answer sheet.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
@@ -83,7 +87,7 @@ export default function contribute(client: PluginClientContext) {
         context: "agent",
         async onSubmit({ args, agent, paseo }) {
           // Plugin commands win provider collisions: other providers get their own command back unchanged.
-          if (agent.provider !== "omp") return void (await paseo.agents.ref(agent.id).send(`/${alias.name}${args ? ` ${args}` : ""}`));
+          if (!(await providers.isOmp(agent.provider))) return void (await paseo.agents.ref(agent.id).send(`/${alias.name}${args ? ` ${args}` : ""}`));
           if (!args) throw new Error(`Usage: /${alias.name} ${alias.argumentHint}`);
           await paseo.agents.ref(agent.id).send(alias.send(args));
         },
@@ -95,13 +99,13 @@ export default function contribute(client: PluginClientContext) {
       argumentHint: "<question>",
       context: "agent",
       async onSubmit({ args, agent, workspace, paseo }) {
-        if (agent.provider !== "omp") return void (await paseo.agents.ref(agent.id).send(`/btw${args ? ` ${args}` : ""}`));
+        if (!(await providers.isOmp(agent.provider))) return void (await paseo.agents.ref(agent.id).send(`/btw${args ? ` ${args}` : ""}`));
         if (!args) throw new Error("Usage: /btw <question>");
         // The sheet opens at once and reports sending failures itself.
         void store.ask(agent.id, workspace.id, args);
       },
     }),
-    client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc) }),
+    client.addTimelineRenderer({ kind: "tan-row", version: 1, schema: TanRowData, Component: createTanRow(tanRpc, providers) }),
     // The /btw send is plumbing, not a conversation turn: keep it out of the timeline.
     // A /tan send becomes the tangent's row (live chats).
     client.addTimelineTransformer({

@@ -1,8 +1,10 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { btwAsk, btwChats, btwDismiss, btwList } from "./shared/btw";
+import { ompProviders } from "./shared/providers";
 import { tanStatus } from "./shared/tan";
 import { btwRoot, dismissEntry, listEntries, markedPids, pruneOutbox, summarizeChats } from "./server/btw-outbox";
 import { btwReady, isAlive, isOmpRpcHost, listProcesses, type ProcessInfo, processStartedAt } from "./server/omp-processes";
+import { readOmpProviders } from "./server/providers";
 import { deriveState, nearestTangent, TanSessions } from "./server/tan-sessions";
 
 const PRUNE_EVERY_MS = 60 * 60_000;
@@ -33,10 +35,12 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(btwList, async ({ agentId }) => ({ entries: await listEntries(root, agentId) }));
 
+  server.handle(ompProviders, async () => ({ providers: await readOmpProviders() }));
+
   server.handle(btwAsk, async ({ agentId, question }, { paseo }) => {
     const found = await paseo.agents.ref(agentId).refresh();
     if (!found || found.agent.archivedAt) throw new Error("This chat is no longer available.");
-    if (found.agent.provider !== "omp") throw new Error("/btw works only in OMP chats.");
+    if (!(await readOmpProviders()).includes(found.agent.provider)) throw new Error("/btw works only in OMP chats.");
     if (!btwReady(await listProcesses(), agentId, await markedPids(root, agentId))) {
       throw new Error("This OMP agent started before /btw was installed. Reload or restart the agent, then ask again.");
     }
