@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Blocks commits that add private machine/workspace details to this public repo.
+# Enabled per clone with: git config core.hooksPath .githooks
+set -euo pipefail
+
+pattern='/home/cx|axalon|agentspace|tmp-archive|srv_[A-Za-z0-9_]{8,}|nilo-wayfinder|nilo-observatory|world-agent|drimgar|MSAT'
+
+# Images are never allowed: screenshots show private sessions.
+images=$(git diff --cached --name-only --diff-filter=AM | grep -iE '\.(png|webp|jpe?g|gif)$' || true)
+if [ -n "$images" ]; then
+  echo "pre-commit: images can't be committed here (private screenshots):" >&2
+  echo "$images" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+# Added lines only, text files only, excluding this hook and the Nilo-work skills.
+hits=$(git diff --cached -U0 --no-color --diff-filter=AM -- . \
+    ':(exclude).githooks/' ':(exclude)skills/hermes/nilo-*' ':(exclude)skills/_archive/nilo-*' \
+  | awk '/^\+\+\+ b\//{f=substr($0,7)} /^\+[^+]/{print f": "substr($0,2)}' \
+  | grep -E "$pattern" || true)
+if [ -n "$hits" ]; then
+  echo "pre-commit: private details in staged lines (use ~, \$HOME, settings or sample data):" >&2
+  echo "$hits" | cut -c1-200 | sed 's/^/  /' >&2
+  exit 1
+fi
