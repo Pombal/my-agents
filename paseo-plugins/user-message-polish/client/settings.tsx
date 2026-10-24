@@ -53,6 +53,9 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           <SettingsSwitch label="Quiet slash commands" hint="A one-line /command loses its bubble; OMP's own answer shows as a muted code block."
             value={current.commands} disabled={settings.saving}
             onValueChange={(commands) => save({ ...current, commands })} />
+          <SettingsSwitch label="Show skills as the agent got them" hint="A /skill: message gets a tinted bubble and a header that opens the skill text OMP sent. @files show what was attached."
+            value={current.skills} disabled={settings.saving}
+            onValueChange={(skills) => save({ ...current, skills })} />
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="Tags · comma-separated">
