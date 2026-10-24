@@ -6,11 +6,11 @@ describe("ompProviderIds", () => {
     const providers = {
       omp: {},
       "omp-nilo": { extends: "omp" },
-      "omp-nilo-fast": { extends: "omp-nilo" },
+      "omp-custom-fast": { extends: "omp-nilo" },
       cursor: { extends: "acp" },
       antigravity: {},
     };
-    expect(ompProviderIds(providers).sort()).toEqual(["omp", "omp-nilo", "omp-nilo-fast"]);
+    expect(ompProviderIds(providers).sort()).toEqual(["omp", "omp-custom-fast", "omp-nilo"]);
   });
 
   it("keeps omp without any config and survives an extends cycle", () => {

@@ -11,7 +11,7 @@ in place: the row stays where it is as the header and shows only the opening tag
 step quieter, the chevron turns and goes full strength, the content continues below in the same
 rounded shape at half the tint (raw text, at most 320 px tall, scrolls inside, long lines wrap),
 and a footer row with the closing tag ends the shape; clicking the footer folds it too. Stefan
-picked style B, opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`, then
+picked style B from a local mock page, then
 asked for literal tags with a one-line preview instead of a tag name, hint and line count.
 
 - What folds: the opening tag starts a line, a matching closing tag ends a later line (or the
@@ -41,8 +41,7 @@ Paseo's markers (checked live). Colours are mixes of the bubble's text colour, s
 (checked in T3 Chat dark and Paseo Light). Turning the plugin off removes every trace at once
 without a reload (checked).
 
-**Slash commands** (Stefan's pick 2026-10-24: "bubble F + answer F" on
-`http://axalon:8080/pages/user-message-polish-command-mocks/`). A one-line message that starts with
+**Slash commands** (Stefan's pick from a local mock page). A one-line message that starts with
 `/name` loses its bubble: just the command, right-aligned, muted, in the code font. Paseo's time,
 rewind and copy row moves onto the command's line, left of it (on hover on desktop, always at narrow
 width), so the answer sits 4 px under the command instead of below an empty 32 px row (copy gives
@@ -62,8 +61,8 @@ output scrolls inside 320 px. Setting: **Quiet slash commands** (on by default).
 - Skipped, because they're drawn elsewhere: `/tan`, `/btw`, `/omfg`, `/queue` (other plugins) and
   `/skill:…` (the skill view below). Messages with pictures or attached files keep their bubble.
 
-**Skills** (Stefan's pick 2026-10-24: one tinted bubble, no side line, small-caps `USER`, lightbulb,
-chevron on the right, theme accent, on `http://axalon:8080/pages/user-message-polish-skill-view-mocks/`).
+**Skills** (Stefan's pick from a local mock page: one tinted bubble, no side line, small-caps `USER`,
+lightbulb, chevron on the right, theme accent).
 The bubble shows the message as the agent received it. OMP sends a loaded skill as one message:
 `[IMPORTANT: User invoked the "<name>" skill…]`, the whole SKILL.md, the skill-directory lines, then
 `User: <your text>`. So:

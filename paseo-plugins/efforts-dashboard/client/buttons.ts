@@ -14,7 +14,7 @@ const REFRESH_MS = 30_000;
 
 /**
  * The icon-only header button's tooltip (and accessible name):
- * `wa-ftue · 0/9 done`, `No effort · suggested: wa-ftue`, or null when the
+ * `acme-task · 0/9 done`, `No effort · suggested: acme-task`, or null when the
  * workspace shows nothing.
  */
 function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | null {
@@ -27,7 +27,7 @@ function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | nul
   return !binding && suggestion ? `No effort · suggested: ${suggestion.slug}` : null;
 }
 
-/** `wa-ftue · 0/9 done`. */
+/** `acme-task · 0/9 done`. */
 function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null {
   if (workspace.binding?.kind !== "effort") return !workspace.binding && workspace.suggestion ? "effort: bind?" : null;
   const effort = findEffort(overview, workspace.binding.root, workspace.binding.slug);

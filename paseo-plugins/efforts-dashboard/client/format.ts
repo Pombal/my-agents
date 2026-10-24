@@ -63,7 +63,7 @@ export function openWords(counts: Counts): { word: string; strong: boolean; fain
     .map(([word, count]) => ({ word: `${count} ${word}`, strong: word === "ready", faint: word === "parked" }));
 }
 
-/** `/home/cx/x` → `~/x`. */
+/** An absolute home path → its `~/…` form. */
 export function tildify(target: string, home: string): string {
   if (!home) return target;
   return target === home ? "~" : target.startsWith(`${home}/`) ? `~${target.slice(home.length)}` : target;

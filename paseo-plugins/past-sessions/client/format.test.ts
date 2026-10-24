@@ -46,18 +46,18 @@ describe("absoluteTime", () => {
 
 describe("folderChip", () => {
   it("marks only rows outside the folder, with the last segment and the full ~ path", () => {
-    expect(folderChip("/home/cx/index", "/home/cx/index", "/home/cx")).toBeNull();
-    expect(folderChip("/home/cx/.herdr/worktrees/nilo/nilo-facebook", "/home/cx/workspace/nilo", "/home/cx")).toEqual({
-      label: "nilo-facebook",
-      path: "~/.herdr/worktrees/nilo/nilo-facebook",
+    expect(folderChip("/home/user/index", "/home/user/index", "/home/user")).toBeNull();
+    expect(folderChip("/home/user/.herdr/worktrees/acme-app/acme-worktree", "/home/user/workspace/acme-app", "/home/user")).toEqual({
+      label: "acme-worktree",
+      path: "~/.herdr/worktrees/acme-app/acme-worktree",
     });
-    expect(folderChip("/mnt/vault/", "/home/cx/index", "/home/cx")).toEqual({ label: "vault", path: "/mnt/vault/" });
+    expect(folderChip("/mnt/vault/", "/home/user/index", "/home/user")).toEqual({ label: "vault", path: "/mnt/vault/" });
   });
 });
 
 describe("tildify", () => {
   it("shortens only real home children", () => {
-    expect(tildify("/home/cx", "/home/cx")).toBe("~");
-    expect(tildify("/home/cxx/a", "/home/cx")).toBe("/home/cxx/a");
+    expect(tildify("/home/user", "/home/user")).toBe("~");
+    expect(tildify("/home/user2/a", "/home/user")).toBe("/home/user2/a");
   });
 });

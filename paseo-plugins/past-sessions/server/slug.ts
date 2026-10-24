@@ -7,7 +7,7 @@ import path from "node:path";
  * `home` and `tmp` must be resolved the way OMP resolves them (realpath).
  *
  * - under tmp:  `-tmp-<rel>` (`/tmp/a/b` → `-tmp-a-b`), checked before home
- * - under home: `-<rel>` (`~/agentspace/index` → `-agentspace-index`, `~` → `-`)
+ * - under home: `-<rel>` (`~/workspace/acme-app` → `-workspace-acme-app`, `~` → `-`)
  * - elsewhere:  `--<abs>--` (`/mnt/vault` → `--mnt-vault--`)
  * Legacy names OMP still migrates on next use, so they can hold old sessions:
  * the `--<abs>--` form for every path, the home form for tmp paths inside home,

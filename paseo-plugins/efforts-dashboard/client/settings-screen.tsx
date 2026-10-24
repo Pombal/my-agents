@@ -22,7 +22,7 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
     .filter(Boolean);
   /** Saves the whole object (a missing field would fall back to its default), then refreshes the pills. */
   const save = (values: Partial<typeof settings.values>) =>
-    settings.save({ extraFolders, showHeaderButton, ...values }, settings.revision).then((ok) => {
+    settings.save({ ...settings.values, ...values }, settings.revision).then((ok) => {
       if (ok) void fetchOverview().catch(() => undefined);
       return ok;
     });
@@ -39,13 +39,13 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
       </SettingsSection>
       <SettingsSection
         title="Folders"
-        info="Efforts are the folders in .scratch. The .scratch of every Paseo workspace is read (symlinks resolved, so nilo's worktrees count as nilo-wayfinder). __share__ copies and ~/tmp-archive fixtures are skipped unless listed here."
+        info="Efforts are the folders in .scratch. The .scratch of every Paseo workspace is read (symlinks resolved, so worktrees share the same efforts). __share__ copies and configured fixture folders are skipped unless listed here."
       >
         <SettingsInput
           label="Extra folders"
-          hint="Comma-separated. A .scratch folder or a folder that holds one, e.g. ~/workspace/drimgar-game"
+          hint="Comma-separated. A .scratch folder or a folder that holds one, e.g. ~/workspace/acme-app"
           initialValue={saved}
-          placeholder="~/workspace/drimgar-game"
+          placeholder="~/workspace/acme-app"
           onChangeText={setDraft}
           error={settings.saveError}
         />

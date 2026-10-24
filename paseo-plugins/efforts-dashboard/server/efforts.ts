@@ -99,7 +99,7 @@ async function workspaceRoot(workspace: Workspace): Promise<string | null> {
   return own ?? (await realOrNull(path.join(workspace.projectRootPath, ".scratch")));
 }
 
-/** `/home/cx/workspace/nilo-wayfinder/.scratch` → `nilo-wayfinder`. */
+/** `~/workspace/acme-app/.scratch` → `acme-app`. */
 function rootLabel(root: string): string {
   return path.basename(path.dirname(root));
 }
@@ -137,7 +137,8 @@ export class EffortsService {
     const live = workspaces.filter((workspace) => !workspace.archivingAt && !workspace.internal);
     const roots = await Promise.all(live.map(workspaceRoot));
     const rootSet = new Set<string>();
-    roots.forEach((root) => root && !skipReason(root, home) && rootSet.add(root));
+    const excludedFolders = settings.status === "ready" ? settings.values.excludedFolders : [];
+    roots.forEach((root) => root && !skipReason(root, home, excludedFolders) && rootSet.add(root));
     if (settings.status === "ready") {
       for (const folder of settings.values.extraFolders) {
         const root = await scratchFor(folder, home);
@@ -167,7 +168,7 @@ export class EffortsService {
     const infos: WorkspaceInfo[] = await Promise.all(
       live.map(async (workspace, index): Promise<WorkspaceInfo> => {
         const root = roots[index] && scansByRoot.get(roots[index]!)?.length ? roots[index] : null;
-        const skipped = roots[index] && !rootSet.has(roots[index]!) ? skipReason(roots[index]!, home) : null;
+        const skipped = roots[index] && !rootSet.has(roots[index]!) ? skipReason(roots[index]!, home, excludedFolders) : null;
         const binding = bindings[workspace.id] ?? null;
         let suggestion = null;
         if (!binding && root) {

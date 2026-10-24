@@ -59,8 +59,7 @@ the new text (before: 0.9 ms at 200 characters, 6.7 ms at 20 KB, inside the even
 5 µs for a typical prompt and 4 ms for a 330 KB one; pasted code full of unclosed `<generics>` is
 linear too (18 KB: 0.3 ms, was 13 ms; 300 KB: 6.5 ms, was 2.8 s). All letters step to their next
 color on the same frame, every 30 ms, so a moving message repaints 33 times a second instead of 60
-(measured: paint −38%, raster −39% per message; the audit is in
-`~/agentspace/index/.scratch/paseo-grievances/omp-magic-keywords-perf.md`), and between steps no
+(measured: paint −38%, raster −39% per message), and between steps no
 frame is requested at all unless a keyword draft is being tracked in the text box. A keyword scrolled
 out of view inside a long message no longer repaints. Window focus re-reads the settings (one cached
 RPC, 1–3 ms) and rescans only if a setting changed. The plugin's server part only registers the

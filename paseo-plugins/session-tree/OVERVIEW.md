@@ -2,10 +2,9 @@
 
 OMP's `/tree` inside Paseo: go back to any earlier message and continue from there as a new
 branch. The old branch stays in the same OMP session file and can be switched back to,
-summarized, or opened in its own tab. Design: variant 1 "Instant, offer after"
-(`~/www/webshare/pages/session-tree-popout-alts/`), overall UI from
-`~/www/webshare/pages/session-tree-demo/`. OMP chats only (provider `omp` or a provider that
-`extends` it in `~/.paseo/config.json`); every other chat shows nothing.
+summarized, or opened in its own tab. The design was selected from local mock pages.
+OMP chats only (provider `omp` or a provider that `extends` it in `~/.paseo/config.json`);
+every other chat shows nothing.
 
 Needs the companion OMP extension `~/workspace/my-agents/.omp/extensions/session-tree/`, loaded
 for every Paseo OMP agent in every OMP profile (`omp`, `omp-nilo`) through the Paseo-only overlay

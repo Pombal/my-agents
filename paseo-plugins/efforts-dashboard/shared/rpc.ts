@@ -26,7 +26,7 @@ export const EffortSummarySchema = z.object({
   /** Real path of the `.scratch` folder it sits in. */
   root: z.string(),
   slug: z.string(),
-  /** The slug without the prefix most efforts in this `.scratch` share (`world-agent-`). */
+  /** The slug without the prefix most efforts in this `.scratch` share (`acme-app-`). */
   short: z.string(),
   /** map.md's `# ` title; without a map, the first `# ` of the biggest top-level Markdown file. */
   title: z.string().nullable(),
@@ -46,7 +46,7 @@ export type EffortSummary = z.infer<typeof EffortSummarySchema>;
 
 export const RootSchema = z.object({
   root: z.string(),
-  /** The folder that holds `.scratch` (`nilo-wayfinder`). */
+  /** The folder that holds `.scratch` (`acme-app`). */
   label: z.string(),
   efforts: z.array(EffortSummarySchema),
 });
@@ -62,7 +62,7 @@ export type Binding = z.infer<typeof BindingSchema>;
 export const SuggestionSchema = z.object({
   root: z.string(),
   slug: z.string(),
-  /** Shown as is, muted: `why: workspace name “Educator” matches`. */
+  /** Shown as is, muted: `why: workspace name “Example” matches`. */
   reason: z.string(),
   source: z.enum(["rules", "transcripts", "name", "newest"]),
 });
@@ -109,7 +109,7 @@ export const overviewRpc = defineRpc({
 
 export const TicketSchema = z.object({
   num: z.string(),
-  /** Path inside the effort: `issues/01-takeover-shape.md`. */
+  /** Path inside the effort: `issues/01-example-shape.md`. */
   rel: z.string(),
   title: z.string(),
   type: z.string().nullable(),
@@ -123,7 +123,7 @@ export const TicketSchema = z.object({
   blockedByRaw: z.string().nullable(),
   /** Own tickets named in `Blocked by:` that are not done. */
   after: z.array(z.string()),
-  /** `chat-widgets 08` style blockers in other efforts that are not done. */
+  /** `acme-widgets 08` style blockers in other efforts that are not done. */
   afterElsewhere: z.array(z.string()),
   /** Open tickets of this effort that name this one in `Blocked by:`. */
   blocks: z.array(z.string()),
@@ -198,7 +198,7 @@ export type UncommittedRow = z.infer<typeof UncommittedRowSchema>;
 
 const EffortDetailSchema = z.object({
   summary: EffortSummarySchema,
-  /** `nilo-wayfinder/.scratch/wa-ftue`. */
+  /** `acme-app/.scratch/acme-task`. */
   displayPath: z.string(),
   title: z.string().nullable(),
   mapStatusRaw: z.string().nullable(),

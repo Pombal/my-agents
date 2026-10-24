@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { cleanTitle, mergePastSessions, titleFromPrompt, type AgentRecord, type ScopeFilter } from "./merge";
 import type { OmpSession } from "./omp-sessions";
 
-const folder = "/home/cx/agentspace/index";
+const folder = "/home/user/workspace/acme-app";
 const workspaceScope: ScopeFilter = { mode: "workspace", targets: [folder], workspaceIds: ["wks_plugins"], projectId: null };
 const folderScope: ScopeFilter = { ...workspaceScope, mode: "folder" };
 const projectScope: ScopeFilter = {
   mode: "project",
   targets: [folder],
-  workspaceIds: ["wks_plugins", "wks_mainframe"],
+  workspaceIds: ["wks_plugins", "wks_secondary"],
   projectId: "prj_index",
 };
 
@@ -34,7 +34,7 @@ function omp(overrides: Partial<OmpSession> & { sessionId: string }): OmpSession
     createdAt: null,
     title: null,
     firstPrompt: null,
-    file: `/home/cx/.omp/agent/sessions/-agentspace-index/x_${overrides.sessionId}.jsonl`,
+    file: `/home/user/.omp/agent/sessions/-workspace-acme-app/x_${overrides.sessionId}.jsonl`,
     provider: "omp",
     mtime: "2026-10-01T00:00:00.000Z",
     ...overrides,
@@ -44,17 +44,17 @@ function omp(overrides: Partial<OmpSession> & { sessionId: string }): OmpSession
 const keys = (entries: { key: string }[]) => entries.map((entry) => entry.key).sort();
 
 describe("mergePastSessions scopes", () => {
-  // Two workspaces share the index folder, as Paseo Plugins and Mainframe do on axalon.
+  // Two synthetic workspaces share the same project folder.
   const agents = [
     agent({ id: "plugins-archived" }),
     agent({ id: "plugins-live", archivedAt: null }),
-    agent({ id: "mainframe-archived", workspaceId: "wks_mainframe" }),
+    agent({ id: "example-archived", workspaceId: "wks_secondary" }),
     // A workspace's agent may run in a subfolder; its workspace still claims it.
     agent({ id: "plugins-subfolder", cwd: `${folder}/.scratch` }),
     // An agent of a workspace that was archived since: only cwd ties it to the folder.
     agent({ id: "orphan", workspaceId: "wks_gone", projectId: null }),
   ];
-  const ompSessions = [omp({ sessionId: "terminal", firstPrompt: "Old herdr session" })];
+  const ompSessions = [omp({ sessionId: "terminal", firstPrompt: "Old terminal session" })];
 
   it("workspace: only this workspace's archived agents; the folder's OMP sessions go to sameFolder", () => {
     const result = mergePastSessions({ agents, ompSessions, scope: workspaceScope });
@@ -66,7 +66,7 @@ describe("mergePastSessions scopes", () => {
     const result = mergePastSessions({ agents, ompSessions, scope: folderScope });
     expect(keys(result.entries)).toEqual([
       "omp:terminal",
-      "paseo:mainframe-archived",
+      "paseo:example-archived",
       "paseo:orphan",
       "paseo:plugins-archived",
       "paseo:plugins-subfolder",
@@ -75,11 +75,11 @@ describe("mergePastSessions scopes", () => {
   });
 
   it("project: subfolders, every project workspace, and agents Paseo placed in the project", () => {
-    const elsewhere = agent({ id: "worktree", cwd: "/home/cx/.paseo/worktrees/abc", workspaceId: "wks_gone" });
+    const elsewhere = agent({ id: "worktree", cwd: "/home/user/.paseo/worktrees/abc", workspaceId: "wks_gone" });
     const unrelated = agent({ id: "unrelated", cwd: "/tmp/x", workspaceId: "wks_other", projectId: "prj_other" });
     const result = mergePastSessions({ agents: [...agents, elsewhere, unrelated], ompSessions: [], scope: projectScope });
     expect(keys(result.entries)).toEqual([
-      "paseo:mainframe-archived",
+      "paseo:example-archived",
       "paseo:orphan",
       "paseo:plugins-archived",
       "paseo:plugins-subfolder",
@@ -147,8 +147,8 @@ describe("mergePastSessions dedup and order", () => {
 
 describe("cleanTitle", () => {
   it("drops Nerd Font glyphs OMP puts before terminal titles", () => {
-    expect(cleanTitle("\uF0EB  DOCS: Find subagent decisions")).toBe("DOCS: Find subagent decisions");
-    expect(cleanTitle("\u{F0A1E} WIDGET: Scaffold")).toBe("WIDGET: Scaffold");
+    expect(cleanTitle("\uF0EB  DOCS: Review sample")).toBe("DOCS: Review sample");
+    expect(cleanTitle("\u{F0A1E} WIDGET: Example")).toBe("WIDGET: Example");
     expect(cleanTitle("\uF0EB")).toBeNull();
     expect(cleanTitle("Fix café ✓")).toBe("Fix café ✓");
   });

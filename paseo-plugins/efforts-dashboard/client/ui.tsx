@@ -102,7 +102,7 @@ export function Button(props: {
   );
 }
 
-/** Back row of a drill-in page: `‹ wa-ftue` and optional controls on the right. */
+/** Back row of a drill-in page: `‹ acme-task` and optional controls on the right. */
 export function BackRow({ c, label, onBack, right }: { c: Palette; label: string; onBack(): void; right?: ReactNode }) {
   return (
     <View style={[styles.back, { borderBottomColor: c.border }]}>

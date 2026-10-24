@@ -4,15 +4,15 @@ import type { Link } from "../shared/links";
 import { findMentions, type Mention } from "./extract";
 import { snippetAt } from "./snippet";
 
-/** Stefan's webshare: `~/www/webshare/X` is served at `http://axalon:8080/X` (skill `webshare`). */
+/** Optional mapping from `~/www/webshare/` to a configured HTTP origin. */
 export interface Site {
   home: string;
   webshareDir: string;
   webshareOrigin: string;
 }
 
-export function siteFor(home: string): Site {
-  return { home, webshareDir: path.join(home, "www", "webshare"), webshareOrigin: "http://axalon:8080" };
+export function siteFor(home: string, webshareOrigin = ""): Site {
+  return { home, webshareDir: path.join(home, "www", "webshare"), webshareOrigin: webshareOrigin ? new URL(webshareOrigin).origin : "" };
 }
 
 /** A message's prose as one transcript record or timeline row gives it. */
@@ -175,7 +175,7 @@ export function classify(mention: Mention, site: Site): Classified | null {
   const dir = mention.dirHint || isDirectory(file);
   const name = `${path.posix.basename(file)}${dir ? "/" : ""}`;
   const where = shortDir(path.posix.dirname(file), site.home);
-  if (file === site.webshareDir || file.startsWith(`${site.webshareDir}/`)) {
+  if (site.webshareOrigin && (file === site.webshareDir || file.startsWith(`${site.webshareDir}/`))) {
     const url = new URL(`${site.webshareOrigin}${encodeURI(file.slice(site.webshareDir.length) || "/")}${dir && file !== site.webshareDir ? "/" : ""}`);
     const image = IMAGE_EXT.test(file);
     return {

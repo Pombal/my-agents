@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PastSession } from "../shared/rpc";
 import { buildListItems, matchesQuery, mergeByNewest, sourceWord, type ListItem } from "./model";
 
-function session(key: string, title: string, cwd = "/home/cx/agentspace/index"): PastSession {
+function session(key: string, title: string, cwd = "/home/user/workspace/acme-app"): PastSession {
   return { key, source: key.startsWith("omp:") ? "omp" : "paseo", title, cwd, at: "2026-10-19T00:00:00.000Z", provider: "omp", preview: null };
 }
 
@@ -11,8 +11,8 @@ const shape = (items: ListItem[]) =>
 
 describe("buildListItems", () => {
   const data = {
-    entries: [session("paseo:a", "Diff highlight"), session("paseo:b", "Kick off")],
-    sameFolder: [session("omp:1", "Cuneiform."), session("omp:2", "Fix diff colors")],
+    entries: [session("paseo:a", "Sample highlight"), session("paseo:b", "Example task")],
+    sameFolder: [session("omp:1", "Example session."), session("omp:2", "Fix highlight colors")],
   };
   const none = new Set<string>();
   const plain = { query: "", sameFolderOpen: false, starred: none, hidden: none, showHidden: false };
@@ -29,7 +29,7 @@ describe("buildListItems", () => {
   });
 
   it("opens the section for a search and counts only matches", () => {
-    expect(shape(buildListItems(data, { ...plain, query: "diff" }))).toEqual(["paseo:a", "header:1:true", "omp:2"]);
+    expect(shape(buildListItems(data, { ...plain, query: "highlight" }))).toEqual(["paseo:a", "header:1:true", "omp:2"]);
   });
 
   it("puts an empty placeholder before the section when the main list has nothing", () => {
@@ -72,9 +72,9 @@ describe("buildListItems", () => {
 
 describe("matchesQuery", () => {
   it("needs every word, in title or folder, ignoring case", () => {
-    const entry = session("paseo:a", "Diff highlight tint", "/home/cx/agentspace/index/.scratch");
+    const entry = session("paseo:a", "Sample highlight tint", "/home/user/workspace/acme-app/.scratch");
     expect(matchesQuery(entry, "TINT scratch")).toBe(true);
-    expect(matchesQuery(entry, "tint nilo")).toBe(false);
+    expect(matchesQuery(entry, "tint unrelated")).toBe(false);
     expect(matchesQuery(entry, "   ")).toBe(true);
   });
 });

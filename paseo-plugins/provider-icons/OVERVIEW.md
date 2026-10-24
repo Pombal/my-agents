@@ -2,7 +2,7 @@
 
 Custom image icons for **any provider the daemon knows**, built-in (`claude`, `omp`, …) or config-defined (`omp-nilo`, for which Paseo draws a robot). Generic: no provider ids, labels or images are hardcoded.
 
-Installed from `/home/cx/workspace/my-agents/paseo-plugins/provider-icons` and enabled on axalon. Refresh the Paseo web or desktop app after a plugin reload.
+Installed from `~/workspace/my-agents/paseo-plugins/provider-icons`. Refresh the Paseo web or desktop app after a plugin reload.
 
 ## Use it
 
@@ -20,7 +20,7 @@ SVGs must be static and self-contained: no scripts, event handlers, embedded doc
 
 ## Current mapping
 
-**`omp-nilo` → `/home/cx/.paseo/provider-icons/nilo-n.svg`**, Mono. That file is the N from `~/workspace/nilo/public/favicon.svg` without its black rounded square, viewBox tightened to the N; kept outside git (company logo). It draws in the same color as the OMP π icons (`screenshots/history-nilo-mono.webp`). Nothing else is mapped.
+**`omp-nilo` → `~/.paseo/provider-icons/nilo-n.svg`**, Mono. The image is a transparent Nilo company mark, kept outside git. It draws in the same color as the OMP π icons (`screenshots/history-nilo-mono.webp`). Nothing else is mapped.
 
 ## Where it applies
 
@@ -55,7 +55,7 @@ Paseo has no icon-override API in 0.11.4 or 0.12.0 (only plugin-registered provi
 
 Agent → provider comes from the official SDK: `agents.list` when the window starts, then a one-off `agents.ref(id).refresh()` (0.5 ms on the daemon, 2.6 KB) for an agent whose tab shows up later, e.g. one created after the page loaded. History rows of archived agents need no lookup; their row props carry the provider. Provider ids and labels come from `providers.snapshot()` at start and again whenever the settings screen opens. Settings are read at start, whenever the daemon announces a save (`observeEvents(["status.plugin_settings_changed"])`; its snapshot also fires after a reconnect), and on window focus as a fallback. Overlapping requests share one read.
 
-**Cost**: one `MutationObserver` on `body` (child list plus a few attributes; no text changes), coalesced to at most one scan per animation frame and only while a mapping exists. A real scan frame costs 0.3–0.6 ms on a workspace page (~180 SVGs) and 1.7–1.9 ms on History (~520 SVGs); a busy 13-tab workspace ran 23 scans in 30 s. Window focus costs one small settings read; an unchanged document never rewrites the stylesheet (before 2026-10-20 each focus sent two reads and rewrote it, 6–13 ms of style recalculation). Audit with all numbers: `/home/cx/agentspace/index/.scratch/paseo-grievances/provider-icons-perf.md`.
+**Cost**: one `MutationObserver` on `body` (child list plus a few attributes; no text changes), coalesced to at most one scan per animation frame and only while a mapping exists. A real scan frame costs 0.3–0.6 ms on a workspace page (~180 SVGs) and 1.7–1.9 ms on History (~520 SVGs); a busy 13-tab workspace ran 23 scans in 30 s. Window focus costs one small settings read; an unchanged document never rewrites the stylesheet (before 2026-10-20 each focus sent two reads and rewrote it, 6–13 ms of style recalculation).
 
 **Durability**: if Paseo renames test ids, tier 2 still covers those spots; if React's fiber key or Paseo's prop names change, tier 1 still covers tabs, picker rows, history and Command Center. If both break, glyphs fall back to Paseo's defaults; nothing is guessed from labels except the import filter trigger.
 
@@ -65,10 +65,10 @@ Agent → provider comes from the official SDK: `agents.list` when the window st
 paseo plugin disable provider-icons      # settings are kept
 paseo plugin enable provider-icons
 paseo plugin reload provider-icons       # after editing source
-cd /home/cx/workspace/my-agents/paseo-plugins/provider-icons && npm install && npm run typecheck && npm test
+cd ~/workspace/my-agents/paseo-plugins/provider-icons && npm install && npm run typecheck && npm test
 ```
 
-Tests: test-id and prop owner resolution using ids copied from the live app (incl. `omp` vs `omp-nilo` prefixes, host extraction, non-owner containers, History row children, malformed routes, the lookup of agents the page has not seen), image validation against real PNG/JPEG/WebP exports, editor-style SVGs (internal references, comments), unsafe SVGs and a large malformed SVG (linear time), mapping upsert, and the settings row model (custom first, orphaned mappings kept removable).
+Tests: test-id and prop owner resolution using synthetic ids in the app's format (incl. `omp` vs `omp-nilo` prefixes, host extraction, non-owner containers, History row children, malformed routes, the lookup of agents the page has not seen), image validation against PNG/JPEG/WebP exports, editor-style SVGs (internal references, comments), unsafe SVGs and a large malformed SVG (linear time), mapping upsert, and the settings row model (custom first, orphaned mappings kept removable).
 
 ## Screenshots (live, hosted web app, dark theme)
 

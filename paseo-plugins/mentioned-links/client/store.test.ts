@@ -28,12 +28,12 @@ describe("type tabs", () => {
 describe("sub-agent links", () => {
   it("merge into the chat's links newest first only when shown, marked with their sub-agent", () => {
     const chat = [link("web", 9), link("image", 3)];
-    const extra: Link[] = [{ ...link("web", 5), via: "LinksPillBuild" }, { ...link("file", 1), via: "Scout" }];
+    const extra: Link[] = [{ ...link("web", 5), via: "Builder" }, { ...link("file", 1), via: "Scout" }];
     expect(withSubagents(chat, extra, false)).toBe(chat);
     const shown = withSubagents(chat, extra, true);
     expect(shown.map((row) => [row.lastAt, rowMark(row)])).toEqual([
       [9, ""],
-      [5, "↳ LinksPillBuild"],
+      [5, "↳ Builder"],
       [3, ""],
       [1, "↳ Scout"],
     ]);

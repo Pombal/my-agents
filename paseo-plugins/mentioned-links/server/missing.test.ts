@@ -20,8 +20,8 @@ describe("missing", () => {
     const links: LinkMap = new Map();
     addProse(
       links,
-      { role: "assistant", text: `See \`${notes}\`, ![shot](http://axalon:8080/images/shot.png) and https://paseo.sh/docs.`, at: 0 },
-      siteFor(home),
+      { role: "assistant", text: `See \`${notes}\`, ![shot](http://mock.test:8080/images/shot.png) and https://paseo.sh/docs.`, at: 0 },
+      siteFor(home, "http://mock.test:8080"),
     );
     const missing = () => Object.fromEntries(listLinks(links).map((link) => [link.title, link.missing ?? false]));
     expect(missing()).toEqual({ "notes.md": false, shot: false, docs: false });

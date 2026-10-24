@@ -292,8 +292,7 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
 }
 
 // ---------------------------------------------------------------------------------------------
-// Skills and attached files (Stefan's pick 2026-10-24, mock "one-tint, no line, USER caps, bulb,
-// chevron right" on http://axalon:8080/pages/user-message-polish-skill-view-mocks/). The bubble
+// Skills and attached files (Stefan's pick from a local mock page). The bubble
 // shows what the agent got: a loaded skill tints the bubble and heads it; the header opens the
 // skill text OMP sent; the text below is what followed `User:`, with its marker. Attached @files
 // get a row after the text that opens the file as sent.
