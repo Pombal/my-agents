@@ -210,24 +210,27 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
   chevron.append(path);
   const head = el("div", { class: "ump-head", role: "button", tabindex: "0", "data-paseo-markdown-ignore": "true" }, [
     chevron,
-    el("span", { class: "ump-tag" }, [fold.tag]),
-    el("span", { class: "ump-hint" }, [fold.hint]),
-    el("span", { class: "ump-lines" }, [`${fold.lines} ${fold.lines === 1 ? "line" : "lines"}`]),
+    el("span", { class: "ump-open" }, [fold.open]),
+    el("span", { class: "ump-shut" }, [`… ${fold.close}`]),
   ]);
-  head.title = fold.hint;
+  head.title = fold.open;
   const box = el("div", { class: "ump-fold" }, [head]);
   const setOpen = (open: boolean) => {
     box.toggleAttribute("data-open", open);
     head.setAttribute("aria-expanded", String(open));
-    if (open && box.childNodes.length === 1) box.append(el("div", { class: "ump-body", "data-pmono": "" }, [fold.body]));
-    if (!open && box.childNodes.length > 1) box.lastChild!.remove();
+    if (open && box.childNodes.length === 1) {
+      const foot = el("div", { class: "ump-head ump-foot", "data-paseo-markdown-ignore": "true" }, [fold.close]);
+      foot.addEventListener("click", toggle);
+      box.append(el("div", { class: "ump-body", "data-pmono": "" }, [fold.body]), foot);
+    }
+    if (!open) while (box.childNodes.length > 1) box.lastChild!.remove();
   };
-  setOpen(startOpen);
-  const toggle = () => {
+  function toggle() {
     const open = !box.hasAttribute("data-open");
     setOpen(open);
     remember(open);
-  };
+  }
+  setOpen(startOpen);
   head.addEventListener("click", toggle);
   head.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -257,18 +260,19 @@ const CSS = `
    text steps down and the chevron goes full strength; the body is the same tint at half. */
 .ump-fold { border-radius: 8px; overflow: hidden; }
 .ump-fold + .ump-fold { margin-top: 4px; }
-.ump-head { display: flex; align-items: center; gap: 6px; height: 28px; box-sizing: border-box; padding: 0 10px 0 8px; background: ${MIX(7)}; font-size: 12px; line-height: 18px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
+.ump-head { display: flex; align-items: center; gap: 6px; height: 28px; box-sizing: border-box; padding: 0 10px 0 8px; background: ${MIX(7)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; cursor: pointer; user-select: none; -webkit-user-select: none; white-space: nowrap; }
 .ump-head:hover { background: ${MIX(10)}; }
 .ump-head:focus-visible { outline: 1px solid ${MIX(45)}; outline-offset: -1px; border-radius: 8px; }
 .ump-chev { width: 12px; height: 12px; flex: none; fill: none; stroke: ${MIX(52)}; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 120ms ease; }
 .ump-fold[data-open] .ump-chev { transform: rotate(90deg); stroke: currentColor; }
-.ump-tag { flex: none; color: ${MIX(78)}; }
-/* One clamped line instead of nowrap: the full hint still sizes a wide bubble, but a long one can't
+/* One clamped line instead of nowrap: a long opening tag still sizes a wide bubble, but can't
    force the bubble wider than a narrow window (nowrap text can't shrink below its full width). */
-.ump-hint { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; white-space: normal; overflow-wrap: anywhere; color: ${MIX(52)}; }
-.ump-lines { flex: none; margin-left: auto; color: ${MIX(52)}; }
-.ump-fold[data-open] .ump-tag { color: ${MIX(52)}; }
-.ump-fold[data-open] .ump-hint, .ump-fold[data-open] .ump-lines { color: ${MIX(38)}; }
+.ump-open { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+.ump-open, .ump-shut { color: ${MIX(78)}; }
+.ump-shut { flex: none; }
+.ump-fold[data-open] .ump-shut { display: none; }
+.ump-fold[data-open] .ump-open, .ump-foot { color: ${MIX(52)}; }
+.ump-foot { padding-left: 26px; }
 /* width 0 + min-width 100%: opening never widens the bubble; the body wraps to the header's width. */
 .ump-body { width: 0; min-width: 100%; box-sizing: border-box; max-height: 320px; overflow: auto; padding: 8px 12px 10px 26px; background: ${MIX(3.5)}; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 `;

@@ -2,12 +2,14 @@ Makes your own sent messages nicer in the Paseo web and desktop apps: pasted tag
 one-line fold rows, and Markdown renders. The phone apps are unchanged.
 
 **Fold rows.** A block such as `<attachments>…</attachments>`, `<summary>`, `<context>` or
-`<paste>` becomes one 28 px row: chevron, tag name, a hint, and the line count on the right, e.g.
-`› attachments  workspace-row.tsx, number.ts  11 lines`. Click it (or Enter/Space) to open it in
-place: the row stays where it is, its text goes a step quieter, the chevron turns and goes full
-strength, and the content continues below in the same rounded shape at half the tint (raw text,
-monospace, at most 320 px tall, scrolls inside, long lines wrap). Stefan picked this as style B,
-opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`.
+`<paste>` becomes one 28 px monospace row that shows the tags as written, attributes included:
+`› <file path="docs/badges.md"> … </file>`. Click it (or Enter/Space) to open it in place: the row
+stays where it is as the header and shows only the opening tag, its text goes a step quieter, the
+chevron turns and goes full strength, the content continues below in the same rounded shape at
+half the tint (raw text, at most 320 px tall, scrolls inside, long lines wrap), and a footer row
+with the closing tag ends the shape; clicking the footer folds it too. Stefan picked style B,
+opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`, then asked for literal
+tags instead of a tag name, hint and line count.
 
 - What folds: the opening tag starts a line, a matching closing tag ends a later line (or the
   same line), and the content has 2+ lines. Same-name tags nested inside are part of one fold;
@@ -18,8 +20,7 @@ opened as "B1", on `http://axalon:8080/pages/user-message-polish-mocks/`.
   `attachments, system-notice, system-reminder`) and **Never fold** (stays text however long;
   default `div, span, p, br, b, i, em, strong, u, s, a, img, code, pre, kbd, details, table, ul,
   ol, li`), plus "Reset to defaults". Changes apply at once in every open window.
-- Hint: the tag's path attribute as a file name (`path="src/app/main.ts"` → `main.ts`), else its
-  other attributes, else the file names of `<file path=…>` entries inside, else the first line.
+- A long opening tag is cut to one line in the row; hovering shows it whole.
 
 **Markdown.** Bold, italic, strikethrough, inline code, fenced code (language kept), links and bare
 URLs (open in a new tab), bullet and numbered lists (nested), quotes, headings (bold, body size),

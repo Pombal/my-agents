@@ -9,7 +9,7 @@ describe("fold rule", () => {
   it("folds a block tag with 2+ content lines and keeps the text around it", () => {
     const parts = segment("Look at this:\n<summary>\nline one\nline two\n</summary>\nThanks", rules);
     expect(parts.map((part) => part.kind)).toEqual(["text", "fold", "text"]);
-    expect(parts[1]).toMatchObject({ tag: "summary", lines: 2, body: "line one\nline two", hint: "line one" });
+    expect(parts[1]).toMatchObject({ tag: "summary", open: "<summary>", close: "</summary>", body: "line one\nline two" });
   });
 
   it("leaves one-line blocks, inline mentions and unclosed tags alone", () => {
@@ -20,7 +20,7 @@ describe("fold rule", () => {
 
   it("always-fold tags fold even with one line, also on one source line", () => {
     expect(folds("<system-notice>\nBackground job bg_2 completed\n</system-notice>")).toHaveLength(1);
-    expect(folds("<attachments>see file</attachments>")).toMatchObject([{ lines: 1, body: "see file" }]);
+    expect(folds("<attachments>see file</attachments>")).toMatchObject([{ open: "<attachments>", close: "</attachments>", body: "see file" }]);
   });
 
   it("never-fold tags stay text however long", () => {
@@ -30,20 +30,19 @@ describe("fold rule", () => {
   it("does not fold inside code fences, and a fence inside a block does not end it", () => {
     expect(folds("```html\n<summary>\na\nb\n</summary>\n```")).toEqual([]);
     const [fold] = folds("<context>\n```\n</context>\n```\nafter\n</context>");
-    expect(fold).toMatchObject({ lines: 4 });
+    expect(fold).toMatchObject({ body: "```\n</context>\n```\nafter" });
   });
 
   it("folds nested same-name tags as one outer block", () => {
     const text = "<context>\nouter\n<context>\ninner\nmore\n</context>\nend\n</context>\ntail";
     const parts = segment(text, rules);
     expect(parts.map((part) => part.kind)).toEqual(["fold", "text"]);
-    expect(parts[0]).toMatchObject({ lines: 6 });
+    expect(parts[0]).toMatchObject({ body: "outer\n<context>\ninner\nmore\n</context>\nend" });
   });
 
-  it("hints with a path attribute's file name, else the files inside, else the first line", () => {
-    expect(folds('<file path="src/app/main.ts">\na\nb\n</file>')[0]).toMatchObject({ hint: "main.ts" });
-    expect(folds('<attachments>\n<file path="a/x.ts">\n1\n</file>\n<file path="b/y.ts">\n2\n</file>\n</attachments>')[0])
-      .toMatchObject({ hint: "x.ts, y.ts" });
+  it("keeps the opening tag with its attributes and both tags' casing verbatim", () => {
+    expect(folds('  <File path="src/main.ts" lang=ts>\na\nb\n</file>  ')[0])
+      .toMatchObject({ open: '<File path="src/main.ts" lang=ts>', close: "</file>" });
   });
 });
 

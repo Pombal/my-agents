@@ -8,7 +8,7 @@ export interface FoldRules {
 
 export type Segment =
   | { kind: "text"; text: string }
-  | { kind: "fold"; tag: string; hint: string; lines: number; body: string };
+  | { kind: "fold"; tag: string; open: string; close: string; body: string };
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const OPEN = /^ {0,3}<([A-Za-z][\w.:-]*)((?:\s[^<>]*?)?)>(.*)$/;
@@ -61,11 +61,13 @@ function foldAt(lines: string[], start: number, rules: FoldRules): { segment: Se
   if (rules.never.has(tag)) return null;
   const closeAtEnd = new RegExp(`</${escape(open[1])}>\\s*$`, "i");
   const nestedOpen = new RegExp(`^\\s*<${escape(open[1])}(\\s[^<>]*)?>`, "i");
-  const attrs = open[2];
+  const openTag = lines[start].slice(0, lines[start].length - open[3].length).trim();
   const rest = open[3];
   let inner: string[] | null = null;
   let end = start;
+  let closeTag = "";
   if (closeAtEnd.test(rest)) {
+    closeTag = closeAtEnd.exec(rest)![0].trim();
     inner = [rest.replace(closeAtEnd, "")];
   } else {
     const inFence = fenceTracker();
@@ -77,6 +79,7 @@ function foldAt(lines: string[], start: number, rules: FoldRules): { segment: Se
       if (nestedOpen.test(line) && !closes && !/\/>\s*$/.test(line)) { depth++; continue; }
       if (!closes) continue;
       if (depth > 0) { depth--; continue; }
+      closeTag = closeAtEnd.exec(line)![0].trim();
       inner = [rest, ...lines.slice(start + 1, j), line.replace(closeAtEnd, "")];
       end = j;
       break;
@@ -87,26 +90,10 @@ function foldAt(lines: string[], start: number, rules: FoldRules): { segment: Se
   while (inner.length && !inner[inner.length - 1].trim()) inner.pop();
   if (inner.length < 2 && !rules.always.has(tag)) return null;
   const body = inner.join("\n");
-  return { segment: { kind: "fold", tag: open[1], hint: hintFor(attrs, body), lines: inner.length, body }, end };
+  return { segment: { kind: "fold", tag: open[1], open: openTag, close: closeTag, body }, end };
 }
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const ATTR = /([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-const PATH_ATTRS = ["path", "file", "src", "href", "name", "title"];
-const basename = (path: string) => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || path;
-
-/** The tag's attributes if any (a path shows as its file name), else the files inside, else the first line. */
-export function hintFor(attrs: string, body: string): string {
-  const values = new Map<string, string>();
-  for (const match of attrs.matchAll(ATTR)) values.set(match[1].toLowerCase(), match[2] ?? match[3] ?? "");
-  const named = PATH_ATTRS.find((key) => values.get(key));
-  if (named) return /path|file|src|href/.test(named) ? basename(values.get(named)!) : values.get(named)!;
-  if (values.size) return [...values.values()].filter(Boolean).slice(0, 2).join(" · ");
-  const files = [...body.matchAll(/<file\s[^>]*?(?:path|name)\s*=\s*["']([^"']+)["']/gi)].map((match) => basename(match[1]));
-  if (files.length) return files.length > 3 ? `${files.slice(0, 3).join(", ")} +${files.length - 3}` : files.join(", ");
-  const first = body.split("\n").map((line) => line.replace(/<[^>]*>/g, "").trim()).find(Boolean) ?? "";
-  return first.length > 120 ? `${first.slice(0, 120)}…` : first;
-}
 
 // ---------------------------------------------------------------------------------------------
 // Compact Markdown: the subset people type in chat. Single newlines stay line breaks, as in
