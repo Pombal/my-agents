@@ -4,6 +4,8 @@
   Copy this folder to ~/www/webshare/pages/<your-mock>/ and edit the HTML.
   Guide: http://axalon:8080/pages/paseo-base/  (README.md in the same folder)
 
+  All names are fictional and safe for public screenshots; keep it that way.
+  Plugin slots: elements with data-slot="…" mark where Paseo shows plugin UI.
   Situation axes used here (bottom bar): panel (right explorer), drawer (phone sidebar).
   Delete what your mock doesn't need.
 -->
@@ -28,26 +30,23 @@
       <div class="sb-row"><i data-icon="history"></i>History</div>
       <div class="sb-row"><i data-icon="search"></i>Search</div>
       <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+      <!-- SLOT sidebar-header: plugin rows under the built-in nav rows (use .sb-row) -->
+      <div class="slot" data-slot="sidebar-header"></div>
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
-
-      <div class="sb-project"><span class="project-badge" style="--badge:#3b5bdb">✦</span>index</div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Cleanup</span><span class="sb-ws-meta">25m</span></div>
-      <div class="sb-ws is-selected"><span class="dot running"></span><span class="sb-ws-title">Paseo × OMP</span><span class="sb-ws-meta"></span></div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Edubba</span><span class="sb-ws-meta">1h</span></div>
-      <div class="sb-ws"><span class="dot success"></span><span class="sb-ws-title">Mainframe</span><span class="sb-ws-meta">2d</span></div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Paseo • Plugins</span><span class="sb-ws-meta">5h</span></div>
-
-      <div class="sb-project"><span class="project-badge" style="--badge:#495057">I</span>Infra - Ofis</div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Assorted</span><span class="sb-ws-meta">1d</span></div>
-      <div class="sb-ws"><span class="dot danger"></span><span class="sb-ws-title">Droplet &amp; Security</span><span class="sb-ws-meta">1d</span></div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">MSAT</span><span class="sb-ws-meta">7h</span></div>
+      <div class="sb-ws is-selected"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-pink)" data-status="done">F</span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-amber)">A</span><span class="sb-ws-title">Tax return, again</span><span class="sb-ws-meta">1d</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Plant-watering robot</span><span class="sb-ws-meta">2d</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-violet)">T</span><span class="sb-ws-title">Tabs vs. spaces RFC</span><span class="sb-ws-meta">3d</span></div>
     </div>
-    <div class="sb-metrics">
-      <i data-icon="cpu"></i>10% <i data-icon="memory-stick"></i><span class="warn">72%</span>
-      <i data-icon="hard-drive"></i>19% <i data-icon="arrow-down-up"></i>24K/71K
-    </div>
+    <!-- SLOT sidebar-footer: plugin rows above the footer icons; Paseo draws the separator -->
+    <div class="slot" data-slot="sidebar-footer"></div>
     <div class="sb-footer">
       <button class="icon-btn"><i data-icon="folder-plus"></i></button>
       <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
@@ -62,7 +61,7 @@
     <!-- ============================== DESKTOP HEADER + TABS -->
     <header class="ws-header" data-viewport="wide">
       <button class="icon-btn"><i data-icon="panel-left"></i></button>
-      <span class="ws-title">Paseo × OMP</span><span class="ws-sub">index</span>
+      <span class="ws-title">Rewrite left-pad in Rust</span><span class="ws-sub">left-pad</span>
       <button class="icon-btn"><i data-icon="ellipsis"></i></button>
       <span class="spacer"></span>
       <button class="icon-btn bordered"><i data-icon="link" data-size="14"></i></button>
@@ -74,9 +73,9 @@
       <button class="icon-btn"><i data-icon="panel-right"></i></button>
     </header>
     <div class="tabs" data-viewport="wide">
-      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Contrast pass</span></div>
-      <div class="tab is-active"><i data-icon="provider-omp"></i><span class="tab-label">Sleeping tabs server</span></div>
-      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Fork sync conflicts</span></div>
+      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Benchmarks</span></div>
+      <div class="tab is-active"><i data-icon="provider-omp"></i><span class="tab-label">Hot path allocations</span></div>
+      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Changelog</span></div>
       <button class="icon-btn"><i data-icon="plus" data-size="14"></i></button>
       <span class="spacer"></span>
       <button class="icon-btn"><i data-icon="ellipsis" data-size="14"></i></button>
@@ -86,8 +85,8 @@
     <header class="phone-header" data-viewport="phone">
       <button class="icon-btn"><i data-icon="menu" data-size="20"></i></button>
       <div class="titles">
-        <div class="t1">Paseo × OMP</div>
-        <div class="t2">index · <i data-icon="server" data-size="12"></i>axalon</div>
+        <div class="t1">Rewrite left-pad in Rust</div>
+        <div class="t2">left-pad · <i data-icon="server" data-size="12"></i>devbox</div>
       </div>
       <button class="icon-btn"><span class="tab-count">3</span></button>
       <button class="icon-btn"><i data-icon="ellipsis"></i></button>
@@ -97,25 +96,25 @@
     <!-- ============================== CHAT -->
     <div class="chat" data-scroll="bottom">
       <div class="chat-col">
-        <div class="msg-user">Why does opening a closed OMP tab start the agent again? Find every path that wakes it.</div>
+        <div class="msg-user">Why is the Rust version slower than the JavaScript one? Find every allocation in the hot path.</div>
         <div class="msg-user-meta" data-viewport="phone">1:07 PM <i data-icon="undo-2"></i><i data-icon="copy"></i></div>
 
         <div class="tool-row"><i data-icon="brain"></i>Thinking</div>
-        <div class="tool-row"><i data-icon="search"></i>Grep<span class="tool-detail">ensureAgentLoaded</span></div>
-        <div class="tool-row is-last"><i data-icon="eye"></i>Read<span class="tool-detail">session/agent-loader.ts</span></div>
+        <div class="tool-row"><i data-icon="search"></i>Grep<span class="tool-detail">String::new</span></div>
+        <div class="tool-row is-last"><i data-icon="eye"></i>Read<span class="tool-detail">src/pad.rs</span></div>
 
         <div class="msg-text">
-          <p>Three paths load a closed agent. Only one of them should:</p>
+          <p>Every call allocates three times. Only one of them is needed:</p>
           <ol>
-            <li><code>fetch_agent_timeline</code> calls <code>ensureAgentLoaded()</code> before reading history.</li>
-            <li>Opening a tab subscribes to the agent, which resumes it.</li>
-            <li>Sending a message wakes it. That one is correct.</li>
+            <li><code>pad()</code> builds the fill as its own <code>String</code>, then copies it.</li>
+            <li><code>repeat()</code> allocates again for each chunk of fill.</li>
+            <li>The result needs one allocation. That one stays.</li>
           </ol>
-          <pre><code><span class="tok-k">async function</span> <span class="tok-f">fetchTimeline</span>(id) {
-  <span class="tok-c">// reads stored history; no need to start OMP</span>
-  <span class="tok-k">return</span> store.<span class="tok-f">readTimeline</span>(id, { limit: <span class="tok-n">200</span> });
+          <pre><code><span class="tok-k">fn</span> <span class="tok-f">pad</span>(s: &amp;str, width: usize) -&gt; String {
+  <span class="tok-c">// one buffer, sized up front</span>
+  <span class="tok-k">let mut</span> out = String::<span class="tok-f">with_capacity</span>(width.<span class="tok-f">max</span>(s.<span class="tok-f">len</span>()));
 }</code></pre>
-          <p>I'll change the first two to read the stored timeline instead.</p>
+          <p>I'll fold the first two into that single buffer and rerun the benchmarks.</p>
         </div>
         <div class="turn-footer">
           <button class="icon-btn"><i data-icon="copy"></i></button>
@@ -127,9 +126,8 @@
 
     <!-- ============================== COMPOSER -->
     <div class="composer-dock">
-      <div class="pills">
-        <span class="pill">cmds</span>
-      </div>
+      <!-- SLOT composer-pills: plugin pills above the composer (use .pill) -->
+      <div class="pills slot" data-slot="composer-pills"></div>
       <div class="composer">
         <div class="composer-input" data-placeholder="Message the agent, tag @files, or use /commands and /skills" data-viewport="wide"></div>
         <div class="composer-input" data-placeholder="Message, @files, /commands" data-viewport="phone"></div>
@@ -154,12 +152,15 @@
     <div class="rp-tabs">
       <div class="tab"><i data-icon="files"></i><span class="tab-label">Files</span></div>
       <div class="tab is-active"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
+      <!-- SLOT explorer-tabs: plugin panels add tabs here (use .tab) -->
+      <span class="slot" data-slot="explorer-tabs" style="display:contents"></span>
     </div>
     <div class="tree-row"><span class="grow muted">Uncommitted</span><span class="add">+214</span> <span class="del">-37</span></div>
-    <div class="tree-row" style="--depth:0"><i data-icon="chevron-down"></i><span class="grow">packages/server</span></div>
-    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">agent-loader.ts</span><span class="add">+88</span> <span class="del">-21</span></div>
-    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">session.ts</span><span class="add">+41</span> <span class="del">-9</span></div>
-    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">sleep-manager.ts</span><span class="add">+85</span> <span class="del">-7</span></div>
+    <div class="tree-row" style="--depth:0"><i data-icon="chevron-down"></i><span class="grow">src</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">pad.rs</span><span class="add">+88</span> <span class="del">-21</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">lib.rs</span><span class="add">+41</span> <span class="del">-9</span></div>
+    <div class="tree-row" style="--depth:0"><i data-icon="chevron-down"></i><span class="grow">benches</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">pad.rs</span><span class="add">+85</span> <span class="del">-7</span></div>
   </aside>
 
   <!-- ============================== PHONE DRAWER (situation: drawer = open) -->
@@ -170,14 +171,17 @@
       <div class="sb-row"><i data-icon="history"></i>History</div>
       <div class="sb-row"><i data-icon="search"></i>Search</div>
       <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+      <div class="slot" data-slot="sidebar-header"></div>
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
-      <div class="sb-project"><span class="project-badge" style="--badge:#3b5bdb">✦</span>index</div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Cleanup</span><span class="sb-ws-meta">25m</span></div>
-      <div class="sb-ws is-selected"><span class="dot running"></span><span class="sb-ws-title">Paseo × OMP</span></div>
-      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Edubba</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws is-selected"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="attention">P</span><span class="sb-ws-title">Make Postgres emoji-aware</span><span class="sb-ws-meta">12m</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough starter tracker</span><span class="sb-ws-meta">2h</span></div>
     </div>
+    <div class="slot" data-slot="sidebar-footer"></div>
     <div class="sb-footer">
       <button class="icon-btn"><i data-icon="folder-plus"></i></button>
       <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
