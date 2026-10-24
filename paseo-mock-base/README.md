@@ -51,18 +51,41 @@ bar of its own below, never beside the choice. The important choices
 (sections and variants) are rows of buttons; every other option list
 (situations, kit controls, anything else) is a cycle button (fixed width, ‹ ›).
 
-## Public-safe content
+## Data: Acme or live
 
-Stefan publishes screenshots of these mocks (plugin READMEs, before/after
-shots). The starters' projects, workspaces, chats and host are fictional, and
-mocks keep them that way: no real project, session, host or plugin name of
-his, and no UI from his other plugins unless the mock is about it.
+Stefan wants both equally. Real data shows which shapes actually occur
+(lengths, counts, statuses) and lets a reviewer catch false claims; Acme data
+is fictional and safe to publish. Every mock carries both, and `Acme data ↔
+Live data` in the bottom bar (key `d`) flips between them. It's a situation,
+not a design choice. PNG export always renders Acme.
+
+- **Acme is the base.** `kit/acme.json` is the fictional world (projects,
+  workspaces, statuses, tabs, host). Keep its names; extend it rather than
+  rewrite it. No real project, session, host or plugin name of Stefan's
+  ever goes into Acme, the kit, or anything pushed to GitHub.
+- **Live starts from Acme and swaps pieces in** by fixed rules, never by
+  hand: `node tools/mock-data.mjs <mock folder>` writes `data.acme.json` and
+  `data.live.json` there (gitignored in this repo). It reads `~/.paseo` files
+  only, so no agent is touched. Acme stays wherever real data is thin or too
+  revealing, chat text included.
+- **Plugin content follows the same pattern.** Content Paseo can't supply
+  (efforts, presets, …) is written once in the mock's `data.mjs`: an `acme`
+  object plus a `live()` rule for where the real version comes from. The
+  script produces both sets; nothing is written twice.
+- **Only data-bearing parts render from data:** sidebar rows, tabs, header,
+  host, plugin content. Everything else stays plain HTML. Bind with the data
+  tags below.
+- The mock opens on whichever set its agent was asked for:
+  `data-default-data="live"` on `<html>`; Acme otherwise.
+
 
 ## Tags
 
 | Tag | On | Effect |
 |---|---|---|
 | `data-section="id" data-title="Label"` | a top-level screen | One top-bar button per section. Without sections, the body is one screen. |
+| `<template data-each="workspaces" data-limit="6">` | inside a screen | One copy of its content per item, placed after it. Inside, paths resolve on the item; `$.x` reaches the data root. Derived lists: `statusGroups`, `projectGroups`, `drawer.*`, `activeWorkspace` (see `kit/data.js`). |
+| `data-text="title"`, `data-attrs="style=projStyle; data-status=badge"`, `data-class="is-selected=selected"`, `data-if="active"` | any element | Text, attributes (removed when empty), class toggles, and hide-when-empty from the current data set. `MockKit.data()` returns it for scripts. |
 | `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a row of buttons in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="cycle"` on the section shows them as a cycle button instead. |
 | `data-variant="B C"` | any element | Exists only in those variants. |
 | `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |

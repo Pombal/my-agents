@@ -193,7 +193,8 @@
     if (state.variant) state.picks[state.section] = state.variant;
     else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data"].includes(k)) state.states[k] = v;
+    state.data = q.get("data") || defaultData;
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -202,6 +203,7 @@
     const sec = current();
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
+    if (state.data !== defaultData) q.set("data", state.data);
     const picks = sections
       .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
       .map((s) => s.id + "." + state.picks[s.id]);
@@ -212,6 +214,21 @@
   }
   const current = () => sections.find((s) => s.id === state.section);
 
+  // ---------------------------------------------------------------- data (kit/data.js)
+  // Acme or live, a situation like theme. PNG export always renders Acme.
+  const defaultData = html.dataset.defaultData === "live" ? "live" : "acme";
+  const DATA_LABELS = { acme: "Acme data", live: "Live data" };
+  let dataSets = { acme: null, live: null };
+  let renderedData = null;
+  function renderData() {
+    if (exportMode || !dataSets.live) state.data = "acme";
+    if (!["acme", "live"].includes(state.data)) state.data = "acme";
+    if (!window.KitData || renderedData === state.data) return;
+    renderedData = state.data;
+    window.KitData.render(frame, dataSets[state.data]);
+    renderIcons(frame);
+  }
+
   // ---------------------------------------------------------------- apply
   const listeners = [];
   // Kit modules (appearance.js) add their own controls to the situation bar.
@@ -219,6 +236,7 @@
   let shownAxes = new Set();
   function apply() {
     const sec = current();
+    renderData();
     if (sec.variants.length && !sec.variants.some((v) => v.id === state.variant)) state.variant = sec.variants[0].id;
     if (!sec.variants.length) state.variant = null;
     state.picks[sec.id] = state.variant;
@@ -394,6 +412,7 @@
       const vpLabels = Object.fromEntries(viewports.map((v) => [v, VIEWPORTS[v].label]));
       situationBar.append(cycleControl(viewports, state.vp, vpLabels, (v) => set({ vp: v })));
     }
+    if (dataSets.live) situationBar.append(cycleControl(["acme", "live"], state.data, DATA_LABELS, (v) => set({ data: v })));
     for (const [axis, values] of sec.axes) {
       if (values.length > 1 && shownAxes.has(axis)) {
         const labels = Object.fromEntries(values.map((v) => [v, stateLabel(axis, v)]));
@@ -427,6 +446,7 @@
     else if (e.key === "ArrowUp" && sections.length > 1) set({ section: step(sections.map((s) => s.id), state.section, -1) });
     else if (e.key === "t") set({ theme: step(themes, state.theme, e.shiftKey ? -1 : 1) });
     else if (e.key === "v") set({ vp: step(viewports, state.vp, e.shiftKey ? -1 : 1) });
+    else if (e.key === "d" && dataSets.live) set({ data: state.data === "live" ? "acme" : "live" });
     else return;
     e.preventDefault();
   }
@@ -507,7 +527,10 @@
       apply();
     });
   }
-  Promise.all([loadScript("icons.js"), loadScript("icons-extra.js"), loadScript("appearance.js")]).then(() => {
+  Promise.all([loadScript("icons.js"), loadScript("icons-extra.js"), loadScript("appearance.js"), loadScript("data.js")])
+    .then(() => window.KitData.load(new URL(".", location.href), kitBase, !exportMode))
+    .then((sets) => {
+    dataSets = sets;
     renderIcons(frame);
     frame.querySelectorAll("[data-cycle]").forEach((b) => enhanceCycle(b));
     wire();
@@ -525,6 +548,7 @@
       },
       icon,
       renderIcons,
+      data: () => dataSets[state.data],
     };
     document.dispatchEvent(new CustomEvent("mockready"));
   });

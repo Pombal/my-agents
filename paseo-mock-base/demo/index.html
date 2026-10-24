@@ -42,55 +42,25 @@
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn" data-toggle="grouping" title="Group by status / project"><i data-icon="settings-2" data-size="14"></i></button></div>
-      <!-- grouping: status (rows lead with the project icon; status as its corner badge) -->
+      <!-- DATA: rows come from the mock's data (kit/data.js); grouping: status = project icon with status badge -->
       <div data-when="grouping: status">
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="needs-input"><i data-icon="circle-alert"></i><span>Needs input</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="needs-input">P</span><span class="sb-ws-title">Postgres Emoji</span><span class="sb-ws-meta">12m</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="failed"><i data-icon="circle-x"></i><span>Failed</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="ready"><i data-icon="circle-check"></i><span>Ready to review</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-pink)" data-status="attention">F</span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="working"><i data-icon="circle-dot"></i><span>Working</span></div>
-          <div class="sb-ws is-selected" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="done"><i data-icon="circle-check"></i><span>Done</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough</span><span class="sb-ws-meta">2h</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-amber)">A</span><span class="sb-ws-title">Tax return, again</span><span class="sb-ws-meta">1d</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Plant-watering robot</span><span class="sb-ws-meta">2d</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-violet)">T</span><span class="sb-ws-title">Tabs vs. spaces RFC</span><span class="sb-ws-meta">3d</span></div>
-          <div class="sb-ws" data-pick="ws"><span class="proj-icon" style="--proj:var(--id-sky)">D</span><span class="sb-ws-title">Dotfiles</span><span class="sb-ws-meta">4d</span></div>
-        </div>
+        <template data-each="statusGroups">
+          <div class="sb-status-group">
+            <div class="sb-status-header" data-attrs="data-status-group=group"><i data-attrs="data-icon=icon"></i><span data-text="label"></span></div>
+            <template data-each="items">
+              <div class="sb-ws" data-pick="ws" data-class="is-selected=selected"><span class="proj-icon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+            </template>
+          </div>
+        </template>
       </div>
-      <!-- grouping: project (project rows with icons; workspaces with status dots) -->
+      <!-- grouping: project = project rows with icons; workspaces with status dots -->
       <div data-when="grouping: project">
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-orange)">L</span>left-pad</div>
-        <div class="sb-ws is-selected" data-pick="ws-p"><span class="dot running"></span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-blue)">P</span>postgres</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot warning"></span><span class="sb-ws-title">Postgres Emoji</span><span class="sb-ws-meta">12m</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span>neovim</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-indigo)">K</span>kubernetes</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot danger"></span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-teal)">H</span>homestead</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Sourdough</span><span class="sb-ws-meta">2h</span></div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Plant-watering robot</span><span class="sb-ws-meta">2d</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-pink)">F</span>figma-lite</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot success"></span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-amber)">A</span>adulting</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Tax return, again</span><span class="sb-ws-meta">1d</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-violet)">T</span>torvalds-fanclub</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Tabs vs. spaces RFC</span><span class="sb-ws-meta">3d</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-sky)">D</span>dotfiles</div>
-        <div class="sb-ws" data-pick="ws-p"><span class="dot"></span><span class="sb-ws-title">Dotfiles</span><span class="sb-ws-meta">4d</span></div>
+        <template data-each="projectGroups">
+          <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+          <template data-each="items">
+            <div class="sb-ws" data-pick="ws-p" data-class="is-selected=selected"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+          </template>
+        </template>
       </div>
     </div>
     <!-- SLOT sidebar-footer: plugin rows above the footer icons; Paseo draws the separator -->
@@ -109,7 +79,7 @@
     <!-- ============================== DESKTOP HEADER + TABS -->
     <header class="ws-header" data-viewport="wide">
       <button class="icon-btn" data-toggle="sidebar"><i data-icon="panel-left"></i></button>
-      <span class="ws-title">Rewrite left-pad in Rust</span><span class="ws-sub">left-pad</span>
+      <span class="ws-title" data-text="activeWorkspace.title"></span><span class="ws-sub" data-text="activeWorkspace.projectName"></span>
       <button class="icon-btn"><i data-icon="ellipsis"></i></button>
       <span class="spacer"></span>
       <button class="icon-btn bordered"><i data-icon="link" data-size="14"></i></button>
@@ -121,9 +91,9 @@
       <button class="icon-btn" data-toggle="panel"><i data-icon="panel-right"></i></button>
     </header>
     <div class="tabs" data-viewport="wide">
-      <div class="tab" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Benchmarks</span></div>
-      <div class="tab is-active" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Hot path allocations</span><span class="tab-cost" data-variant="C" data-when="session: normal crashed">$1.42</span></div>
-      <div class="tab" data-pick="tabs"><i data-icon="provider-omp"></i><span class="tab-label">Changelog</span></div>
+      <template data-each="tabs">
+        <div class="tab" data-pick="tabs" data-class="is-active=active"><i data-icon="provider-omp"></i><span class="tab-label" data-text="title"></span><span data-if="active" style="display:contents"><span class="tab-cost" data-variant="C" data-when="session: normal crashed">$1.42</span></span></div>
+      </template>
       <button class="icon-btn"><i data-icon="plus" data-size="14"></i></button>
       <span class="spacer"></span>
       <button class="icon-btn"><i data-icon="ellipsis" data-size="14"></i></button>
@@ -133,8 +103,8 @@
     <header class="phone-header" data-viewport="phone">
       <button class="icon-btn" data-set="drawer: open"><i data-icon="menu" data-size="20"></i></button>
       <div class="titles">
-        <div class="t1">Rewrite left-pad in Rust</div>
-        <div class="t2">left-pad · <i data-icon="server" data-size="12"></i>devbox</div>
+        <div class="t1" data-text="activeWorkspace.title"></div>
+        <div class="t2"><span data-text="activeWorkspace.projectName"></span> · <i data-icon="server" data-size="12"></i><span data-text="host"></span></div>
       </div>
       <button class="icon-btn"><span class="tab-count">3</span></button>
       <button class="icon-btn"><i data-icon="ellipsis"></i></button>
@@ -233,44 +203,25 @@
     </nav>
     <div class="sb-scroll">
       <div class="sb-section-header">Workspaces <button class="icon-btn" data-toggle="grouping" title="Group by status / project"><i data-icon="settings-2" data-size="14"></i></button></div>
-      <!-- grouping: status (rows lead with the project icon; status as its corner badge) -->
+      <!-- DATA: rows come from the mock's data (kit/data.js); grouping: status = project icon with status badge -->
       <div data-when="grouping: status">
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="needs-input"><i data-icon="circle-alert"></i><span>Needs input</span></div>
-          <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-blue)" data-status="needs-input">P</span><span class="sb-ws-title">Postgres Emoji</span><span class="sb-ws-meta">12m</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="failed"><i data-icon="circle-x"></i><span>Failed</span></div>
-          <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-indigo)" data-status="failed">K</span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="ready"><i data-icon="circle-check"></i><span>Ready to review</span></div>
-          <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-pink)" data-status="attention">F</span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="working"><i data-icon="circle-dot"></i><span>Working</span></div>
-          <div class="sb-ws is-selected" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-orange)" data-status="running">L</span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
-        </div>
-        <div class="sb-status-group">
-          <div class="sb-status-header" data-status-group="done"><i data-icon="circle-check"></i><span>Done</span></div>
-          <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-          <div class="sb-ws" data-pick="ws-phone"><span class="proj-icon" style="--proj:var(--id-teal)">H</span><span class="sb-ws-title">Sourdough</span><span class="sb-ws-meta">2h</span></div>
-        </div>
+        <template data-each="drawer.statusGroups">
+          <div class="sb-status-group">
+            <div class="sb-status-header" data-attrs="data-status-group=group"><i data-attrs="data-icon=icon"></i><span data-text="label"></span></div>
+            <template data-each="items">
+              <div class="sb-ws" data-pick="ws-phone" data-class="is-selected=selected"><span class="proj-icon" data-attrs="style=projStyle; data-status=badge" data-text="initial"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+            </template>
+          </div>
+        </template>
       </div>
-      <!-- grouping: project (project rows with icons; workspaces with status dots) -->
+      <!-- grouping: project = project rows with icons; workspaces with status dots -->
       <div data-when="grouping: project">
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-orange)">L</span>left-pad</div>
-        <div class="sb-ws is-selected" data-pick="ws-phone-p"><span class="dot running"></span><span class="sb-ws-title">Rewrite left-pad in Rust</span><span class="sb-ws-meta"></span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-blue)">P</span>postgres</div>
-        <div class="sb-ws" data-pick="ws-phone-p"><span class="dot warning"></span><span class="sb-ws-title">Postgres Emoji</span><span class="sb-ws-meta">12m</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-emerald)">N</span>neovim</div>
-        <div class="sb-ws" data-pick="ws-phone-p"><span class="dot"></span><span class="sb-ws-title">Exit Vim, finally</span><span class="sb-ws-meta">25m</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-indigo)">K</span>kubernetes</div>
-        <div class="sb-ws" data-pick="ws-phone-p"><span class="dot danger"></span><span class="sb-ws-title">Fix the one flaky test</span><span class="sb-ws-meta">1h</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-teal)">H</span>homestead</div>
-        <div class="sb-ws" data-pick="ws-phone-p"><span class="dot"></span><span class="sb-ws-title">Sourdough</span><span class="sb-ws-meta">2h</span></div>
-        <div class="sb-project"><span class="proj-icon" style="--proj:var(--id-pink)">F</span>figma-lite</div>
-        <div class="sb-ws" data-pick="ws-phone-p"><span class="dot success"></span><span class="sb-ws-title">Make the logo bigger</span><span class="sb-ws-meta">5h</span></div>
+        <template data-each="drawer.projectGroups">
+          <div class="sb-project"><span class="proj-icon" data-attrs="style=projStyle" data-text="initial"></span><span data-text="name"></span></div>
+          <template data-each="items">
+            <div class="sb-ws" data-pick="ws-phone-p" data-class="is-selected=selected"><span data-attrs="class=dotClass"></span><span class="sb-ws-title" data-text="title"></span><span class="sb-ws-meta" data-text="meta"></span></div>
+          </template>
+        </template>
       </div>
     </div>
     <div class="slot" data-slot="sidebar-footer"></div>

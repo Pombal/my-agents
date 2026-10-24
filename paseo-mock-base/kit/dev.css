@@ -262,3 +262,6 @@ html.kit-export .mock-frame {
  * without variants it keeps its slot but shows nothing, so nothing below moves. */
 .kit-design-2 { top: 54px; }
 .kit-design-2.kit-vacant { visibility: hidden; }
+
+/* kit/data.js: data-if="path" hides the element while the value is empty */
+.kit-data-off { display: none !important; }

@@ -1,0 +1,32 @@
+{
+  "host": "devbox",
+  "active": "rust-rewrite",
+  "projects": {
+    "left-pad": { "name": "left-pad", "color": "orange" },
+    "postgres": { "name": "postgres", "color": "blue" },
+    "neovim": { "name": "neovim", "color": "emerald" },
+    "kubernetes": { "name": "kubernetes", "color": "indigo" },
+    "homestead": { "name": "homestead", "color": "teal" },
+    "figma-lite": { "name": "figma-lite", "color": "pink" },
+    "adulting": { "name": "adulting", "color": "amber" },
+    "torvalds-fanclub": { "name": "torvalds-fanclub", "color": "violet" },
+    "dotfiles": { "name": "dotfiles", "color": "sky" }
+  },
+  "workspaces": [
+    { "id": "rust-rewrite", "title": "Rewrite left-pad in Rust", "project": "left-pad", "status": "running", "ago": "" },
+    { "id": "postgres-emoji", "title": "Postgres Emoji", "project": "postgres", "status": "needs_input", "ago": "12m" },
+    { "id": "exit-vim", "title": "Exit Vim, finally", "project": "neovim", "status": "done", "ago": "25m" },
+    { "id": "flaky-test", "title": "Fix the one flaky test", "project": "kubernetes", "status": "failed", "ago": "1h" },
+    { "id": "sourdough", "title": "Sourdough", "project": "homestead", "status": "done", "ago": "2h" },
+    { "id": "logo-bigger", "title": "Make the logo bigger", "project": "figma-lite", "status": "attention", "ago": "5h" },
+    { "id": "tax-return", "title": "Tax return, again", "project": "adulting", "status": "done", "ago": "1d" },
+    { "id": "plant-robot", "title": "Plant-watering robot", "project": "homestead", "status": "done", "ago": "2d" },
+    { "id": "tabs-spaces", "title": "Tabs vs. spaces RFC", "project": "torvalds-fanclub", "status": "done", "ago": "3d" },
+    { "id": "dotfiles", "title": "Dotfiles", "project": "dotfiles", "status": "done", "ago": "4d" }
+  ],
+  "tabs": [
+    { "title": "Benchmarks" },
+    { "title": "Hot path allocations", "active": true },
+    { "title": "Changelog" }
+  ]
+}
