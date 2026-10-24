@@ -1,90 +1,75 @@
 # Paseo mock base
 
-A static replica of Paseo's normal screen plus a tiny engine for design mocks.
-Use it for every Paseo plugin mockup: copy the starter, edit only what you are
-designing, tag the differences. Served at `http://axalon:8080/pages/paseo-base/`
-(symlink `~/www/webshare/pages/paseo-base` → this folder).
+A static copy of Paseo's normal screen plus a small engine for flipping
+design variants. Every Paseo plugin mockup starts here. Live at
+`http://axalon:8080/pages/paseo-base/` (`demo/` shows every feature; search it
+for `DEMO:`).
 
-## How to work (read first)
+## Pace: link first
 
-Stefan wants to see the result on screen as fast as possible, then keep
-improving it with you while you talk.
+Stefan reviews on his own screen, and fast. After every edit, send him the
+link, with the hash for the exact view (`…/#chat/B?vp=phone`). The page
+updates on reload, so the link is the result. Screenshots, PNG exports,
+visual checks and follow-up fixes run in a subagent while you keep talking
+with him.
 
-- Make the edit, then send the link right away. The page updates on reload,
-  so the link is the result.
-- Don't screenshot every small change. Stefan looks at the link himself.
-- Need screenshots, a visual check or follow-up fixes? Hand them to a
-  subagent and keep talking to Stefan while it works.
-- Ask nothing that the link can answer.
+## Build a mock
 
-This applies to building this base and to every mock built on it.
+1. **Copy the starter:**
+   `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`.
+   Done when `http://axalon:8080/pages/<plugin>-mocks/` shows the Paseo screen.
+2. **Add the design as a delta.** Keep one copy of the screen. Add the new UI
+   and tag every element that differs between options with `data-variant`.
+   Name the options on the section with `data-variants`. Done when flipping
+   ← → changes only the parts under decision.
+3. **Add the situations the design must survive:** app states (`data-states`,
+   `data-when`), phone-only markup (`data-viewport`). Delete starter states
+   the design never touches. Done when every state the design reacts to has a
+   value in the bottom bar.
+4. **Send the link.**
 
-## Make a mock
+## The two bars
 
-1. `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`
-2. Edit `index.html` there. Keep the two kit lines in `<head>`:
-   `<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">` and
-   `<script src="/pages/paseo-base/kit/dev.js" defer></script>`.
-3. Open `http://axalon:8080/pages/<plugin>-mocks/`.
-4. Export PNGs for chat: `node ~/workspace/my-agents/paseo-mock-base/tools/export.mjs http://axalon:8080/pages/<plugin>-mocks/`
-   (writes `~/www/webshare/images/<plugin>-mocks-<section>-<variant>-<viewport>.png`).
+- **Top (amber): design.** The options being decided: sections and variants.
+- **Bottom (violet): situation.** Where the chosen option is seen: theme,
+  viewport, app state. It belongs to the workbench, like the canvas.
 
-`demo/` is a worked example of every mechanism below (search it for `DEMO:`).
-
-## Two kinds of controls (keep them apart)
-
-- **Design** (top bar, amber): which design option is shown. Sections and variants.
-- **Situation** (bottom bar, violet, part of the workbench like the canvas): where the chosen design is shown. Theme,
-  viewport and app state (empty chat, crashed agent, panel open…). A situation
-  never changes the design; a variant never changes the situation.
-
-Both bars build themselves from tags. There is no config file. The bars carry
-no headings: their position and colour say which is which. A bar with nothing
-to offer is not shown (the starter has no design bar).
+A situation never changes the design, and a variant never changes the
+situation. Both bars build themselves from the tags below. A bar with nothing
+to offer stays hidden.
 
 ## Tags
 
-| Tag | Where | Effect |
+| Tag | On | Effect |
 |---|---|---|
-| `data-section="id" data-title="Label"` | a top-level screen (e.g. `.app`) | One Design button per section. No sections → whole body is one screen. |
-| `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in this order. `— note` shows as a quiet caption under the bar (its line is reserved, so flipping moves nothing). Optional: ids are otherwise collected from `data-variant`. |
-| `data-variant="B C"` | any element | Exists only in those variants. Tag the **difference only**; never copy a whole screen per variant. |
-| `data-viewport="phone"` | any element | Exists only in that viewport: `desktop`, `laptop`, `phone`, or `wide` (= desktop + laptop). |
-| `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | Declares app-state axes; first value is the default. The button reads "<value> <axis>" ("normal session", "closed panel"); give a value its own wording with `=`: `panel: closed \| open=Files open`. |
-| `data-when="session: empty crashed"` | any element | Exists only in those states. Several axes: separate with `;`. A state control is hidden while none of its elements can appear (e.g. a phone-only drawer on desktop). |
-| `data-cycle="Off \| 30 min \| 1 h"` | a button inside the mock | Kit **cycle button**: left third steps back, the rest steps forward (wraps); the hovered side shades from its edge. Width fixed to the widest value. Add `data-cycle-chevrons` for faint ‹ › that light up on the hovered side (the dev bars use them). Fires `cycle` with `{ value, index }`. |
-| `data-scroll="bottom"` | a scroll area | Shows its end, like a chat scrolled to the latest turn. |
-| `<i data-icon="name" data-size="14">` | anywhere | Lucide icon (Paseo's set, stroke 1.5, default 16px). Non-Lucide icons: `kit/icons-extra.js` (e.g. `provider-omp`). |
-| `data-mock-title`, `data-themes`, `data-viewports` | `<html>` | Title in the Design bar; theme list (default `dark pureBlack light`); viewport list (default `desktop laptop phone`). |
+| `data-section="id" data-title="Label"` | a top-level screen | One top-bar button per section. Without sections, the body is one screen. |
+| `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in order. `— note` is a caption under the bar; use it for facts that sway the choice ("phones can't show this"). |
+| `data-variant="B C"` | any element | Exists only in those variants. |
+| `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |
+| `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | App-state axes; first value is the default. The button reads "normal session"; custom wording: `open=Files open`. |
+| `data-when="session: empty crashed"` | any element | Exists only in those states; `;` joins axes. An axis button hides while none of its elements can appear. |
+| `data-cycle="Off \| 30 min \| 1 h"` | a button | Kit cycle button: left third steps back, the rest forward; fixed width. `data-cycle-chevrons` adds ‹ ›. Fires `cycle` `{ value, index }`. |
+| `data-scroll="bottom"` | a scroll area | Starts scrolled to the end, like a chat. |
+| `<i data-icon="name" data-size="14">` | anywhere | Lucide icon, Paseo's set. Non-Lucide: `kit/icons-extra.js` (`provider-omp`). |
+| `data-themes`, `data-viewports` | `<html>` | Override the lists (default `dark pureBlack light`, `desktop laptop phone`). |
 
-The frame carries the current situation for CSS: `data-v="B"`, `data-vp="phone"`,
-`data-theme="pureBlack"`, `data-state-session="empty"`, `data-section="chat"`.
-So variant-only styling is plain CSS: `[data-v="B"] .composer { … }`.
+The frame mirrors the situation as attributes, so variant styling is plain
+CSS: `[data-v="B"] .composer`, `[data-vp="phone"]`, `[data-theme="light"]`,
+`[data-state-session="empty"]`.
 
-URL keeps the place: `#chat/B?theme=pureBlack&vp=phone&session=empty`. Keys:
-← → variant, ↑ ↓ section, `t` theme, `v` viewport. JS hooks (only if a mock
-needs behaviour): `MockKit.set({...})`, `MockKit.onChange(fn)`, `mockchange` /
-`mockready` events.
+Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport. The hash holds the
+whole view. Behaviour, only if a design needs it: `MockKit.set({...})`,
+`MockKit.onChange(fn)`, `mockready` event.
 
 ## Styling
 
-- Colours, font sizes, spacing, radii: CSS variables from `kit/tokens.css`,
-  generated from Paseo's `theme.ts` (`--c-surface1`, `--c-foreground-muted`,
-  `--c-border-accent`, `--c-status-danger`, `--fs-content`, `--r-lg`, …).
-  Never hard-code a hex colour that has a token; it breaks the other themes.
-- Components: classes in `kit/paseo.css` (`.sidebar`, `.sb-ws`, `.tabs`, `.tab`,
-  `.msg-user`, `.msg-text`, `.tool-row`, `.turn-footer`, `.pills`, `.pill`,
-  `.composer`, `.cbtn`, `.right-panel`, `.phone-header`, `.drawer`, …). Read the
-  starter for how they nest.
+- Colours, sizes, spacing and radii come from `kit/tokens.css` variables
+  (`--c-surface1`, `--c-foreground-muted`, `--fs-content`, `--r-lg`), generated
+  from Paseo's theme, so every theme stays right.
+- Paseo pieces are classes in `kit/paseo.css`; the starter shows how they nest.
 - Mock-only CSS goes in the mock's own `<style>`.
 
-## Changing the base
+## Changing the kit itself
 
-- Fix or add to `kit/paseo.css` and the starter when Paseo's look is wrong or a
-  piece is missing; every mock picks up CSS fixes on reload.
-- **Add classes and variables; never rename or remove them.** Old mocks use them.
-- Measurements and reference screenshots:
-  `/home/cx/agentspace/index/.scratch/paseo-mock-base/layout-spec.md` and `ref/`.
-- After a Paseo update: `node tools/gen-tokens.mjs && node tools/gen-icons.mjs`
-  (reads `~/forkspace/paseo-wt/axalon`), then export `demo/` and eyeball it.
-- `npm install` here once for the export tool (Playwright).
+Fixing Paseo's look, adding a missing piece, or refreshing after a Paseo
+update: read `MAINTAINING.md` first.
