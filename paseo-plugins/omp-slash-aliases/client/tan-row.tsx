@@ -179,6 +179,7 @@ export function createTanRow(rpc: TanRpc) {
     const [open, setOpen] = useState(false);
     const [rowHovered, setRowHovered] = useState(false);
     const [bubbleHovered, setBubbleHovered] = useState(false);
+    const [nameHovered, setNameHovered] = useState(false);
     const [focused, setFocused] = useState(false);
     const work = state?.work || data.work || "";
     const yours = useCopy(work);
@@ -197,6 +198,10 @@ export function createTanRow(rpc: TanRpc) {
     const failed = state?.status === "failed";
     const lineColor = failed ? theme.colors.statusDanger : muted;
     const peekText = peek(state);
+    // The full id, model and run time; the closed line shows the model only while its name is hovered.
+    const meta = [state?.tanId, state?.model, state && state.status !== "running" && state.durationMs !== undefined ? formatDuration(state.durationMs) : undefined]
+      .filter(Boolean)
+      .join(" · ");
     const showActions = touch || rowHovered || focused;
     const icon =
       state?.status === "running" || !state ? (
@@ -226,7 +231,13 @@ export function createTanRow(rpc: TanRpc) {
         >
           <View style={styles.icon}>{icon}</View>
           <Text style={[LINE, styles.tag, { color: muted }]}>tan</Text>
-          {tanId ? <Text style={[SMALL, { color: muted, opacity: 0.75 }]}>{`Tan-${tanId.slice(-4)}`}</Text> : null}
+          {tanId ? (
+            <View onPointerEnter={() => setNameHovered(true)} onPointerLeave={() => setNameHovered(false)}>
+              <Text numberOfLines={1} style={[SMALL, { color: muted, opacity: 0.75 }]}>
+                {nameHovered && state?.model ? `Tan-${tanId.slice(-4)} · ${state.model}` : `Tan-${tanId.slice(-4)}`}
+              </Text>
+            </View>
+          ) : null}
           <Text style={[SMALL, { color: muted, opacity: 0.5 }]}>·</Text>
           <Text style={[SMALL, styles.status, { color: failed ? theme.colors.statusDanger : muted }]}>{statusLabel(state, now, at)}</Text>
           {peekText && !open ? (
@@ -253,15 +264,20 @@ export function createTanRow(rpc: TanRpc) {
         {open && state ? (
           <View style={[styles.rail, { borderColor: withAlpha(theme.colors.foregroundMuted, 0.25) }]}>
             {state.status === "running" ? (
-              <Steps state={state} theme={theme} />
+              <>
+                <Steps state={state} theme={theme} />
+                {meta ? (
+                  <Text selectable numberOfLines={1} style={[SMALL, styles.foot, { color: muted, opacity: 0.8 }]}>
+                    {meta}
+                  </Text>
+                ) : null}
+              </>
             ) : (
               <>
                 {state.result ? <MarkdownView source={state.result} theme={theme} /> : null}
                 <View style={styles.foot}>
                   <Text selectable numberOfLines={1} style={[SMALL, styles.flex, { color: muted, opacity: 0.8 }]}>
-                    {[state.tanId, state.model, state.durationMs === undefined ? undefined : formatDuration(state.durationMs)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {meta}
                   </Text>
                   {state.result ? (
                     <IconButton
