@@ -546,4 +546,12 @@ const CSS = `
 .ump-toktag::before { content: attr(data-tag); }
 .ump-fchip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px 0 5px; border-radius: 6px; background: ${MIX(7)}; font-size: 0.9em; vertical-align: 1px; }
 .ump-fchic { color: ${MIX(58)}; }
+/* ---- Motion, CSS only: hover and open tints fade, opened content fades in (@starting-style), the
+   bubble eases to its wider width and to its skill tint. Closing is instant: the content is removed. */
+.ump-head, .ump-skh, .ump-skn { transition: background-color 120ms ease, color 120ms ease; }
+.ump-body, .ump-foot, .ump-skp, .ump-skt { transition: opacity 140ms ease; }
+@starting-style { .ump-body, .ump-foot, .ump-skp, .ump-skt { opacity: 0; } }
+:has(> [data-ump-view]) { transition: background-color 160ms ease; }
+[data-testid="user-message"] > :has(> * > [data-ump-view]) { transition: min-width 160ms ease; }
+@media (prefers-reduced-motion: reduce) { .ump *, :has(> [data-ump-view]), [data-testid="user-message"] > * { transition: none !important; } }
 `;

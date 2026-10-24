@@ -101,6 +101,9 @@ The bubble shows the message as the agent received it. OMP sends a loaded skill 
   newly typed message goes from drawn-from-text to OMP-confirmed in about 3 s with no visible
   change; copy gives the typed text; the opened bubble is 402 of 804 px (desktop) and 320 of 358 px
   (390 px window), no page overflow; disabling the plugin removes it all without a reload.
+- Motion is CSS only: hover and open tints fade (120 ms), opened content fades in (140 ms,
+  `@starting-style`), the bubble eases to its wider width and to its skill tint (160 ms; measured
+  163 → 402 px in about 170 ms). Closing is instant. Off when the system asks for reduced motion.
 
 Paseo 0.12 shows messages from other agents (Dispatcher etc.) as a "Message received" row, not as
 your bubble, so `<paseo-system>` envelopes need nothing here (checked live).
