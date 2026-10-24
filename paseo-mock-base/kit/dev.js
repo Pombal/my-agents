@@ -171,7 +171,8 @@
   const viewports = words(html.dataset.viewports || "desktop laptop phone");
 
   // ---------------------------------------------------------------- state + hash
-  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {} };
+  // picks: each section's last variant, so switching sections keeps every choice.
+  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {} };
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
@@ -184,8 +185,15 @@
     state.vp = viewports.includes(q.get("vp")) ? q.get("vp") : viewports[0];
     if (q.get("canvas")) html.dataset.canvas = q.get("canvas");
     else delete html.dataset.canvas;
+    state.picks = {};
+    for (const pair of (q.get("picks") || "").split(",")) {
+      const [s, v] = pair.split(".");
+      if (s && v) state.picks[s] = v;
+    }
+    if (state.variant) state.picks[state.section] = state.variant;
+    else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks"].includes(k)) state.states[k] = v;
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -194,6 +202,10 @@
     const sec = current();
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
+    const picks = sections
+      .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
+      .map((s) => s.id + "." + state.picks[s.id]);
+    if (picks.length) q.set("picks", picks.join(","));
     const path = state.section + (state.variant ? "/" + state.variant : "");
     const qs = q.toString();
     history.replaceState(null, "", "#" + path + (qs ? "?" + qs : ""));
@@ -209,6 +221,7 @@
     const sec = current();
     if (sec.variants.length && !sec.variants.some((v) => v.id === state.variant)) state.variant = sec.variants[0].id;
     if (!sec.variants.length) state.variant = null;
+    state.picks[sec.id] = state.variant;
     for (const [axis, values] of sec.axes) if (!values.includes(state.states[axis])) state.states[axis] = values[0];
 
     frame.dataset.theme = state.theme;
@@ -216,6 +229,8 @@
     frame.dataset.section = sec.id;
     if (state.variant) frame.dataset.v = state.variant;
     else delete frame.dataset.v;
+    // data-v-<section>: every section's pick at once, so one section can show another's choice.
+    for (const s of sections) if (s.variants.length) frame.setAttribute("data-v-" + s.id, state.picks[s.id] || s.variants[0].id);
     for (const k of Object.keys(frame.dataset)) if (k.startsWith("state")) delete frame.dataset[k];
     for (const [axis] of sec.axes) frame.setAttribute("data-state-" + axis, state.states[axis]);
     html.dataset.theme = state.theme; // lets kit-styled controls outside the frame pick up tokens if wanted
@@ -390,6 +405,8 @@
   }
 
   function set(patch) {
+    // A section switch without an explicit variant returns to that section's last pick.
+    if (patch.section && patch.section !== state.section && !("variant" in patch)) patch = { ...patch, variant: state.picks[patch.section] || null };
     Object.assign(state, patch);
     apply();
   }

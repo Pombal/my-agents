@@ -81,6 +81,13 @@ The frame mirrors the situation as attributes, so variant styling is plain
 CSS: `[data-v="B"] .composer`, `[data-vp="phone"]`, `[data-theme="light"]`,
 `[data-state-session="empty"]`.
 
+Each section keeps its own pick: switching sections returns to that
+section's last variant, and the hash carries the others (`picks=bubble.F`).
+The frame also holds every section's pick as `data-v-<section>`. When one
+screen is split into several decisions, style each part by its own section
+(`[data-v-bubble="F"] .msg-user`), and every section then shows all the
+choices together.
+
 Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport. The hash holds the
 whole view. Behaviour, only if a design needs it: `MockKit.set({...})`,
 `MockKit.onChange(fn)`, `mockready` event.
