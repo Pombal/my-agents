@@ -1,0 +1,206 @@
+/* Paseo mock kit: everything OUTSIDE the mock (canvas, toolbars, frame label).
+ * Deliberately not Paseo-looking: monospace, glass panels, violet = design,
+ * amber = situation. Paseo's own look lives in tokens.css + paseo.css. */
+
+:root {
+  --kit-bg: #1b1c21;
+  --kit-dot: rgba(255, 255, 255, 0.07);
+  --kit-panel: rgba(30, 31, 38, 0.86);
+  --kit-line: rgba(255, 255, 255, 0.09);
+  --kit-text: #c8c9d2;
+  --kit-dim: #7d7f8c;
+  --kit-design: #b9a2ff;
+  --kit-situation: #f0b955;
+  --kit-font: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+html.kit,
+html.kit body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---- canvas: what is NOT the app. Dot grid by default; #…?canvas=checker|plain */
+html.kit body {
+  background-color: var(--kit-bg);
+  background-image: radial-gradient(var(--kit-dot) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  font-family: var(--kit-font);
+}
+html.kit[data-canvas="checker"] body {
+  background-image:
+    conic-gradient(rgba(255, 255, 255, 0.035) 25%, transparent 0 50%, rgba(255, 255, 255, 0.035) 0 75%, transparent 0);
+  background-size: 20px 20px;
+}
+html.kit[data-canvas="plain"] body {
+  background-image: none;
+  background-color: #26272e;
+}
+
+/* ---- frame */
+.kit-stage {
+  position: fixed;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.kit-frame-label {
+  font: 11px/16px var(--kit-font);
+  color: var(--kit-dim);
+  letter-spacing: 0.02em;
+}
+.kit-frame-holder {
+  position: relative;
+}
+.mock-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.10),
+    0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.mock-frame[data-vp="phone"] {
+  border-radius: 28px;
+}
+html.kit-export,
+html.kit-export body {
+  margin: 0;
+  background: transparent;
+}
+html.kit-export .mock-frame {
+  position: relative;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Tag engine: hidden by data-variant / data-viewport / data-when / sections. */
+.kit-off {
+  display: none !important;
+}
+.mock-frame:not([data-theme]) {
+  visibility: hidden;
+}
+
+/* ---- toolbars */
+.kit-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 6px 10px 6px 6px;
+  background: var(--kit-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--kit-line);
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  font: 12px/18px var(--kit-font);
+  color: var(--kit-text);
+  z-index: 10;
+}
+.kit-design {
+  top: 14px;
+  --kit-accent: var(--kit-design);
+}
+.kit-situation {
+  bottom: 14px;
+  --kit-accent: var(--kit-situation);
+}
+.kit-tag {
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #15151a;
+  background: var(--kit-accent);
+}
+.kit-title {
+  color: var(--kit-text);
+  font-weight: 600;
+}
+.kit-note {
+  color: var(--kit-dim);
+  font-style: italic;
+}
+.kit-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.kit-seg-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--kit-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.kit-seg-btn:hover {
+  color: var(--kit-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+.kit-seg-btn b {
+  font-weight: 700;
+}
+.kit-seg-btn.kit-on {
+  color: var(--kit-accent);
+  background: color-mix(in srgb, var(--kit-accent) 16%, transparent);
+}
+.kit-ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.kit-ctl-name {
+  color: var(--kit-dim);
+}
+.kit-cycle-btn {
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--kit-accent) 35%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--kit-accent) 10%, transparent);
+  color: var(--kit-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.kit-cycle-btn:hover {
+  background: color-mix(in srgb, var(--kit-accent) 18%, transparent);
+}
+
+/* ---- cycle button (kit component, usable inside mocks too)
+ * All values sit in the same grid cell; only the current one is visible, so
+ * the button is always as wide as its widest value and never jumps. */
+.kit-cycle {
+  display: inline-grid;
+  justify-items: center;
+}
+.kit-cycle > span {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+.kit-cycle > span.kit-cycle-on {
+  visibility: visible;
+}

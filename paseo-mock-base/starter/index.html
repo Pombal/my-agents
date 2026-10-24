@@ -1,0 +1,193 @@
+<!doctype html>
+<!--
+  Paseo mock STARTER: the normal Paseo screen, ready to copy.
+  Copy this folder to ~/www/webshare/pages/<your-mock>/ and edit the HTML.
+  Guide: http://axalon:8080/pages/paseo-base/  (README.md in the same folder)
+
+  Situation axes used here (bottom bar): panel (right explorer), drawer (phone sidebar).
+  Delete what your mock doesn't need.
+-->
+<html lang="en" data-mock-title="Starter" data-states="panel: closed | open; drawer: closed | open">
+<head>
+<meta charset="utf-8">
+<title>Paseo mock starter</title>
+<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">
+<script src="/pages/paseo-base/kit/dev.js" defer></script>
+<style>
+  /* Mock-specific CSS goes here. Variant-only rules: [data-v="B"] .thing { … } */
+</style>
+</head>
+<body>
+
+<div class="app" data-section="chat" data-title="Chat">
+
+  <!-- ============================== LEFT SIDEBAR (desktop + small desktop) -->
+  <aside class="sidebar" data-viewport="wide">
+    <nav class="sb-nav">
+      <div class="sb-row"><i data-icon="plus"></i>New workspace</div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+
+      <div class="sb-project"><span class="project-badge" style="--badge:#3b5bdb">✦</span>index</div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Cleanup</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws is-selected"><span class="dot running"></span><span class="sb-ws-title">Paseo × OMP</span><span class="sb-ws-meta"></span></div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Edubba</span><span class="sb-ws-meta">1h</span></div>
+      <div class="sb-ws"><span class="dot success"></span><span class="sb-ws-title">Mainframe</span><span class="sb-ws-meta">2d</span></div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Paseo • Plugins</span><span class="sb-ws-meta">5h</span></div>
+
+      <div class="sb-project"><span class="project-badge" style="--badge:#495057">I</span>Infra - Ofis</div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Assorted</span><span class="sb-ws-meta">1d</span></div>
+      <div class="sb-ws"><span class="dot danger"></span><span class="sb-ws-title">Droplet &amp; Security</span><span class="sb-ws-meta">1d</span></div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">MSAT</span><span class="sb-ws-meta">7h</span></div>
+    </div>
+    <div class="sb-metrics">
+      <i data-icon="cpu"></i>10% <i data-icon="memory-stick"></i><span class="warn">72%</span>
+      <i data-icon="hard-drive"></i>19% <i data-icon="arrow-down-up"></i>24K/71K
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- ============================== DESKTOP HEADER + TABS -->
+    <header class="ws-header" data-viewport="wide">
+      <button class="icon-btn"><i data-icon="panel-left"></i></button>
+      <span class="ws-title">Paseo × OMP</span><span class="ws-sub">index</span>
+      <button class="icon-btn"><i data-icon="ellipsis"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn bordered"><i data-icon="link" data-size="14"></i></button>
+      <button class="icon-btn bordered"><i data-icon="history" data-size="14"></i></button>
+      <span class="btn-split">
+        <button class="btn"><i data-icon="git-commit-horizontal"></i>Commit</button>
+        <button class="btn"><i data-icon="chevron-down"></i></button>
+      </span>
+      <button class="icon-btn"><i data-icon="panel-right"></i></button>
+    </header>
+    <div class="tabs" data-viewport="wide">
+      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Contrast pass</span></div>
+      <div class="tab is-active"><i data-icon="provider-omp"></i><span class="tab-label">Sleeping tabs server</span></div>
+      <div class="tab"><i data-icon="provider-omp"></i><span class="tab-label">Fork sync conflicts</span></div>
+      <button class="icon-btn"><i data-icon="plus" data-size="14"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="ellipsis" data-size="14"></i></button>
+    </div>
+
+    <!-- ============================== PHONE HEADER -->
+    <header class="phone-header" data-viewport="phone">
+      <button class="icon-btn"><i data-icon="menu" data-size="20"></i></button>
+      <div class="titles">
+        <div class="t1">Paseo × OMP</div>
+        <div class="t2">index · <i data-icon="server" data-size="12"></i>axalon</div>
+      </div>
+      <button class="icon-btn"><span class="tab-count">3</span></button>
+      <button class="icon-btn"><i data-icon="ellipsis"></i></button>
+      <button class="icon-btn"><i data-icon="panel-right"></i></button>
+    </header>
+
+    <!-- ============================== CHAT -->
+    <div class="chat" data-scroll="bottom">
+      <div class="chat-col">
+        <div class="msg-user">Why does opening a closed OMP tab start the agent again? Find every path that wakes it.</div>
+        <div class="msg-user-meta" data-viewport="phone">1:07 PM <i data-icon="undo-2"></i><i data-icon="copy"></i></div>
+
+        <div class="tool-row"><i data-icon="brain"></i>Thinking</div>
+        <div class="tool-row"><i data-icon="search"></i>Grep<span class="tool-detail">ensureAgentLoaded</span></div>
+        <div class="tool-row is-last"><i data-icon="eye"></i>Read<span class="tool-detail">session/agent-loader.ts</span></div>
+
+        <div class="msg-text">
+          <p>Three paths load a closed agent. Only one of them should:</p>
+          <ol>
+            <li><code>fetch_agent_timeline</code> calls <code>ensureAgentLoaded()</code> before reading history.</li>
+            <li>Opening a tab subscribes to the agent, which resumes it.</li>
+            <li>Sending a message wakes it. That one is correct.</li>
+          </ol>
+          <pre><code><span class="tok-k">async function</span> <span class="tok-f">fetchTimeline</span>(id) {
+  <span class="tok-c">// reads stored history; no need to start OMP</span>
+  <span class="tok-k">return</span> store.<span class="tok-f">readTimeline</span>(id, { limit: <span class="tok-n">200</span> });
+}</code></pre>
+          <p>I'll change the first two to read the stored timeline instead.</p>
+        </div>
+        <div class="turn-footer">
+          <button class="icon-btn"><i data-icon="copy"></i></button>
+          <button class="icon-btn"><i data-icon="split"></i></button>
+          Worked for 42s
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================== COMPOSER -->
+    <div class="composer-dock">
+      <div class="pills">
+        <span class="pill">cmds</span>
+      </div>
+      <div class="composer">
+        <div class="composer-input" data-placeholder="Message the agent, tag @files, or use /commands and /skills" data-viewport="wide"></div>
+        <div class="composer-input" data-placeholder="Message, @files, /commands" data-viewport="phone"></div>
+        <span class="composer-hint">Ctrl+L to focus</span>
+        <div class="composer-bar">
+          <button class="cbtn"><i data-icon="plus"></i></button>
+          <button class="cbtn"><i data-icon="provider-omp"></i>Claude Haiku 5.5<i data-icon="chevron-down" class="chev" data-viewport="wide"></i><span class="xmuted" data-viewport="phone">High</span></button>
+          <button class="cbtn" data-viewport="wide"><i data-icon="brain"></i>High<i data-icon="chevron-down" class="chev"></i></button>
+          <button class="cbtn" data-viewport="wide"><i data-icon="shield-off"></i>Full access<i data-icon="chevron-down" class="chev"></i></button>
+          <button class="cbtn" data-viewport="wide"><i data-icon="zap"></i></button>
+          <span class="spacer"></span>
+          <button class="cbtn"><span class="ctx-ring"></span></button>
+          <button class="cbtn"><i data-icon="mic"></i></button>
+          <button class="cbtn"><i data-icon="audio-lines"></i></button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============================== RIGHT EXPLORER PANEL (situation: panel = open) -->
+  <aside class="right-panel" data-viewport="wide" data-when="panel: open">
+    <div class="rp-tabs">
+      <div class="tab"><i data-icon="files"></i><span class="tab-label">Files</span></div>
+      <div class="tab is-active"><i data-icon="file-diff"></i><span class="tab-label">Changes</span></div>
+    </div>
+    <div class="tree-row"><span class="grow muted">Uncommitted</span><span class="add">+214</span> <span class="del">-37</span></div>
+    <div class="tree-row" style="--depth:0"><i data-icon="chevron-down"></i><span class="grow">packages/server</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">agent-loader.ts</span><span class="add">+88</span> <span class="del">-21</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">session.ts</span><span class="add">+41</span> <span class="del">-9</span></div>
+    <div class="tree-row" style="--depth:1"><i data-icon="file-text"></i><span class="grow">sleep-manager.ts</span><span class="add">+85</span> <span class="del">-7</span></div>
+  </aside>
+
+  <!-- ============================== PHONE DRAWER (situation: drawer = open) -->
+  <div class="drawer-overlay" data-viewport="phone" data-when="drawer: open"></div>
+  <div class="drawer" data-viewport="phone" data-when="drawer: open">
+    <nav class="sb-nav">
+      <div class="sb-row" style="justify-content:space-between"><span style="display:flex;gap:8px;align-items:center"><i data-icon="plus"></i>New workspace</span><i data-icon="x"></i></div>
+      <div class="sb-row"><i data-icon="history"></i>History</div>
+      <div class="sb-row"><i data-icon="search"></i>Search</div>
+      <div class="sb-row"><i data-icon="calendar-clock"></i>Schedules</div>
+    </nav>
+    <div class="sb-scroll">
+      <div class="sb-section-header">Workspaces <button class="icon-btn"><i data-icon="settings-2" data-size="14"></i></button></div>
+      <div class="sb-project"><span class="project-badge" style="--badge:#3b5bdb">✦</span>index</div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Cleanup</span><span class="sb-ws-meta">25m</span></div>
+      <div class="sb-ws is-selected"><span class="dot running"></span><span class="sb-ws-title">Paseo × OMP</span></div>
+      <div class="sb-ws"><span class="dot"></span><span class="sb-ws-title">Edubba</span><span class="sb-ws-meta">1h</span></div>
+    </div>
+    <div class="sb-footer">
+      <button class="icon-btn"><i data-icon="folder-plus"></i></button>
+      <button class="icon-btn"><i data-icon="circle-gauge"></i></button>
+      <button class="icon-btn"><i data-icon="server"></i></button>
+      <span class="spacer"></span>
+      <button class="icon-btn"><i data-icon="circle-question-mark"></i></button>
+      <button class="icon-btn"><i data-icon="settings"></i></button>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
