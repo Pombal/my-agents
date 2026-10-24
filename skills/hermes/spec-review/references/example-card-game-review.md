@@ -1,39 +1,39 @@
-# Belot Client Spec Review — Worked Example
+# Example Card-game Spec Review
 
-Origin session for the `spec-review` skill. Concrete illustration of the methodology and the NT-260 self-correction pitfall.
+Synthetic illustration of the `spec-review` methodology and a scoring-verification pitfall.
 
 ## Context
-- Repo: `github.com/nask0/belot-client` (private), `dev` branch, `docs/client-spec/` — README + 01–16 (~3560 lines).
+- Repo: `github.com/acme/example-client` (synthetic), `example-feature` branch, `docs/spec/`.
 - Task: review the combined spec as a single coherent document.
-- Artifact: `~/.hermes/artifacts/2026-06 June/22-1152-review-by-glm-belot-client-spec-scoring-protocol-gaps.md`
+- Artifact: `<notes-dir>/example-spec-review.md`
 
 ## Fetching a private repo's docs
 Unauthenticated `curl`/browser → 404. The authenticated `gh` CLI (logged in as `choephix`) works:
 
 ```bash
 # list files in a dir
-gh api "repos/nask0/belot-client/contents/docs/client-spec?ref=dev" --jq '.[].path'
+gh api "repos/acme/example-client/contents/docs/spec?ref=example-feature" --jq '.[].path'
 # fetch one file (content is base64)
-gh api "repos/nask0/belot-client/contents/docs/client-spec/01-product-vision.md?ref=dev" \
+gh api "repos/acme/example-client/contents/docs/spec/overview.md?ref=example-feature" \
   --jq '.content' | base64 -d
 # loop all to a temp dir
-mkdir -p /tmp/belot-spec && cd /tmp/belot-spec
-for f in README 01-product-vision 02-client-architecture ... 16-roadmap-open-items; do
-  gh api "repos/nask0/belot-client/contents/docs/client-spec/$f.md?ref=dev" \
+mkdir -p /tmp/example-spec && cd /tmp/example-spec
+for f in overview architecture rules; do
+  gh api "repos/acme/example-client/contents/docs/spec/$f.md?ref=example-feature" \
     --jq '.content' | base64 -d > "$f.md"
 done
 wc -l *.md   # sanity check
 ```
 
 ## The self-correction (key lesson)
-- **First pass (internal-consistency only):** flagged "No Trumps = 260" as 🔴 critical, deriving 250 by assuming only card points double under NT.
-- **User pushback:** "belot has official rules, right?"
-- **Second pass (grounded in belot.bg):** 260 is **CORRECT** — under NT, card points (120→240) AND Last10 (10→20) double; Capot does not (belot.bg: "all points doubled except valat"). The spec's number was right; only its derivation was undocumented. I had manufactured a wrong correction and had to retract it explicitly in the artifact.
+- **Potential false finding:** deriving "No Trumps = 250" by assuming only card points double.
+- **Required check:** consult authoritative rules before reporting a scoring error.
+- **Grounded result:** 260 is correct: card points (120→240) and Last10 (10→20) double; Capot does not. Retract any earlier claim to the contrary explicitly.
 
-## Findings shape (13 total)
+## Example findings shape
 **Correct against official rules:** card points, strength order, 3-2-3 deal, free bidding, contract hierarchy, undertrump-not-mandatory (Bulgarian, not French), capot-can't-end, capot=+90, declarations independent by type, carré values, BeLot, Outside/Inside/Hanging, 151 target, counter-clockwise.
 
-**Gaps (under-documented, not wrong):** NT doubling derivation; hang edges 106-106 / 154-154 (in no source, underivable as written); Double/ReDouble multiplier scope; missing Sequence values 20/50/100; cardId scheme mismatch (numeric 0–31 vs string `'AS'`); snapshot schema (no named `legalCardIds` field despite UI needing it); mobile-priority order differs between doc 04 and 14; ReDoubled-All-Trumps termination modality inconsistent across 03/07/15; `Round` vs `Hand` terminology.
+**Synthetic gaps (under-documented, not wrong):** a missing derivation of scoring totals; conflicting identifier schemas; inconsistent names for the same domain concept.
 
 ---
 

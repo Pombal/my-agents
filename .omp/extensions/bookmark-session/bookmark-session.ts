@@ -13,7 +13,15 @@ import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const DEFAULT_BOOKMARK_FILE = "default.md";
-const NILO_WIKI_SEGMENTS = ["workspace", "nilo-wayfinder", "wiki"] as const;
+interface WikiConfiguration {
+	defaultRoot?: string;
+	projects?: Record<string, string>;
+}
+
+function readWikiConfiguration(homeDirectory: string): WikiConfiguration {
+	const file = join(homeDirectory, ".config", "my-agents", "bookmarks.json");
+	return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+}
 const MODEL_ROLE = "@tiny";
 const THINKING_LEVEL = "medium";
 const EXT_DIR = new URL(".", import.meta.url).pathname;
@@ -87,19 +95,22 @@ function markerEnd(sessionId: string): string {
 	return `<!-- omp-bookmark:end:${sessionId} -->`;
 }
 
-export function isNiloTree(dir: string): boolean {
+export function isProjectTree(dir: string, prefix: string): boolean {
 	return resolve(dir)
 		.split(/[\\/]/)
-		.some(part => part === "nilo" || part.startsWith("nilo-"));
+		.some(part => part === prefix || part.startsWith(`${prefix}-`));
 }
 
 export function resolveDefaultWikiRoot(
 	cwd: string = process.cwd(),
 	homeDirectory: string = homedir(),
 	envWikiRoot: string | undefined = process.env.AGENTS_WIKI_DIR,
+	configuration: WikiConfiguration = readWikiConfiguration(homeDirectory),
 ): string {
-	if (isNiloTree(cwd)) return join(homeDirectory, ...NILO_WIKI_SEGMENTS);
-	return envWikiRoot?.trim() || join(homeDirectory, "agentspace", "index", "wiki");
+	for (const [prefix, root] of Object.entries(configuration.projects ?? {})) {
+		if (isProjectTree(cwd, prefix)) return root;
+	}
+	return envWikiRoot?.trim() || configuration.defaultRoot || join(homeDirectory, ".local", "share", "my-agents", "wiki");
 }
 
 export function parseBookmarkFilename(
@@ -126,7 +137,7 @@ export function resolveBookmarkFile(
 	defaultFilename: string | undefined = process.env.AGENTS_BOOKMARK_FILE,
 ): string {
 	const filename = parseBookmarkFilename(args, defaultFilename);
-	const configured = wikiRoot?.trim() || join(homeDirectory, "agentspace", "index", "wiki");
+	const configured = wikiRoot?.trim() || resolveDefaultWikiRoot(undefined, homeDirectory);
 	const expanded =
 		configured === "~"
 			? homeDirectory

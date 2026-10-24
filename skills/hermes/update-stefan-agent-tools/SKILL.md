@@ -14,7 +14,7 @@ metadata:
 
 ## Overview
 
-Use this for Stefan's recurring "update my shit" task: update local AI coding agents and their integrations without guessing install methods or breaking running sessions.
+Use this for requests to update the local agent toolchain: update local AI coding agents and their integrations without guessing install methods or breaking running sessions.
 
 Target tools:
 
@@ -30,7 +30,7 @@ This is Stefan's real development server, not a sandbox. Prefer discover → upd
 
 ## When to Use
 
-- Stefan says "update Hermes", "update Herdr", "update omp", "update agents", "update my shit", or names one of the tools above.
+- Stefan says "update Hermes", "update Herdr", "update omp", "update agents", or names one of the tools above.
 - After updating Herdr, when integrations need refreshing.
 - When checking whether the toolchain is stale.
 
@@ -56,14 +56,14 @@ for c in hermes herdr omp opencode claude cursor-agent codex; do
 done
 ```
 
-Important local facts observed on Axalon:
+Important local facts observed on the local host:
 
-- `hermes` lives at `/home/cx/.local/bin/hermes` and supports `hermes update`.
-- `herdr` lives at `/home/cx/.local/bin/herdr` and supports `herdr update`.
-- `claude` lives at `/home/cx/.local/bin/claude`, symlinked into `~/.local/share/claude/versions/<version>`.
-- `cursor-agent` lives at `/home/cx/.local/bin/cursor-agent`, symlinked into `~/.local/share/cursor-agent/versions/<version>/cursor-agent`.
+- `hermes` lives at `~/.local/bin/hermes` and supports `hermes update`.
+- `herdr` lives at `~/.local/bin/herdr` and supports `herdr update`.
+- `claude` lives at `~/.local/bin/claude`, symlinked into `~/.local/share/claude/versions/<version>`.
+- `cursor-agent` lives at `~/.local/bin/cursor-agent`, symlinked into `~/.local/share/cursor-agent/versions/<version>/cursor-agent`.
 - `codex` may be installed globally through npm under the active nvm Node, e.g. `@openai/codex`.
-- `omp` is installed at `/home/cx/.bun/bin/omp` and requires Bun/mise on PATH.
+- `omp` is installed at `~/.bun/bin/omp` and requires Bun/mise on PATH.
 
 OMP PATH fix if `omp` or `bun` is missing:
 

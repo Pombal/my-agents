@@ -43,7 +43,7 @@ When Stefan asks to make a helper app look better, avoid default dashboard/card 
 - Use one subtle global header for app identity and back/home navigation.
 - Keep functional content scannable; if filenames are ugly, display human titles from metadata and relegate filenames to small secondary text only when useful.
 - Preserve the app’s utility: bold can still be quiet and fast.
-- **Typography restraint matters.** Stefan likes bold/minimal, not billboard-scale. After any dramatic visual pass, inspect the rendered page and clamp hero/list/card text to normal reading sizes. If he says font sizes are “insane,” treat that as a class-level UI correction: reduce hero scale, row/card titles, and spacing before declaring the design acceptable.
+- **Typography restraint matters.** Stefan likes bold/minimal, not billboard-scale. After any dramatic visual pass, inspect the rendered page and clamp hero/list/card text to normal reading sizes. When font sizes are too large, treat that as a class-level UI correction: reduce hero scale, row/card titles, and spacing before declaring the design acceptable.
 
 ### Compact board/list UIs
 
@@ -120,7 +120,7 @@ See `kanban-orchestrator` for board command details and the direct-implementatio
 
 ## References
 
-- `references/rhinox-console-mvp.md` — session pattern: Next.js file-backed console with frontmatter titles, LAN dev script, shared minimal header, and verification flow.
+- `references/example-console.md` — session pattern: Next.js file-backed console with frontmatter titles, LAN dev script, shared minimal header, and verification flow.
 - `references/folder-backed-kanban-route.md` — session pattern: Markdown folder-as-status Kanban route with compact columns, frontmatter titles, and filesystem moves as workflow transitions.
 - `references/notebox-promises-route.md` — session pattern: Markdown note dashboard with H1 title promotion, hidden paths/filenames, CSS-only preview clamping, tag chips, status grouping, and guarded frontmatter write actions.
 - `references/notebox-promises-route.md` — session pattern: Obsidian promise-note dashboard with candidate filters, H1 title promotion/stripping, path-as-tooltip, status grouping, and faded non-open states.

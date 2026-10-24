@@ -16,7 +16,7 @@ metadata:
 
 This workflow launches two visible OMP reviewers in Herdr to independently validate existing PR comments. The agents are scouts, not editors: they inspect each comment, decide whether it is valid or bullshit, and produce evidence-backed findings without modifying files or posting to GitHub.
 
-The important UX invariant: **Herdr workspace identity must match working-tree identity.** If the target branch lives in a non-default worktree, use a Herdr workspace rooted at that exact worktree. Do not hide work in the generic NILO workspace while operating from `/home/cx/workspace/nilo-worktrees/...`.
+The important UX invariant: **Herdr workspace identity must match working-tree identity.** If the target branch lives in a non-default worktree, use a Herdr workspace rooted at that exact worktree. Do not hide work in the generic NILO workspace while operating from `~/workspace/nilo-worktrees/...`.
 
 ## 1. Resolve PR and Exact Branch
 
@@ -35,7 +35,7 @@ git worktree list --porcelain
 For NILO, if no suitable worktree exists, create one with the standard helper:
 
 ```bash
-/home/cx/workspace/create-nilo-worktree.sh <branch-name> [worktree-folder-name]
+~/workspace/create-nilo-worktree.sh <branch-name> [worktree-folder-name]
 ```
 
 Verify the worktree before launching agents:
@@ -51,7 +51,7 @@ ls -ld .agents-local
 readlink .agents-local
 ```
 
-The local `HEAD` must match the PR `headRefOid`, unless Stefan explicitly asks to review a different revision. `git status --short` should be clean before the review starts. For NILO worktrees, `.agents-local` must be a symlink to `/home/cx/workspace/nilo/.agents-local`; do not let agents write artifacts into a worktree-local `.agents-local` directory.
+The local `HEAD` must match the PR `headRefOid`, unless Stefan explicitly asks to review a different revision. `git status --short` should be clean before the review starts. For NILO worktrees, `.agents-local` must be a symlink to `~/workspace/nilo/.agents-local`; do not let agents write artifacts into a worktree-local `.agents-local` directory.
 
 ## 2. Open the Right Herdr Workspace
 
@@ -60,15 +60,15 @@ If operating in a new or non-default worktree, create/use a Herdr workspace root
 Bad shape:
 
 ```text
-workspace: /home/cx/workspace/nilo
-pane cwd: /home/cx/workspace/nilo-worktrees/fix__whatever
+workspace: ~/workspace/nilo
+pane cwd: ~/workspace/nilo-worktrees/fix__whatever
 ```
 
 Good shape:
 
 ```text
-workspace: /home/cx/workspace/nilo-worktrees/fix__whatever
-pane cwd: /home/cx/workspace/nilo-worktrees/fix__whatever
+workspace: ~/workspace/nilo-worktrees/fix__whatever
+pane cwd: ~/workspace/nilo-worktrees/fix__whatever
 ```
 
 Preferred layout:
@@ -134,7 +134,7 @@ Critical constraints:
 - Spin/use sub-agents/tasks: one focused sub-agent per substantive comment. Each sub-agent investigates exactly one comment. If the environment has a Task/subagent tool, use it; otherwise simulate the structure explicitly but keep investigations separate.
 - Include inline review comments and issue/conversation comments. Skip purely administrative/acknowledgement comments after noting that they are non-substantive.
 - Do not post to GitHub. Do not resolve comments.
-- If you write an artifact, it must go under `/home/cx/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/`, following `/mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md`. Do not write artifacts to `.agents-local/artifacts/`.
+- If you write an artifact, it must go under `~/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/`, following `/mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md`. Do not write artifacts to `.agents-local/artifacts/`.
 
 Local context:
 - Inline review comments JSON: /tmp/pr<PR>/review-comments.json
@@ -183,13 +183,13 @@ Model mapping:
 Commands:
 
 ```bash
-export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"
 cd <worktree>
 omp --yolo --model openai-codex/gpt-5.5:xhigh @/tmp/pr<PR>/pr<PR>-comment-review-prompt.md
 ```
 
 ```bash
-export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"
 cd <worktree>
 omp --yolo --model cursor/claude-opus-4-8-xhigh @/tmp/pr<PR>/pr<PR>-comment-review-prompt.md
 ```

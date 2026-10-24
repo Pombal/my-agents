@@ -94,7 +94,7 @@ omp --mode json --auto-approve --model anthropic/claude-opus-4-8:xhigh "<prompt>
 Resolve names if aliases drift (`omp models find gpt`, `omp models find opus`). If OMP can't find Bun:
 
 ```bash
-export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"
 ```
 
 Don't restrict their tool access — they need to read beyond the diff.

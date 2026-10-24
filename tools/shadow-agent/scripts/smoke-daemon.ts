@@ -18,7 +18,7 @@ name = "journal"
 quiesce_secs = 0
 catchup_cap = 100
 max_cost_usd = 50
-match_cwd = ["nilo", "my-agents"]
+match_cwd = ["acme-app", "my-agents"]
 instruction = """
 line one
 line two
@@ -81,17 +81,22 @@ try {
 	assert(offset === Number(Bun.file(ledger).size), "skip to eof");
 	const stored = parseCursor(await Bun.file(cursorPath(tmp, "journal")).text());
 	assert(stored === offset, "cursor file matches skip");
+
+	const sample = path.join(tmp, "sample.jsonl");
+	const timestamp = "2026-01-01T00:00:00.000Z";
+	writeFileSync(sample, [
+		{ type: "session", version: 3, id: "example-session", timestamp, cwd: "/home/user/workspace/acme-app" },
+		{ type: "message", id: "user-1", parentId: null, timestamp, message: { role: "user", content: "Example request", timestamp: 0 } },
+		{ type: "message", id: "assistant-1", parentId: "user-1", timestamp, message: { role: "assistant", content: [{ type: "text", text: "Example answer" }], timestamp: 0, stopReason: "stop" } },
+	].map(entry => JSON.stringify(entry)).join("\n") + "\n");
+	const slice = await sliceSession(sample, [
+		{ ts: timestamp, session: sample, cwd: "/home/user/workspace/acme-app", leaf: "assistant-1" },
+	]);
+	assert(slice.full.includes("Example request") && slice.full.includes("Example answer"), "slice full");
+	process.stdout.write(`slice: prose ${slice.prose.length} chars, full ${slice.full.length} chars\n`);
 } finally {
 	rmSync(tmp, { recursive: true, force: true });
 }
 
-const sample = "/home/cx/.omp/agent/sessions/-workspace-my-agents/2026-08-16T11-25-27-993Z_01a00a51-cc39-7000-bcb8-ed3ca54c000a.jsonl";
-if (await Bun.file(sample).exists()) {
-	const slice = await sliceSession(sample, [
-		{ ts: "2099-01-01T00:00:00.000Z", session: sample, cwd: "/home/cx/workspace/my-agents" },
-	]);
-	assert(typeof slice.full === "string", "slice full");
-	process.stdout.write(`slice: prose ${slice.prose.length} chars, full ${slice.full.length} chars\n`);
-}
 
 process.stdout.write("smoke-daemon: ok\n");

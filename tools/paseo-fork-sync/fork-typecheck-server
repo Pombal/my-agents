@@ -5,12 +5,14 @@
 # builds the server's workspace deps (their dist/ provides types), then
 # typechecks @getpaseo/server.
 set -euo pipefail
+CONFIG=$HOME/.config/paseo-fork/config.sh
+[ ! -f "$CONFIG" ] || source "$CONFIG"
 cd "${1:-.}"
 [ -f package-lock.json ] && [ -d packages/server ] || {
   echo "fork-typecheck-server: $(pwd) is not a Paseo worktree root" >&2
   exit 2
 }
-export npm_config_cache="${npm_config_cache:-$HOME/tmp-archive/paseo-fork-test/npm-cache}"
+export npm_config_cache="${npm_config_cache:-$HOME/.cache/paseo-fork/npm}"
 stamp=node_modules/.paseo-fork-sync-lock-hash
 hash=$(sha256sum package-lock.json | cut -d' ' -f1)
 if [ ! -d node_modules ] || [ "$(cat "$stamp" 2>/dev/null)" != "$hash" ]; then

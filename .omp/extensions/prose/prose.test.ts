@@ -7,7 +7,7 @@ import type { AsyncJobSnapshot } from "@oh-my-pi/pi-coding-agent/session/agent-s
 import type { ToolResultMessage } from "@oh-my-pi/pi-ai";
 import proseExtension, { buildProseArchive, parseFlags, proseOf, verbatimCopyOf } from "./prose";
 
-const SOURCE_ID = "01998f2c-0f5b-7c1e-9a41-1b3d5f7a9c02";
+const SOURCE_ID = "00000000-0000-4000-8000-000000000001";
 
 /** Two turns: enough that `proseOf` yields a message and the fork is real. */
 const branchEntries = [

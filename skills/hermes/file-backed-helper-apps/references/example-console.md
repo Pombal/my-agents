@@ -1,10 +1,10 @@
-# Rhinox Console MVP pattern
+# Example Console MVP pattern
 
-Session-specific reference for `file-backed-helper-apps`.
+Synthetic reference for `file-backed-helper-apps`.
 
 ## Context
 
-Rhinox Console is a small local Next.js helper app. The app pattern is: one evolving app, many small routes, each route reads real local files from explicit allowlisted roots. Current example route: `/workspace-todos` reads Markdown from an Obsidian-mounted Workspace folder and displays notes containing `#todo` or `#to-do`.
+Example Console is a small local Next.js helper app. The app pattern is: one evolving app, many small routes, each route reads real local files from explicit allowlisted roots. Current example route: `/workspace-todos` reads Markdown from an Obsidian-mounted Workspace folder and displays notes containing `#todo` or `#to-do`.
 
 ## Useful implementation details
 
@@ -52,9 +52,9 @@ curl -fsS --max-time 30 http://127.0.0.1:3432/workspace-todos -o /tmp/workspace-
 If tracking work on the dedicated board, the board flag comes before the subcommand:
 
 ```bash
-hermes kanban --board rhinox-console create ...
-hermes kanban --board rhinox-console claim <task-id> --profile default
-hermes kanban --board rhinox-console complete <task-id> --result "..."
+hermes kanban --board acme-console create ...
+hermes kanban --board acme-console claim <task-id> --profile default
+hermes kanban --board acme-console complete <task-id> --result "..."
 ```
 
 Using `hermes kanban create --board ...` is the wrong argument order.

@@ -8,11 +8,11 @@ Mocks link `kit/` live, so every change here reaches every mock on reload.
   building a mock goes into `kit/paseo.css` (plus the starter, if it's
   markup), not into the mock.
 - **Source of truth for measurements:** real Paseo.
-  `/home/cx/agentspace/index/.scratch/paseo-mock-base/layout-spec.md` and
+  `<notes-dir>/layout-spec.md` and
   `ref/` hold measured values and screenshots. For a new piece, measure it on
   a test daemon (never Stefan's live one on :6767).
 - **After a Paseo update:** `node tools/gen-tokens.mjs && node tools/gen-icons.mjs`
-  (both read `~/forkspace/paseo-wt/axalon`), then have a subagent export
+  (both read `the configured Paseo source checkout`), then have a subagent export
   `demo/` with `tools/export.mjs` and compare it against the real app.
 - `npm install` once here, for `tools/export.mjs` (Playwright).
 

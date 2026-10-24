@@ -16,7 +16,7 @@ For a Claude Code session, a Codex thread or a T3 Code thread, use `agent-transc
 ```bash
 omp-transcript list -n 10                        # newest first: time, id, title, cwd, path, lineage
 omp-transcript list --since today                # sessions active today, every folder
-omp-transcript list --under ~/workspace/nilo --under ~/.herdr/worktrees/nilo --since 1w
+omp-transcript list --under ~/workspace/acme-app --under ~/.herdr/worktrees/acme-app --since 1w
 omp-transcript search "pattern" --hits           # matching sessions, each with up to 5 hits (user first): message id, time, snippet
 omp-transcript search "pattern" --since 2d --reasoning --with-tools   # narrow when, widen what
 ```

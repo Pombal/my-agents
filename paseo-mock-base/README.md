@@ -2,7 +2,7 @@
 
 A static copy of Paseo's normal screen plus a small engine for flipping
 design variants. Every Paseo plugin mockup starts here. Live at
-`http://axalon:8080/pages/paseo-base/` (`demo/` shows every feature; search it
+`a local mock page` (`demo/` shows every feature; search it
 for `DEMO:`).
 
 ## Pace: link first
@@ -17,7 +17,7 @@ with him.
 
 1. **Copy the starter:**
    `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`.
-   Done when `http://axalon:8080/pages/<plugin>-mocks/` shows the Paseo screen.
+   Done when the local mock page shows the Paseo screen.
    A plugin settings screen starts from `starter-settings/` instead: Paseo's
    settings page with a plugin screen built from every primitive plugins get.
 2. **Add the design as a delta.** Keep one copy of the screen. Add the new UI

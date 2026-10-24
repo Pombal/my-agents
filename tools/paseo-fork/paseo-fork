@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# paseo-fork: deploy tested builds of Stefan's Paseo daemon fork (branch `axalon`)
+# paseo-fork: deploy tested builds of a Paseo daemon fork
 # and switch the live daemon between the official npm CLI and a fork deploy.
-# Runbook: /home/cx/agentspace/index/.scratch/paseo-fork/switch-runbook.md
+# Runbook: configured outside the repo in ~/.config/paseo-fork/config.sh
 set -euo pipefail
 
 usage() {
@@ -10,9 +10,9 @@ Usage: paseo-fork <command> [options]
 
 Commands:
   status                 Say plainly which build the daemon runs (read-only).
-  deploy [TAG]           Copy the tested build from the axalon worktree into
+  deploy [TAG]           Copy the tested build from the configured fork worktree into
                          ~/.local/share/paseo-fork/<version>/ and point `current`
-                         at it. Creates and pushes the tag axalon/v<ver>+axalon.N
+                         at it. Creates and pushes the configured fork build tag
                          if it doesn't exist yet. Refuses unless paseo-fork-sync
                          reported build and tests green for that exact commit.
                          Never touches the daemon.
@@ -20,7 +20,7 @@ Commands:
                          or --deploy NAME). Falls back to official on failure.
   switch official        Stop the daemon and start the official npm CLI.
                          This is the one-step rollback.
-  backup                 Back up the Paseo home into ~/tmp-archive/paseo-home-backups/.
+  backup                 Back up the Paseo home into the configured backup directory.
   deploys                List kept deploys.
   prune [--keep N]       Delete old deploys, keeping the newest N (default 3),
                          `current` and the live one.
@@ -30,28 +30,32 @@ Switch options:
                          a good moment. Changes nothing. Exit 0 = ready, 2 = not.
   --anyway               Switch even if agents are in the middle of a turn
                          (their turns are cut off).
-  --deploy NAME          Fork deploy to use, e.g. v0.12.0+axalon.1 (default: current).
+  --deploy NAME          Fork deploy to use, e.g. v0.12.0+fork.1 (default: current).
 
 Test profile (all three together; refuses the live home, port and unit names):
   --home DIR --port N --unit-prefix NAME
 
 switch runs in its own systemd user unit (paseo-fork-job-*), so it finishes even
 if the shell that started it dies when the daemon stops. Its full log is in
-~/tmp-archive/paseo-fork/logs/. Exit codes: 0 ok, 1 failed (official running
+the configured state directory (logs/). Exit codes: 0 ok, 1 failed (official running
 again after a failed fork switch), 2 refused by a precondition, 3 failed and the
 daemon may be down (follow the printed steps).
 EOF
 }
 
+CONFIG=$HOME/.config/paseo-fork/config.sh
+[ ! -f "$CONFIG" ] || source "$CONFIG"
+BUILD_LABEL=${PASEO_FORK_LABEL:-fork}
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
-REPO=$HOME/forkspace/paseo
-BRANCH=axalon
+REPO=${PASEO_FORK_REPO:-$HOME/forkspace/paseo}
+BRANCH=${PASEO_FORK_BRANCH:-fork}
 WORKTREE=$HOME/forkspace/paseo-wt/$BRANCH
-SYNC_HOME=$HOME/tmp-archive/paseo-fork-sync
+SYNC_HOME=${PASEO_FORK_SYNC_HOME:-$HOME/.local/state/paseo-fork-sync}
 DEPLOY_ROOT=$HOME/.local/share/paseo-fork
-STATE=$HOME/tmp-archive/paseo-fork
-BACKUP_DIR=$HOME/tmp-archive/paseo-home-backups
-NODE_BIN=/home/cx/.vite-plus/js_runtime/node/24.22.0/bin
+STATE=${PASEO_FORK_STATE:-$HOME/.local/state/paseo-fork}
+BACKUP_DIR=${PASEO_FORK_BACKUP_DIR:-$HOME/.local/state/paseo-home-backups}
+TEST_ROOT=${PASEO_FORK_TEST_ROOT:-$HOME/.local/state/paseo-fork/tests}
+NODE_BIN=$HOME/.vite-plus/js_runtime/node/24.22.0/bin
 OFFICIAL_CLI=$NODE_BIN/paseo
 # PATH for the daemon unit (agents inherit it); copied from the running daemon's
 # unit when there is one, this is the fallback (same as the original unit).
@@ -100,7 +104,7 @@ if [ -n "$T_HOME$T_PORT$T_PREFIX" ]; then
     die "test profile needs all of --home, --port and --unit-prefix" 2
   T_HOME=$(realpath -m "$T_HOME")
   [ "$T_HOME" != "$(realpath -m "$LIVE_HOME")" ] || die "test profile refuses the live home $LIVE_HOME" 2
-  case $T_HOME in "$HOME"/tmp-archive/*) ;; *) die "test home must live under ~/tmp-archive/" 2 ;; esac
+  case $T_HOME in "$TEST_ROOT"/*) ;; *) die "test home must live under $TEST_ROOT/" 2 ;; esac
   [[ $T_PORT =~ ^[0-9]+$ ]] && [ "$T_PORT" != "$LIVE_PORT" ] || die "test profile refuses port $T_PORT" 2
   [[ $T_PREFIX =~ ^[a-z0-9-]+$ ]] || die "unit prefix may only contain a-z, 0-9 and -" 2
   case $T_PREFIX in paseo-daemon* | paseo | paseo-fork-job*) die "test profile refuses unit prefix $T_PREFIX" 2 ;; esac
@@ -166,7 +170,7 @@ official_version() { "$OFFICIAL_CLI" --version 2>/dev/null || echo '?'; }
 
 deploy_dir_for() { # name or tag or empty (= current) -> absolute deploy dir
   local n=${1:-current}
-  n=${n#axalon/}
+  n=${n#"$BUILD_LABEL"/}
   local d=$DEPLOY_ROOT/$n
   [ -e "$d" ] || die "no deploy named $n in $DEPLOY_ROOT (see: paseo-fork deploys)" 2
   readlink -f "$d"
@@ -174,7 +178,7 @@ deploy_dir_for() { # name or tag or empty (= current) -> absolute deploy dir
 
 deploy_field() { jq -r ".$2 // empty" "$1/deploy.json"; }
 
-kind_of_version() { case $1 in *+axalon.*) echo fork ;; '') echo none ;; *) echo official ;; esac; }
+kind_of_version() { case $1 in *+"$BUILD_LABEL".*) echo fork ;; '') echo none ;; *) echo official ;; esac; }
 
 # Read the live state into CUR_* variables.
 read_current() {
@@ -328,9 +332,9 @@ cmd_deploy() {
   dirty=$(git -C "$WORKTREE" status --porcelain --untracked-files=no | grep -vE '^ M packages/(server|cli)/package.json$' || true)
   [ -z "$dirty" ] || die "worktree has changes besides the version stamp:"$'\n'"$dirty"
   ver=$(jq -r .version "$WORKTREE/packages/server/package.json")
-  [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+\+axalon\.[0-9]+$ ]] || die "worktree build is not stamped <ver>+axalon.N (server says $ver); run paseo-fork-sync"
+  [[ $ver =~ ^[0-9]+\.[0-9]+\.[0-9]+\+"$BUILD_LABEL"\.[0-9]+$ ]] || die "worktree build is not stamped <ver>+$BUILD_LABEL.N (server says $ver); run paseo-fork-sync"
   [ "$(jq -r .version "$WORKTREE/packages/cli/package.json")" = "$ver" ] || die "cli and server version stamps differ"
-  tag=axalon/v$ver
+  tag=$BUILD_LABEL/v$ver
   [ -z "$TAG_ARG" ] || [ "$TAG_ARG" = "$tag" ] ||
     die "the tested build in $WORKTREE is $tag, not $TAG_ARG. Only the current tested build can be deployed; older ones are kept in $DEPLOY_ROOT (paseo-fork deploys)." 2
   say "Build: $tag at ${sha:0:9} ($WORKTREE)"
@@ -340,8 +344,8 @@ cmd_deploy() {
   [ -z "$(find "$WORKTREE/packages/server/dist" "$WORKTREE/packages/cli/dist" -newer "$run/report.md" -print -quit)" ] ||
     die "server dist changed after the green sync run; rerun paseo-fork-sync --finish"
 
-  # Tag: never anything but axalon/*, pushed by explicit refspec only.
-  [[ $tag == axalon/v* ]] || die "bad tag $tag"
+  # Tag: never anything but the configured fork namespace, pushed by explicit refspec only.
+  [[ $tag == "$BUILD_LABEL"/v* ]] || die "bad tag $tag"
   local lsha rsha
   lsha=$(git -C "$REPO" rev-parse -q --verify "refs/tags/$tag^{commit}" || true)
   rsha=$(remote_tag_sha "$tag")

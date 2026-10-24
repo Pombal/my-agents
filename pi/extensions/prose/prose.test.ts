@@ -5,8 +5,8 @@ import * as path from "node:path";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import proseExtension, { applyContextEdits, archivePathFor, parseFlags, proseOf } from "./prose";
 
-const SOURCE_ID = "01a1203d-3036-7582-91fc-9a2957b56762";
-const SOURCE_FILE = `/sessions/2026-10-09T10-37-23-383Z_${SOURCE_ID}.jsonl`;
+const SOURCE_ID = "00000000-0000-4000-8000-000000000002";
+const SOURCE_FILE = `/sessions/2026-01-01T00-00-00-000Z_${SOURCE_ID}.jsonl`;
 
 let tempDir: string;
 beforeAll(() => {

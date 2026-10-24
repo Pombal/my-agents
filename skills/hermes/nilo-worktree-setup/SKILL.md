@@ -19,16 +19,16 @@ Use the NILO worktree helper whenever Stefan asks for a new NILO worktree or say
 The helper script lives at:
 
 ```bash
-/home/cx/workspace/create-nilo-worktree.sh
+$HOME/workspace/create-nilo-worktree.sh
 ```
 
 It creates the worktree as a Herdr workspace, so it lands under:
 
 ```bash
-/home/cx/.herdr/worktrees/nilo/<sanitized-branch>/
+$HOME/.herdr/worktrees/nilo/<sanitized-branch>/
 ```
 
-Older worktrees still live in `/home/cx/workspace/nilo-worktrees/`; that path is legacy and should not be used for new work.
+Older worktrees still live in `~/workspace/nilo-worktrees/`; that path is legacy and should not be used for new work.
 
 It also creates a per-worktree `.env` with a unique `PORT`, links `.env.local` and `.agents-local` to the main checkout, runs `.agents-local/hijack.sh`, `pnpm install`, and `pnpm build:non-client`.
 
@@ -92,7 +92,7 @@ Example request:
 Use:
 
 ```bash
-/home/cx/workspace/create-nilo-worktree.sh feature/calendar-sync
+$HOME/workspace/create-nilo-worktree.sh feature/calendar-sync
 ```
 
 ### Hotfixes
@@ -101,14 +101,14 @@ If Stefan says the work is a hotfix, do not force the `stefan/` prefix. Use the 
 
 ## Fresh Base Rule for New Branches
 
-New branches should be based on the latest remote `origin/main`, not stale local `main` and not whatever branch happens to be checked out in `/home/cx/workspace/nilo`.
+New branches should be based on the latest remote `origin/main`, not stale local `main` and not whatever branch happens to be checked out in `~/workspace/nilo`.
 
 The helper script now enforces this by default: when creating a new branch and `BASE_REF` is unset, it fetches `origin/main` and creates the branch from `origin/main`.
 
 Default new-branch pattern:
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 ./create-nilo-worktree.sh stefan/<short-kebab-description>
 ```
 
@@ -121,7 +121,7 @@ For stacked PRs or other branch-off-branch work, set `BASE_REF` explicitly. `BAS
 Stacked branch pattern:
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 BASE_REF=<base-branch-or-ref> ./create-nilo-worktree.sh stefan/<short-kebab-description>
 ```
 
@@ -138,7 +138,7 @@ For existing local or remote branches, just pass the branch name. The script reu
    - Hotfix: follow Stefan's requested naming or use a clear hotfix name.
 3. For new branches, rely on the helper's default fresh `origin/main` base unless Stefan asks to branch from a different base.
 4. For stacked PRs or explicit alternate bases, set `BASE_REF=<base-branch-or-ref>`.
-5. Run the helper from `/home/cx/workspace`.
+5. Run the helper from `~/workspace`.
 6. Verify the created worktree.
 7. Report the resulting path, branch, base, port, and install result.
 
@@ -181,14 +181,14 @@ Use the pnpm version declared in `package.json` (currently `packageManager`) ins
 ### New feature branch
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 ./create-nilo-worktree.sh stefan/<short-kebab-description>
 ```
 
 ### New stacked branch from another base
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 BASE_REF=<base-branch-or-ref> ./create-nilo-worktree.sh stefan/<short-kebab-description>
 ```
 
@@ -202,7 +202,7 @@ BASE_REF=origin/stefan/previous-pr ./create-nilo-worktree.sh stefan/next-pr
 ### Existing branch
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 ./create-nilo-worktree.sh <existing-branch-name>
 ```
 
@@ -211,7 +211,7 @@ cd /home/cx/workspace
 Use only when Stefan asks for a specific folder name or the default sanitized branch name would be unclear:
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 BASE_REF=<base-branch-or-ref> ./create-nilo-worktree.sh stefan/<branch-name> <folder-name>
 ```
 
@@ -222,8 +222,8 @@ The script itself rejects unsafe folder names.
 The script:
 
 1. Validates args and branch/folder names.
-2. Assumes the source NILO repo is `/home/cx/workspace/nilo`.
-3. Resolves the base ref, then creates the worktree through `herdr worktree create`, so it lands under `/home/cx/.herdr/worktrees/nilo/<sanitized-branch>` as its own Herdr workspace:
+2. Assumes the source NILO repo is `~/workspace/nilo`.
+3. Resolves the base ref, then creates the worktree through `herdr worktree create`, so it lands under `~/.herdr/worktrees/nilo/<sanitized-branch>` as its own Herdr workspace:
    - existing local branch: reuse it;
    - existing `origin/<branch>`: create a local tracking branch;
    - otherwise: create a new branch from `BASE_REF` if set, or from freshly fetched `origin/main` by default.
@@ -244,7 +244,7 @@ Consequences when following this skill:
 After running the helper, verify with real tool output before telling Stefan it is ready:
 
 ```bash
-cd /home/cx/.herdr/worktrees/nilo/<sanitized-branch>
+cd $HOME/.herdr/worktrees/nilo/<sanitized-branch>
 git branch --show-current
 printf 'PORT=' && grep '^PORT=' .env
 readlink .agents-local
@@ -258,14 +258,14 @@ Check that:
 - [ ] For a normal new branch, it was created from fresh `origin/main` by the helper default.
 - [ ] For stacked PR work, the reported base matches the requested `BASE_REF`.
 - [ ] `.env` exists and contains a `PORT=` value.
-- [ ] `.agents-local` is a symlink to `/home/cx/workspace/nilo/.agents-local`.
+- [ ] `.agents-local` is a symlink to `~/workspace/nilo/.agents-local`.
 - [ ] `pnpm install` completed successfully in the helper output.
 - [ ] `git status --short` does not show surprising changes other than expected generated/local setup files.
 
 For PR / draft PR / potential PR requests, additionally check:
 
 - [ ] `omp` was used unless Stefan specified another coding agent, or unavailability/fallback was explicitly handled.
-- [ ] The coding agent ran in the intended worktree, not in `/home/cx/workspace/nilo` or another worktree.
+- [ ] The coding agent ran in the intended worktree, not in `~/workspace/nilo` or another worktree.
 - [ ] The resulting diff was inspected independently.
 - [ ] Relevant tests/lints/builds were run, or blockers were reported honestly.
 - [ ] Changes were committed locally.
@@ -279,7 +279,7 @@ Report concise facts:
 
 ```text
 Created NILO worktree:
-- Path: /home/cx/.herdr/worktrees/nilo/<sanitized-branch>
+- Path: ~/.herdr/worktrees/nilo/<sanitized-branch>
 - Branch: stefan/<feature>
 - Base: fresh origin/main
 - Port: <PORT>

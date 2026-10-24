@@ -3,7 +3,9 @@
 # Prints the final path. Takes no arguments.
 set -euo pipefail
 
-dir="${AGENTS_WIKI_DIR:-$HOME/agentspace/index/wiki}/accomplishments"
+CONFIG=$HOME/.config/my-agents/paths.sh
+[ ! -f "$CONFIG" ] || source "$CONFIG"
+dir="${AGENTS_WIKI_DIR:-$HOME/.local/share/my-agents/wiki}/accomplishments"
 mkdir -p "$dir"
 
 doc=$(cat)
