@@ -178,29 +178,81 @@ html.kit-export .mock-frame {
   color: var(--kit-dim);
 }
 .kit-cycle-btn {
-  padding: 3px 9px;
+  padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--kit-accent) 35%, transparent);
   border-radius: 7px;
   background: color-mix(in srgb, var(--kit-accent) 10%, transparent);
   color: var(--kit-accent);
   font: inherit;
-  cursor: pointer;
 }
-.kit-cycle-btn:hover {
-  background: color-mix(in srgb, var(--kit-accent) 18%, transparent);
+.kit-cycle-btn.kit-cycle {
+  --kit-cycle-shade: color-mix(in srgb, var(--kit-accent) 30%, transparent);
 }
 
 /* ---- cycle button (kit component, usable inside mocks too)
- * All values sit in the same grid cell; only the current one is visible, so
- * the button is always as wide as its widest value and never jumps. */
+ * Left third steps back, the rest forward (zones are absolutely placed spans).
+ * The hovered side shades from its edge toward the middle; chevrons, when
+ * present, are faint until hover and the one on the hovered side lights up.
+ * All values sit in one grid cell, only the current one visible, so the
+ * button is always as wide as its widest value and never jumps. */
 .kit-cycle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  --kit-cycle-shade: color-mix(in srgb, currentColor 14%, transparent);
+}
+.kit-cycle-vals {
   display: inline-grid;
   justify-items: center;
 }
-.kit-cycle > span {
+.kit-cycle-vals > span {
   grid-area: 1 / 1;
   visibility: hidden;
 }
-.kit-cycle > span.kit-cycle-on {
+.kit-cycle-vals > span.kit-cycle-on {
   visibility: visible;
+}
+.kit-cycle-prev,
+.kit-cycle-next {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+}
+.kit-cycle-prev {
+  left: 0;
+  width: 33.34%;
+  border-radius: inherit;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.kit-cycle-next {
+  right: 0;
+  width: 66.66%;
+  border-radius: inherit;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.kit-cycle-prev:hover {
+  background: linear-gradient(90deg, var(--kit-cycle-shade), transparent);
+}
+.kit-cycle-next:hover {
+  background: linear-gradient(270deg, var(--kit-cycle-shade), transparent 60%);
+}
+.kit-cycle > em {
+  display: grid;
+  place-items: center;
+  opacity: 0.25;
+  transition: opacity 0.12s;
+}
+.kit-cycle:hover > em {
+  opacity: 0.45;
+}
+.kit-cycle:has(.kit-cycle-prev:hover) > .kit-cycle-l,
+.kit-cycle:has(.kit-cycle-next:hover) > .kit-cycle-r {
+  opacity: 1;
 }

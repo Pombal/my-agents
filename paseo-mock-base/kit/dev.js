@@ -68,20 +68,39 @@
   }
 
   // ---------------------------------------------------------------- cycle button
-  // <button data-cycle="Off | 30 min | 1 h"> — steps through values on click
-  // (shift-click goes back). Width is that of the widest value, so it never
-  // jumps. Fires a "cycle" event { value, index }; mirrors data-value.
+  // <button data-cycle="Off | 30 min | 1 h"> steps through values, wrapping.
+  // Its left third steps back, the rest steps forward; the hovered side shades
+  // from its edge (and, with data-cycle-chevrons, its chevron lights up).
+  // Width is that of the widest value, so it never jumps. Fires a "cycle"
+  // event { value, index }; mirrors data-value. (Split idea from the Nilo
+  // mock template's variants bar.)
   function enhanceCycle(el, onChange) {
     if (el.__cycle) return el.__cycle;
     const values = el.dataset.cycle.split("|").map((v) => v.trim()).filter(Boolean);
+    const chevrons = el.hasAttribute("data-cycle-chevrons");
     el.classList.add("kit-cycle");
     el.textContent = "";
+    const mk = (tag, cls, html) => {
+      const n = document.createElement(tag);
+      n.className = cls;
+      if (html) n.innerHTML = html;
+      return n;
+    };
+    const chev = (d) => `<svg viewBox="0 0 6 10" width="5" height="8" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const prev = mk("span", "kit-cycle-prev");
+    const next = mk("span", "kit-cycle-next");
+    const stack = mk("span", "kit-cycle-vals");
     const spans = values.map((v) => {
-      const span = document.createElement("span");
+      const span = mk("span", "");
       span.textContent = v;
-      el.append(span);
+      stack.append(span);
       return span;
     });
+    el.append(prev, next);
+    if (chevrons) el.append(mk("em", "kit-cycle-l", chev("M5 1 1 5l4 4")));
+    el.append(stack);
+    if (chevrons) el.append(mk("em", "kit-cycle-r", chev("M1 1l4 4-4 4")));
+    const at = (d) => values[(api.index + d + values.length) % values.length];
     const api = {
       values,
       index: 0,
@@ -89,6 +108,8 @@
         api.index = ((i % values.length) + values.length) % values.length;
         spans.forEach((s, j) => s.classList.toggle("kit-cycle-on", j === api.index));
         el.dataset.value = values[api.index];
+        prev.title = "← " + at(-1);
+        next.title = at(1) + " →";
         if (!silent) {
           el.dispatchEvent(new CustomEvent("cycle", { bubbles: true, detail: { value: values[api.index], index: api.index } }));
           onChange?.(values[api.index], api.index);
@@ -97,7 +118,10 @@
     };
     const start = values.indexOf(el.dataset.value);
     api.set(start < 0 ? 0 : start, true);
-    el.addEventListener("click", (e) => api.set(api.index + (e.shiftKey ? -1 : 1)));
+    el.addEventListener("click", (e) => {
+      const back = e.target.closest?.(".kit-cycle-prev") || (e.target === el && e.offsetX < el.offsetWidth / 3);
+      api.set(api.index + (back ? -1 : 1));
+    });
     el.__cycle = api;
     return api;
   }
@@ -276,12 +300,12 @@
     return wrap;
   }
   function cycleControl(name, values, value, labels, onPick) {
-    const wrap = el("label", "kit-ctl");
+    const wrap = el("span", "kit-ctl");
     wrap.append(el("span", "kit-ctl-name", name));
     const b = el("button", "kit-cycle-btn");
     b.dataset.cycle = values.map((v) => labels?.[v] || v).join("|");
     b.dataset.value = labels?.[value] || value;
-    b.title = "Click: next · Shift-click: previous";
+    b.setAttribute("data-cycle-chevrons", "");
     wrap.append(b);
     enhanceCycle(b, (_, i) => onPick(values[i]));
     return wrap;

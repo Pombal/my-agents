@@ -36,7 +36,7 @@ Both bars build themselves from tags. There is no config file.
 | `data-viewport="phone"` | any element | Exists only in that viewport: `desktop`, `laptop`, `phone`, or `wide` (= desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | Declares app-state axes; first value is the default. |
 | `data-when="session: empty crashed"` | any element | Exists only in those states. Several axes: separate with `;`. A state control is hidden while none of its elements can appear (e.g. a phone-only drawer on desktop). |
-| `data-cycle="Off \| 30 min \| 1 h"` | a button inside the mock | Kit **cycle button**: click = next, shift-click = previous, width fixed to the widest value. Fires `cycle` with `{ value, index }`. |
+| `data-cycle="Off \| 30 min \| 1 h"` | a button inside the mock | Kit **cycle button**: left third steps back, the rest steps forward (wraps); the hovered side shades from its edge. Width fixed to the widest value. Add `data-cycle-chevrons` for faint ‹ › that light up on the hovered side (the dev bars use them). Fires `cycle` with `{ value, index }`. |
 | `data-scroll="bottom"` | a scroll area | Shows its end, like a chat scrolled to the latest turn. |
 | `<i data-icon="name" data-size="14">` | anywhere | Lucide icon (Paseo's set, stroke 1.5, default 16px). Non-Lucide icons: `kit/icons-extra.js` (e.g. `provider-omp`). |
 | `data-mock-title`, `data-themes`, `data-viewports` | `<html>` | Title in the Design bar; theme list (default `dark pureBlack light`); viewport list (default `desktop laptop phone`). |
