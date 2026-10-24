@@ -60,6 +60,7 @@ export function startCommandStyling(): CommandStyler {
   const unmarkBubble = (bubble: HTMLElement) => {
     bubble.removeAttribute("data-ump-cmd");
     bubble.removeAttribute("data-pmono");
+    bubble.parentElement?.removeAttribute("data-ump-cmd-line");
     bubbles.delete(bubble);
   };
 
@@ -72,6 +73,8 @@ export function startCommandStyling(): CommandStyler {
     if (enabled && onlyText && !raw.includes("\n") && isCommand(raw)) {
       bubble.setAttribute("data-ump-cmd", "");
       bubble.setAttribute("data-pmono", "");
+      // The time/rewind/copy row moves onto the command's line instead of a hidden row below it.
+      bubble.parentElement?.setAttribute("data-ump-cmd-line", "");
       bubbles.add(bubble);
     } else if (bubbles.has(bubble)) unmarkBubble(bubble);
     // The answer row may have mounted first.
@@ -200,8 +203,10 @@ const MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const CSS = `
 [data-ump-cmd] { background: transparent !important; padding: 2px 4px !important; }
 [data-ump-cmd] > [data-message-text] { font-family: ${MONO} !important; font-size: 13.5px !important; opacity: 0.62; }
+[data-ump-cmd-line] { flex-direction: row-reverse !important; align-items: center !important; gap: 10px; }
+[data-ump-cmd-line] > [data-testid="user-message-trailing-row"] { margin-top: 0 !important; }
 [data-ump-cmd-src], [data-ump-cmd-hide] { display: none !important; }
-.ump-cmd-out { margin: 0 0 16px; padding: 10px 12px; border: 1px solid ${MIX(10)}; border-radius: 8px; background: ${MIX(3)};
+.ump-cmd-out { margin: 4px 0 20px; padding: 10px 12px; border: 1px solid ${MIX(10)}; border-radius: 8px; background: ${MIX(3)};
   font-family: ${MONO}; font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; opacity: 0.75; user-select: text;
   max-height: 320px; overflow: auto; }
 `;

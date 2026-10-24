@@ -43,7 +43,9 @@ without a reload (checked).
 **Slash commands** (Stefan's pick 2026-10-24: "bubble F + answer F" on
 `http://axalon:8080/pages/user-message-polish-command-mocks/`). A one-line message that starts with
 `/name` loses its bubble: just the command, right-aligned, muted, in the code font. Paseo's time,
-rewind and copy row under it stays (copy gives `/session`, checked live). OMP's own answer to a
+rewind and copy row moves onto the command's line, left of it (on hover on desktop, always at narrow
+width), so the answer sits 4 px under the command instead of below an empty 32 px row (copy gives
+`/session`, checked live). OMP's own answer to a
 command (no model ran: `/session`, `/tools`, `/reload-plugins`, …) becomes a muted code block
 without the "Worked for 0s" footer, showing the output exactly as OMP printed it, line breaks and
 list markers included (Paseo's Markdown joins the lines or turns `* bash` into bullets). Longer
@@ -66,7 +68,7 @@ Screenshots (`screenshots/`): `before-mixed.webp` → `after-mixed.webp` / `afte
 `before-nested-long.webp` → `after-nested-long-open.webp` (120-line paste open, nested `<context>`,
 quote, lists, diff fence), `after-stays-raw.png` (inline tags, a fence holding tags, one-line
 blocks), `after-light.webp`, `web-390px.webp`, `settings.webp`, `before-commands.webp` →
-`after-commands.webp` (`/session`, `/tools`).
+`after-commands.webp` (`/session`, `/reload-plugins`, hovered).
 
 Limits:
 
