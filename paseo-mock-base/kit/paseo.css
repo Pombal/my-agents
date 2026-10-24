@@ -775,3 +775,5 @@
 }
 /* A slot whose children are all switched off by the kit (other variant/state) collapses too. */
 .slot:not(:has(> :not(.kit-off))) { display: none; }
+/* phone settings list page replaces the plugin screen (the "page" axis only exists on phone) */
+[data-vp="phone"][data-state-page="list"] .st-pane { display: none; }
