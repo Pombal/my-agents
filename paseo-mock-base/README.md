@@ -45,8 +45,9 @@ to offer stays hidden.
 
 Nothing in the dev UI may shift when a choice changes; Stefan treats layout
 shifts as bugs. A control that exists only after another choice goes in a
-bar of its own below, never beside the choice. Option lists are cycle buttons
-(fixed width, ‹ ›); a row of buttons is only for the main choice (sections).
+bar of its own below, never beside the choice. The important choices
+(sections and variants) are rows of buttons; every other option list
+(situations, kit controls, anything else) is a cycle button (fixed width, ‹ ›).
 
 ## Public-safe content
 
@@ -60,7 +61,7 @@ his, and no UI from his other plugins unless the mock is about it.
 | Tag | On | Effect |
 |---|---|---|
 | `data-section="id" data-title="Label"` | a top-level screen | One top-bar button per section. Without sections, the body is one screen. |
-| `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a cycle button in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="buttons"` on the section shows a row of buttons instead, only when the variants are the main thing to compare. |
+| `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a row of buttons in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="cycle"` on the section shows them as a cycle button instead. |
 | `data-variant="B C"` | any element | Exists only in those variants. |
 | `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | App-state axes; first value is the default. The button reads "normal session"; custom wording: `open=Files open`. |

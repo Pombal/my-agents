@@ -352,16 +352,16 @@
     }
     designBar.hidden = !designBar.childElementCount;
 
-    // Variants: a cycle button by default; data-variants-as="buttons" on the
-    // section asks for a row of buttons when the variants are the main choice.
+    // Variants: a row of buttons (an important choice, like sections);
+    // data-variants-as="cycle" on the section asks for a cycle button instead.
     variantBar.replaceChildren();
     if (sec.variants.length) {
-      if (sec.el.dataset.variantsAs === "buttons") {
-        variantBar.append(segmented(sec.variants.map((v) => ({ key: v.id, badge: v.id, label: v.label, title: v.note })), state.variant, (id) => set({ variant: id })));
-      } else {
+      if (sec.el.dataset.variantsAs === "cycle") {
         const ids = sec.variants.map((v) => v.id);
         const labels = Object.fromEntries(sec.variants.map((v) => [v.id, v.label ? `${v.id} · ${v.label}` : v.id]));
         variantBar.append(cycleControl(ids, state.variant, labels, (id) => set({ variant: id })));
+      } else {
+        variantBar.append(segmented(sec.variants.map((v) => ({ key: v.id, badge: v.id, label: v.label, title: v.note })), state.variant, (id) => set({ variant: id })));
       }
     }
     variantBar.hidden = !sections.some((s) => s.variants.length);
