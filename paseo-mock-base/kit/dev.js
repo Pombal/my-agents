@@ -44,19 +44,26 @@
         return { id: m[1].trim(), label: (m[2] || "").trim(), note: (m[3] || "").trim() };
       });
   }
-  // "session: normal | empty | crashed; net: online | offline"
+  // "session: normal | empty | crashed; panel: closed | open=Files open"
+  // A value shows as "<value> <axis>" ("normal session") unless it carries its
+  // own wording after "=".
+  const stateLabels = new Map(); // "axis\u0000value" → label
   function parseStates(s, into = new Map()) {
     for (const axis of (s || "").split(";")) {
-      const [name, values] = axis.split(":");
-      if (!name || !name.trim()) continue;
-      const list = into.get(name.trim()) || [];
-      for (const v of (values || "").split("|").map((x) => x.trim()).filter(Boolean)) {
+      const [rawName, values] = axis.split(":");
+      const name = rawName?.trim();
+      if (!name) continue;
+      const list = into.get(name) || [];
+      for (const part of (values || "").split("|").map((x) => x.trim()).filter(Boolean)) {
+        const [v, label] = part.split("=").map((x) => x.trim());
+        if (label) stateLabels.set(name + "\u0000" + v, label);
         if (!list.includes(v)) list.push(v);
       }
-      into.set(name.trim(), list);
+      into.set(name, list);
     }
     return into;
   }
+  const stateLabel = (axis, v) => stateLabels.get(axis + "\u0000" + v) || `${v} ${axis}`;
   // data-when="session: empty crashed; net: offline"
   function parseWhen(s) {
     const out = new Map();
@@ -169,12 +176,15 @@
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
     const [sec, variant] = (path || "").split("/");
-    if (sections.some((s) => s.id === sec)) state.section = sec;
+    // The hash is the whole truth: anything it omits goes back to the default.
+    state.section = sections.some((s) => s.id === sec) ? sec : sections[0].id;
     state.variant = variant || null;
     const q = new URLSearchParams(query || "");
-    if (themes.includes(q.get("theme"))) state.theme = q.get("theme");
-    if (viewports.includes(q.get("vp"))) state.vp = q.get("vp");
+    state.theme = themes.includes(q.get("theme")) ? q.get("theme") : themes[0];
+    state.vp = viewports.includes(q.get("vp")) ? q.get("vp") : viewports[0];
     if (q.get("canvas")) html.dataset.canvas = q.get("canvas");
+    else delete html.dataset.canvas;
+    state.states = {};
     for (const [k, v] of q) if (!["theme", "vp", "canvas"].includes(k)) state.states[k] = v;
   }
   function writeHash() {
@@ -307,16 +317,13 @@
     }
     return wrap;
   }
-  function cycleControl(name, values, value, labels, onPick) {
-    const wrap = el("span", "kit-ctl");
-    if (name) wrap.append(el("span", "kit-ctl-name", name));
+  function cycleControl(values, value, labels, onPick) {
     const b = el("button", "kit-cycle-btn");
-    b.dataset.cycle = values.map((v) => labels?.[v] || v).join("|");
-    b.dataset.value = labels?.[value] || value;
+    b.dataset.cycle = values.map((v) => labels[v] ?? v).join("|");
+    b.dataset.value = labels[value] ?? value;
     b.setAttribute("data-cycle-chevrons", "");
-    wrap.append(b);
     enhanceCycle(b, (_, i) => onPick(values[i]));
-    return wrap;
+    return b;
   }
 
   function renderBars() {
@@ -332,16 +339,19 @@
     caption.hidden = designBar.hidden || !sec.variants.some((v) => v.note);
     caption.textContent = sec.variants.find((v) => v.id === state.variant)?.note || "";
 
-    // Theme and viewport values name themselves ("Pure black", "Phone");
-    // app-state axes get their name as a quiet label ("session normal").
+    // Every value names itself: "Pure black", "Phone", "normal session",
+    // "closed panel". No separate labels in the bar.
     situationBar.replaceChildren();
-    if (themes.length > 1) situationBar.append(cycleControl(null, themes, state.theme, THEME_LABELS, (v) => set({ theme: v })));
+    if (themes.length > 1) situationBar.append(cycleControl(themes, state.theme, THEME_LABELS, (v) => set({ theme: v })));
     if (viewports.length > 1) {
       const vpLabels = Object.fromEntries(viewports.map((v) => [v, VIEWPORTS[v].label]));
-      situationBar.append(cycleControl(null, viewports, state.vp, vpLabels, (v) => set({ vp: v })));
+      situationBar.append(cycleControl(viewports, state.vp, vpLabels, (v) => set({ vp: v })));
     }
     for (const [axis, values] of sec.axes) {
-      if (values.length > 1 && shownAxes.has(axis)) situationBar.append(cycleControl(axis, values, state.states[axis], null, (v) => set({ states: { ...state.states, [axis]: v } })));
+      if (values.length > 1 && shownAxes.has(axis)) {
+        const labels = Object.fromEntries(values.map((v) => [v, stateLabel(axis, v)]));
+        situationBar.append(cycleControl(values, state.states[axis], labels, (v) => set({ states: { ...state.states, [axis]: v } })));
+      }
     }
     situationBar.hidden = !situationBar.childElementCount;
   }

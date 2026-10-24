@@ -36,7 +36,7 @@ to offer is not shown (the starter has no design bar).
 | `data-variants="A: Label — note \| B: Label"` | the section | Variant buttons, in this order. `— note` shows as a quiet caption under the bar (its line is reserved, so flipping moves nothing). Optional: ids are otherwise collected from `data-variant`. |
 | `data-variant="B C"` | any element | Exists only in those variants. Tag the **difference only**; never copy a whole screen per variant. |
 | `data-viewport="phone"` | any element | Exists only in that viewport: `desktop`, `laptop`, `phone`, or `wide` (= desktop + laptop). |
-| `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | Declares app-state axes; first value is the default. |
+| `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | Declares app-state axes; first value is the default. The button reads "<value> <axis>" ("normal session", "closed panel"); give a value its own wording with `=`: `panel: closed \| open=Files open`. |
 | `data-when="session: empty crashed"` | any element | Exists only in those states. Several axes: separate with `;`. A state control is hidden while none of its elements can appear (e.g. a phone-only drawer on desktop). |
 | `data-cycle="Off \| 30 min \| 1 h"` | a button inside the mock | Kit **cycle button**: left third steps back, the rest steps forward (wraps); the hovered side shades from its edge. Width fixed to the widest value. Add `data-cycle-chevrons` for faint ‹ › that light up on the hovered side (the dev bars use them). Fires `cycle` with `{ value, index }`. |
 | `data-scroll="bottom"` | a scroll area | Shows its end, like a chat scrolled to the latest turn. |

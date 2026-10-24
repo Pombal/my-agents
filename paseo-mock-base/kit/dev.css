@@ -174,14 +174,6 @@ html.kit-export .mock-frame {
   color: var(--kit-accent);
   background: color-mix(in srgb, var(--kit-accent) 16%, transparent);
 }
-.kit-ctl {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.kit-ctl-name {
-  color: var(--kit-dim);
-}
 .kit-cycle-btn {
   padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--kit-accent) 35%, transparent);
