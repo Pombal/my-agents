@@ -1,0 +1,188 @@
+<!doctype html>
+<!--
+  Paseo mock STARTER (settings): a plugin's settings screen inside Paseo's
+  settings page. Copy this folder for settings-screen mocks.
+  Guide: http://axalon:8080/pages/paseo-base/  (README.md in the same folder)
+
+  The plugin screen below uses every primitive a plugin gets from
+  @getpaseo/plugin/client (section, card, row, switch, select, input, action,
+  external link). Replace its content with the design; delete unused rows.
+  Situation axes: host (what Paseo shows instead of the plugin screen),
+  menu (the select's dropdown), page (phone only: settings list vs. screen).
+-->
+<html lang="en" data-states="host: connected=Host connected | offline=Host offline | outdated=Host outdated | missing=Screen unavailable; menu: closed=Menu closed | open=Menu open; page: screen=Plugin screen | list=Settings list">
+<head>
+<meta charset="utf-8">
+<title>Paseo settings mock starter</title>
+<link rel="stylesheet" href="/pages/paseo-base/kit/paseo.css">
+<script src="/pages/paseo-base/kit/dev.js" defer></script>
+<style>
+  /* Mock-specific CSS goes here. Variant-only rules: [data-v="B"] .thing { … } */
+</style>
+</head>
+<body>
+
+<div class="settings" data-section="settings" data-title="Settings">
+
+  <!-- ============================== SETTINGS SIDEBAR (desktop + small desktop) -->
+  <aside class="st-sidebar" data-viewport="wide">
+    <div class="st-back"><i data-icon="arrow-left" data-size="16"></i>Back</div>
+    <div class="st-group">
+      <div class="st-group-label">App</div>
+      <div class="st-item"><i data-icon="settings"></i>General</div>
+      <div class="st-item"><i data-icon="palette"></i>Appearance</div>
+      <div class="st-item"><i data-icon="panel-left"></i>Sidebar</div>
+      <div class="st-item"><i data-icon="message-square"></i>Chat</div>
+      <div class="st-item"><i data-icon="square-terminal"></i>Terminal</div>
+      <div class="st-item"><i data-icon="code-xml"></i>Editor</div>
+      <div class="st-item"><i data-icon="stethoscope"></i>Diagnostics</div>
+      <div class="st-item"><i data-icon="info"></i>About</div>
+    </div>
+    <div class="st-group">
+      <div class="st-group-label">Host</div>
+      <div class="st-item host"><span class="host-dot"></span><span class="grow">axalon</span><i data-icon="chevron-down" data-size="14"></i></div>
+      <div class="st-item"><i data-icon="server"></i>Overview</div>
+      <div class="st-item"><i data-icon="folder-git-2"></i>Projects</div>
+      <div class="st-item"><i data-icon="network"></i>Connections</div>
+      <div class="st-item"><i data-icon="smartphone"></i>Pair device</div>
+      <div class="st-item"><i data-icon="bot"></i>Agents</div>
+      <div class="st-item"><i data-icon="sparkles"></i>Metadata</div>
+      <div class="st-item"><i data-icon="folder-git-2"></i>Workspaces</div>
+      <div class="st-item"><i data-icon="boxes"></i>Providers</div>
+      <div class="st-item"><i data-icon="gauge"></i>Usage</div>
+      <div class="st-item"><i data-icon="square-terminal"></i>Terminals</div>
+      <div class="st-item is-selected"><i data-icon="blocks"></i>Plugins</div>
+    </div>
+  </aside>
+
+  <!-- ============================== PHONE: settings list page (situation: page = list) -->
+  <div class="st-phone-header" data-viewport="phone" data-when="page: list">
+    <button class="icon-btn"><i data-icon="arrow-left" data-size="20"></i></button>
+    <span class="t1">Settings</span>
+  </div>
+  <div class="st-list" data-viewport="phone" data-when="page: list">
+    <div class="st-group">
+      <div class="st-group-label">App</div>
+      <div class="st-island">
+        <div class="st-item"><i data-icon="settings"></i>General</div>
+        <div class="st-item"><i data-icon="palette"></i>Appearance</div>
+        <div class="st-item"><i data-icon="message-square"></i>Chat</div>
+        <div class="st-item"><i data-icon="info"></i>About</div>
+      </div>
+    </div>
+    <div class="st-group">
+      <div class="st-group-label">Host</div>
+      <div class="st-island">
+        <div class="st-item host"><span class="host-dot"></span><span class="grow">axalon</span><i data-icon="chevron-down" data-size="16"></i></div>
+        <div class="st-item"><i data-icon="server"></i>Overview</div>
+        <div class="st-item"><i data-icon="bot"></i>Agents</div>
+        <div class="st-item"><i data-icon="boxes"></i>Providers</div>
+        <div class="st-item"><i data-icon="blocks"></i>Plugins</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================== PHONE: back header of the plugin screen -->
+  <div class="st-phone-header" data-viewport="phone" data-when="page: screen">
+    <button class="icon-btn"><i data-icon="arrow-left" data-size="20"></i></button>
+    <span class="t1">my-plugin · My plugin</span>
+  </div>
+
+  <!-- ============================== DETAIL PANE: PageLayout + plugin screen -->
+  <main class="st-pane" data-when="page: screen">
+    <div class="st-page">
+      <h1 class="st-title" data-viewport="wide">my-plugin · My plugin</h1>
+      <button class="st-backlink"><i data-icon="arrow-left" data-size="14"></i>Back to plugins</button>
+
+      <!-- What Paseo shows instead of the plugin's screen -->
+      <p class="st-message" data-when="host: offline">Connect to this host to open plugin settings.</p>
+      <p class="st-message" data-when="host: outdated">Update this host to use plugin settings.</p>
+      <p class="st-message" data-when="host: missing">This plugin settings screen is unavailable.</p>
+
+      <!-- ===== PLUGIN SCREEN: everything below is the plugin's own UI ===== -->
+      <div data-when="host: connected">
+
+        <section class="st-section">
+          <div class="st-section-head">Status</div>
+          <div class="st-card">
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">12 items · ~3.5 GB</div>
+                <div class="st-row-hint">A read-only row: title plus muted hint, no control.</div>
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">Last run</div>
+                <div class="st-row-hint">Today 14:20</div>
+              </div>
+              <div class="st-row-control"><a class="st-link" href="#">Open log <i data-icon="external-link" data-size="12"></i></a></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="st-section">
+          <div class="st-section-head">Settings</div>
+          <div class="st-card">
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">Enable feature</div>
+                <div class="st-row-hint">SettingsSwitch. Hints wrap under the title when they run long, like this one does at narrower widths.</div>
+              </div>
+              <div class="st-row-control"><button class="st-switch is-on" aria-label="Enable feature"></button></div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">Interval</div>
+                <div class="st-row-hint">SettingsSelect: a dropdown with a right-aligned menu.</div>
+              </div>
+              <div class="st-row-control" style="position:relative">
+                <button class="st-select">30 min <i data-icon="chevron-down"></i></button>
+                <div class="st-menu" data-when="menu: open">
+                  <div class="st-menu-item">15 min</div>
+                  <div class="st-menu-item is-selected">30 min <i data-icon="check" data-size="14"></i></div>
+                  <div class="st-menu-item">1 h</div>
+                  <div class="st-menu-item">4 h</div>
+                </div>
+              </div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">Label</div>
+                <div class="st-row-hint">SettingsInput.</div>
+              </div>
+              <div class="st-row-control"><input class="st-input" placeholder="Placeholder" value=""></div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">API token</div>
+                <div class="st-row-error">Token rejected (401).</div>
+              </div>
+              <div class="st-row-control"><input class="st-input" type="password" value="sk-xxxxxxxx"></div>
+            </div>
+            <div class="st-row">
+              <div class="st-row-label">
+                <div class="st-row-title">Reset state</div>
+                <div class="st-row-hint">SettingsAction: an outline button.</div>
+              </div>
+              <div class="st-row-control"><button class="st-button">Reset</button></div>
+            </div>
+          </div>
+        </section>
+        <p class="st-footnote">Plain text under a card, e.g. "Applies to omp, omp-test."</p>
+
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+  // Settings switches toggle on click; nothing else is wired.
+  document.addEventListener("click", (e) => {
+    const sw = e.target.closest(".st-switch");
+    if (sw && !sw.disabled) sw.classList.toggle("is-on");
+  });
+</script>
+</body>
+</html>

@@ -18,6 +18,8 @@ with him.
 1. **Copy the starter:**
    `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`.
    Done when `http://axalon:8080/pages/<plugin>-mocks/` shows the Paseo screen.
+   A plugin settings screen starts from `starter-settings/` instead: Paseo's
+   settings page with a plugin screen built from every primitive plugins get.
 2. **Add the design as a delta.** Keep one copy of the screen. Add the new UI
    and tag every element that differs between options with `data-variant`.
    Name the options on the section with `data-variants`. Done when flipping
