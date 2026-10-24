@@ -1,6 +1,7 @@
 /* Paseo mock kit: everything OUTSIDE the mock (canvas, toolbars, frame label).
- * Deliberately not Paseo-looking: monospace, glass panels, violet = design,
- * amber = situation. Paseo's own look lives in tokens.css + paseo.css. */
+ * Deliberately not Paseo-looking: monospace, glass panels. Amber = design
+ * (pops out); violet = situation (part of the workbench, like the canvas).
+ * Paseo's own look lives in tokens.css + paseo.css. */
 
 :root {
   --kit-bg: #1b1c21;
@@ -9,8 +10,8 @@
   --kit-line: rgba(255, 255, 255, 0.09);
   --kit-text: #c8c9d2;
   --kit-dim: #7d7f8c;
-  --kit-design: #b9a2ff;
-  --kit-situation: #f0b955;
+  --kit-design: #f0b955;
+  --kit-situation: #b9a2ff;
   --kit-font: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 

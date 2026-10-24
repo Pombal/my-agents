@@ -266,7 +266,7 @@
     // section has notes (the line is reserved, so flipping never shifts it).
     if (!designBar.hidden) caption.style.top = designBar.getBoundingClientRect().bottom + 6 + "px";
     const above = [designBar, caption].filter((n) => !n.hidden).map((n) => n.getBoundingClientRect().bottom);
-    const top = Math.max(14, ...above) + 34;
+    const top = Math.max(14, ...above) + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
     const availW = window.innerWidth - 48;

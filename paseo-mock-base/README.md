@@ -19,8 +19,8 @@ designing, tag the differences. Served at `http://axalon:8080/pages/paseo-base/`
 
 ## Two kinds of controls (keep them apart)
 
-- **Design** (top bar, violet): which design option is shown. Sections and variants.
-- **Situation** (bottom bar, amber): where the chosen design is shown. Theme,
+- **Design** (top bar, amber): which design option is shown. Sections and variants.
+- **Situation** (bottom bar, violet, part of the workbench like the canvas): where the chosen design is shown. Theme,
   viewport and app state (empty chat, crashed agent, panel open…). A situation
   never changes the design; a variant never changes the situation.
 
