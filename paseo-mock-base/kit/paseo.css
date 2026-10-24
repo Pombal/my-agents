@@ -140,13 +140,13 @@
   color: #fff;
   background: var(--badge, #4a6ba8);
 }
-.sb-ws {
+ .sb-ws {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-height: 36px;
-  margin-bottom: 4px;
-  padding: 8px 12px 8px 8px;
+  min-height: 28px;
+  margin-bottom: 2px;
+  padding: 4px 12px 4px 16px;
   border-radius: var(--r-lg);
   font-size: var(--fs-base);
   color: var(--c-foreground-muted);
@@ -155,6 +155,25 @@
 .sb-ws.is-selected { background: var(--c-surface-sidebar-selected); color: var(--c-foreground); }
 .sb-ws-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-ws-meta { font-size: var(--fs-sm); color: var(--c-foreground-muted); }
+/* Status grouping uses the same 32px header and 28px workspace pitch as Paseo. */
+.sb-status-group { padding-bottom: 12px; }
+.sb-status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-bottom: 2px;
+  padding: 4px 8px;
+  border-radius: var(--r-lg);
+  color: var(--c-foreground-muted);
+  font-size: var(--fs-base);
+  line-height: 16px;
+}
+.sb-status-header .icon { width: 14px; height: 14px; }
+.sb-status-header[data-status-group="needs-input"] .icon { color: var(--c-status-warning); }
+.sb-status-header[data-status-group="failed"] .icon { color: var(--c-status-danger); }
+.sb-status-header[data-status-group="ready"] .icon { color: var(--c-status-warning); }
+.sb-status-header[data-status-group="working"] .icon { color: var(--c-status-running); }
 /* status dot: 20px leading slot, 6px disc */
 .dot {
   flex: none;
@@ -557,18 +576,20 @@
 }
 .st-back {
   display: flex; align-items: center; gap: 8px;
-  height: 44px; padding: 0 16px;
+  height: 36px; padding: 0 8px;
   border-bottom: 1px solid var(--c-border);
   color: var(--c-foreground-muted);
+  line-height: normal;
 }
 .st-group { display: flex; flex-direction: column; gap: 2px; padding: 8px; }
-.st-group-label { padding: 4px 8px; color: var(--c-foreground-extra-muted); font-size: var(--fs-base); }
+.st-group-label { padding: 4px 8px; color: var(--c-foreground-extra-muted); font-size: var(--fs-base); line-height: normal; }
 .st-item {
   display: flex; align-items: center; gap: 8px;
   min-height: 28px; padding: 4px 8px;
   border-radius: var(--r-lg);
   color: var(--c-foreground-muted);
   cursor: default;
+  line-height: normal;
 }
 .st-item .icon { width: 16px; height: 16px; stroke-width: 1.5; }
 .st-item:hover, .st-item.is-selected { background: var(--c-surface-sidebar-hover); }
@@ -579,27 +600,29 @@
 
 .st-pane { flex: 1; min-width: 0; overflow-y: auto; }
 .st-page { width: 100%; max-width: 720px; margin: 0 auto; padding: 24px 16px 16px; }
+[data-vp="desktop"] .st-page,
+[data-vp="laptop"] .st-page { padding-top: 60px; }
 .st-title {
   margin: 0 0 24px 4px;
   font-size: var(--fs-4xl);
   font-weight: var(--fw-medium);
   color: var(--c-foreground);
-  line-height: 1.25;
+  line-height: normal;
 }
 .st-backlink {
   display: inline-flex; align-items: center; gap: 6px;
   margin-bottom: 16px; padding: 4px 0;
   color: var(--c-foreground-muted); font-size: var(--fs-base);
-  background: none; border: 0;
+  background: none; border: 0; line-height: normal;
 }
-.st-message { color: var(--c-foreground-muted); }
+.st-message { color: var(--c-foreground-muted); line-height: normal; }
 
 /* SettingsSection: muted heading inset 4px, 24px below the section */
 .st-section { margin-bottom: 24px; }
 .st-section-head {
   display: flex; align-items: center; justify-content: space-between;
   margin: 0 0 12px 4px;
-  color: var(--c-foreground-muted); font-size: var(--fs-sm);
+  color: var(--c-foreground-muted); font-size: var(--fs-sm); line-height: normal;
 }
 /* SettingsCard: rows separated by a top border */
 .st-card {
@@ -612,16 +635,16 @@
 /* SettingsRow: label + hint left, control right */
 .st-row { display: flex; align-items: center; justify-content: space-between; padding: 16px; }
 .st-row-label { flex: 1 1 160px; min-width: 0; margin-right: 12px; }
-.st-row-title { color: var(--c-foreground); font-size: var(--fs-base); }
-.st-row-hint { margin-top: 4px; color: var(--c-foreground-muted); font-size: var(--fs-sm); }
-.st-row-error { margin-top: 4px; color: var(--c-status-danger); font-size: var(--fs-sm); }
+.st-row-title { color: var(--c-foreground); font-size: var(--fs-base); line-height: normal; }
+.st-row-hint { margin-top: 4px; color: var(--c-foreground-muted); font-size: var(--fs-sm); line-height: normal; }
+.st-row-error { margin-top: 4px; color: var(--c-status-danger); font-size: var(--fs-sm); line-height: normal; }
 .st-row-control { flex-shrink: 1; max-width: 100%; display: flex; align-items: center; gap: 8px; }
-.st-footnote { margin: -12px 0 24px 0; color: var(--c-foreground-muted); font-size: var(--fs-sm); }
+.st-footnote { margin: -12px 0 24px 0; color: var(--c-foreground-muted); font-size: var(--fs-sm); line-height: normal; }
 
 /* controls */
 .st-switch {
   flex: none; position: relative;
-  width: 36px; height: 20px; padding: 2px;
+  width: 34px; height: 20px; padding: 2px;
   border: 0; border-radius: 10px;
   background: var(--c-surface3);
 }
@@ -632,21 +655,21 @@
   transition: transform .15s;
 }
 .st-switch.is-on { background: var(--c-accent); }
-.st-switch.is-on::after { transform: translateX(16px); background: var(--c-accent-foreground); }
+.st-switch.is-on::after { transform: translateX(14px); background: var(--c-accent-foreground); }
 .st-switch:disabled { opacity: .5; }
 .st-select, .st-button {
   display: inline-flex; align-items: center; gap: 8px;
   height: 32px; padding: 0 12px;
-  border: 1px solid var(--c-border-accent); border-radius: var(--r-md);
+  border: 1px solid var(--c-border-accent); border-radius: var(--r-xl);
   background: transparent; color: var(--c-foreground);
-  font-size: var(--fs-sm); white-space: nowrap;
+  font-size: var(--fs-base); line-height: normal; white-space: nowrap;
 }
 .st-select .icon { width: 14px; height: 14px; color: var(--c-foreground-muted); }
 .st-input {
-  min-width: 180px; height: 32px; padding: 0 10px;
+  min-width: 180px; height: 32px; padding: 0 12px;
   border: 1px solid var(--c-border-accent); border-radius: var(--r-md);
-  background: transparent; color: var(--c-foreground);
-  font: inherit; font-size: var(--fs-sm); outline: none;
+  background: var(--c-surface2); color: var(--c-foreground);
+  font: inherit; font-size: var(--fs-base); line-height: 20px; outline: none;
 }
 .st-input::placeholder { color: var(--c-foreground-extra-muted); }
 .st-input:focus { border-color: var(--c-accent); }
@@ -655,27 +678,100 @@
 .st-menu {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 5;
   width: 220px; padding: 4px;
-  background: var(--c-popover); color: var(--c-popover-foreground);
-  border: 1px solid var(--c-border); border-radius: var(--r-lg);
+  background: var(--c-surface1); color: var(--c-foreground);
+  border: 1px solid var(--c-border-accent); border-radius: var(--r-lg);
   box-shadow: var(--shadow-md);
 }
-.st-menu-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: var(--r-md); font-size: var(--fs-sm); }
+.st-menu-item {
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 28px; padding: 4px 8px; border-radius: var(--r-md);
+  font-size: var(--fs-base); line-height: 18px;
+}
 .st-menu-item.is-selected, .st-menu-item:hover { background: var(--c-surface2); }
 
 /* settings on phone (compact): back header, list page as tile islands, rows wrap */
 .st-phone-header {
   flex: none; display: flex; align-items: center; gap: 8px;
-  height: 56px; padding: 0 8px;
-  border-bottom: 1px solid var(--c-border);
+  height: 64px; padding: 8px 12px 0;
 }
-.st-phone-header .t1 { flex: 1; min-width: 0; font-size: var(--fs-lg); font-weight: var(--fw-medium); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.st-phone-header .icon-btn { width: 40px; height: 40px; }
+.st-phone-header .t1 { flex: 1; min-width: 0; font-size: var(--fs-lg); font-weight: var(--fw-medium); line-height: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-phone-header .icon-btn { width: 32px; height: 32px; }
 [data-vp="phone"] .settings { flex-direction: column; }
 [data-vp="phone"] .st-row { flex-wrap: wrap; gap: 12px; }
 [data-vp="phone"] .st-row-label { margin-right: 0; }
-[data-vp="phone"] .st-input { height: 40px; font-size: var(--fs-base); }
+[data-vp="phone"] .st-input { height: 44px; padding: 0 16px; border-radius: var(--r-lg); font-size: var(--fs-base); line-height: 20px; }
 [data-vp="phone"] .st-list { flex: 1; overflow-y: auto; padding: 8px; background: var(--c-surface0); }
+[data-vp="phone"] .st-list .st-group { gap: 4px; }
 [data-vp="phone"] .st-list .st-group-label { padding: 4px 16px; }
 [data-vp="phone"] .st-list .st-island { display: flex; flex-direction: column; gap: 2px; border-radius: var(--r-2xl); overflow: hidden; }
 [data-vp="phone"] .st-list .st-item { min-height: 52px; padding: 4px 16px; gap: 12px; border-radius: 0; background: var(--c-surface1); font-size: var(--fs-lg); }
 [data-vp="phone"] .st-list .st-item .icon { width: 20px; height: 20px; }
+
+/* ======================================================= project icons (flat sidebar)
+ * Paseo's generated project icon: a coloured square with the initial, radius 25%,
+ * 16px in the sidebar, 9px white letter (components/project-icon-view.tsx,
+ * sidebar/project-leading-visual.tsx). Colours: styles/identity-colors.ts.
+ * Status sits in a 12px corner badge, knocked out of the row background. */
+:root {
+  --id-violet: #7a6aa8; --id-sky: #3d7ea6; --id-emerald: #388068; --id-orange: #a4673a;
+  --id-pink: #b05c80; --id-indigo: #6a70b8; --id-teal: #368080; --id-red: #b06260;
+  --id-amber: #8f7838; --id-blue: #5179b0;
+}
+.proj-icon {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--proj, var(--id-violet));
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+}
+.proj-icon[data-status]::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle, var(--dot) 0 3px, var(--row-bg, var(--c-surface-sidebar)) 3.5px);
+}
+.proj-icon[data-status="running"] { --dot: var(--c-status-dot-running); }
+.proj-icon[data-status="failed"] { --dot: var(--c-status-dot-danger); }
+.proj-icon[data-status="attention"] { --dot: var(--c-status-dot-warning); }
+.proj-icon[data-status="done"] { --dot: var(--c-status-dot-success); }
+.proj-icon[data-status="needs-input"] { --dot: var(--c-status-dot-warning); }
+.proj-icon[data-status="needs-input"]::after {
+  content: "!";
+  background: var(--c-status-dot-warning);
+  color: var(--row-bg, var(--c-surface-sidebar));
+  font-size: 8px;
+  font-weight: var(--fw-semibold);
+  line-height: 12px;
+}
+.sb-ws:hover { --row-bg: var(--c-surface-sidebar-hover); }
+.sb-ws.is-selected { --row-bg: var(--c-surface-sidebar-selected); }
+.drawer { --row-bg: var(--c-surface-sidebar); }
+
+/* ======================================================= plugin slots
+ * Where real Paseo shows plugin UI. Empty slots take no space; write the slot
+ * element with nothing inside (not even whitespace) so :empty matches. */
+.slot:empty { display: none; }
+[data-slot="sidebar-header"] { display: contents; }
+[data-slot="sidebar-footer"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--c-border);
+}
+/* A slot whose children are all switched off by the kit (other variant/state) collapses too. */
+.slot:not(:has(> :not(.kit-off))) { display: none; }
