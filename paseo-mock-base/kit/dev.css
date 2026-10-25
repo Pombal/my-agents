@@ -266,13 +266,17 @@ html.kit-export .mock-frame {
 /* kit/data.js: data-if="path" hides the element while the value is empty */
 .kit-data-off { display: none !important; }
 
-/* ---- Base / Notes (dev.js): bottom-right corner. Amber like the design bar,
- * since both are about the design; the situation bar steps aside when narrow. */
+/* ---- Base / Notes (dev.js): top-right corner. Amber like the design bar,
+ * since both are about the design; the top stack steps aside when narrow.
+ * One layer: the buttons sit straight on the panel, no inner well. */
 .kit-review {
+  top: 18px; /* centred on the first top bar's row (40px tall) */
   left: auto;
   right: 14px;
-  bottom: 14px;
   margin: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
   --kit-accent: var(--kit-design);
 }
 .kit-toggle kbd {

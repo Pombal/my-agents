@@ -90,7 +90,7 @@ not a design choice. PNG export always renders Acme.
 
 ## Base and notes
 
-Two toggles in the bottom-right corner, each flipped in place:
+Two toggles in the top-right corner, each flipped in place:
 
 - **Base** (`b`, off by default): plain Paseo, without the mock's changes, for
   comparing by eye. It hides variant-only elements, `data-mod`, and anything

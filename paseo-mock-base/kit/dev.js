@@ -387,6 +387,25 @@
     // bar 1 = sections (identical everywhere), bar 2 = this section's variants
     // (its slot is kept, empty, on sections without variants), then the
     // caption line when any section has notes.
+    // Base / Notes sit in the top-right corner. When the window is too narrow
+    // for both, the top stack centres in the space left of them. Only the
+    // first top bar shares their row, and it is the same on every section.
+    const topStack = [designBar, variantBar, caption];
+    for (const b of topStack) {
+      b.style.right = "";
+      b.style.maxWidth = "";
+    }
+    const firstBar = !designBar.hidden ? designBar : !variantBar.hidden ? variantBar : null;
+    if (!reviewBar.hidden && firstBar) {
+      const rv = reviewBar.getBoundingClientRect();
+      if (firstBar.getBoundingClientRect().right > rv.left - 12) {
+        const right = window.innerWidth - rv.left + 12;
+        for (const b of topStack) {
+          b.style.right = right + "px";
+          b.style.maxWidth = `calc(100vw - ${right + 16}px)`;
+        }
+      }
+    }
     let y = 14;
     let slotH = 0;
     if (!designBar.hidden) {
@@ -403,18 +422,6 @@
       y += 16;
     }
     const top = y + 46;
-    // Base / Notes sit in the bottom-right corner. When the window is too
-    // narrow for both, the situation bar centres in the space left of them.
-    situationBar.style.right = "";
-    situationBar.style.maxWidth = "";
-    if (!reviewBar.hidden && !situationBar.hidden) {
-      const rv = reviewBar.getBoundingClientRect();
-      if (situationBar.getBoundingClientRect().right > rv.left - 12) {
-        const right = window.innerWidth - rv.left + 12;
-        situationBar.style.right = right + "px";
-        situationBar.style.maxWidth = `calc(100vw - ${right + 16}px)`;
-      }
-    }
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
     // The notes column's room is reserved whenever the page has notes, so
@@ -445,7 +452,7 @@
   caption.className = "kit-caption";
   const situationBar = document.createElement("div");
   situationBar.className = "kit-bar kit-situation";
-  // Bottom-right corner: Base (plain Paseo) and Notes, on every mock with a design.
+  // Top-right corner: Base (plain Paseo) and Notes, on every mock with a design.
   const reviewBar = document.createElement("div");
   reviewBar.className = "kit-bar kit-review";
 
@@ -494,14 +501,12 @@
       b.onclick = onClick;
       return b;
     };
-    const wrap = el("div", "kit-seg");
-    if (hasDelta) wrap.append(toggle("Base", "b", state.base, "Plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
+    if (hasDelta) reviewBar.append(toggle("Base", "b", state.base, "Plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
     if (hasNotes) {
       const b = toggle("Notes", "n", state.notes, "What the design changes, how and why (n)", () => set({ notes: !state.notes }));
       b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
-      wrap.append(b);
+      reviewBar.append(b);
     }
-    if (wrap.childElementCount) reviewBar.append(wrap);
     reviewBar.hidden = !reviewBar.childElementCount;
 
     // Variants: a row of buttons (an important choice, like sections);
