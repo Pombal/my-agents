@@ -99,6 +99,8 @@ const OverviewSchema = z.object({
   showHeaderButton: z.boolean(),
   /** Settings → Show composer pill. */
   showComposerPill: z.boolean(),
+  /** Settings → Commits shown: how many rows Files & commits lists. */
+  commitsShown: z.number(),
   etag: z.string(),
 });
 export type Overview = z.output<typeof OverviewSchema>;

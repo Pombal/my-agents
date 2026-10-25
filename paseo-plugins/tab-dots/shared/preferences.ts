@@ -19,6 +19,8 @@ export const preferences = defineSettings({
     replaceTime: z.boolean().default(true),
     /** edge = where the time was, shifts left on row hover (menu) · steady = right, never moves · left = right after the title. */
     align: z.enum(ALIGNS).default("edge"),
+    /** Running dots pulse; off keeps them solid. Reduced motion stops the pulse either way. */
+    animate: z.boolean().default(true),
   }),
 });
 export type Preferences = z.output<typeof preferences.schema>;

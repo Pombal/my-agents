@@ -7,7 +7,7 @@ Colours follow Paseo's own status colours:
 - Green: the agent finished and you haven't looked yet.
 - Red: error.
 - Amber: waiting for your permission.
-- Blue: running (only in the "Unread and running" and "Every tab" modes). A running dot rests small and dim, and a soft flash grows it to full size; several running dots flash one after another, left to right, and all rows keep the same beat. Still dots when the system asks for reduced motion.
+- Blue: running (only in the "Unread and running" and "Every tab" modes). A running dot rests small and dim, and a soft flash grows it to full size; several running dots flash one after another, left to right, and all rows keep the same beat. Still dots when **Animate running dots** is off or the system asks for reduced motion.
 - Gray: read (only in "Every tab").
 
 Hover a dot to see the tab's title and state; click it to open that tab. The click goes through a blank plugin screen that hands over to Paseo's own tab navigation, so only the main pane changes; the sidebar and other plugins stay as they are. A clicked unread dot disappears at once; if Paseo hasn't marked the tab read within 5 seconds, it comes back. Dots never change under the pointer: while you hover a row's dots, updates for that row wait until the pointer leaves. Dots follow the tab order of that workspace on this device (all panes, left to right). Sub-agents are left out. For a workspace this device hasn't opened recently, tabs missing from the saved layout are added in the same order Paseo will add them the next time you open it.
@@ -24,8 +24,9 @@ Settings → Plugins → tab-dots → Tab dots, or ⌘K "Tab dots settings" (⌘
 - **Dot size**: Regular (5 px, up to 5 dots) or Small (4 px, up to 8). Extra tabs show as "+N"; tabs waiting on you are kept first, then running ones.
 - **Replace the time** (on by default): rows with dots hide their last-activity time.
 - **Dot position**: Right edge (default) puts the dots where the time was; hovering the row brings back the row menu, so they move left by its width. Steady keeps them on the right but never moves them, leaving the menu's room free. Left puts them right after the workspace title.
+- **Animate running dots** (on by default): off keeps running dots solid, in the same blue, in the rows and the hover tooltip. The system's reduced-motion setting stops the pulse either way. The phone Unread row never animates.
 
-Settings are stored on the host, so every window and phone connected to it uses them. Replace the time and Dot position only apply to web and desktop. Changes show at once, in the settings screen and from ⌘K; if the host can't save one, it is undone and an error says so.
+Settings are stored on the host, so every window and phone connected to it uses them. Replace the time, Dot position and Animate running dots only apply to web and desktop. Changes show at once, in the settings screen and from ⌘K; if the host can't save one, it is undone and an error says so.
 
 ## Speed
 

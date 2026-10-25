@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { sections } from "../shared/parse";
+import { MAX_COMMITS } from "../shared/settings";
 import { Lru } from "./lru";
 import { readText } from "./scan";
 
@@ -204,11 +205,11 @@ async function sectionChangesNow(top: string, file: string): Promise<SectionChan
 
 const logCache = new Lru<string, { at: number; result: Promise<{ hash: string; atMs: number; subject: string }[]> }>(500);
 
-/** Newest commits touching the effort (100 at most), cached for 20 s. */
+/** Newest commits touching the effort (one more than `MAX_COMMITS`, to tell there are more), cached for 20 s. */
 export function commits(top: string, effortDir: string): Promise<{ hash: string; atMs: number; subject: string }[]> {
   const cached = logCache.get(effortDir);
   if (cached && Date.now() - cached.at < 20_000) return cached.result;
-  const result = git(top, ["log", "-n", "101", "--format=%h%x1f%ct%x1f%s", "--", path.relative(top, effortDir)]).then(
+  const result = git(top, ["log", "-n", String(MAX_COMMITS + 1), "--format=%h%x1f%ct%x1f%s", "--", path.relative(top, effortDir)]).then(
     (out) =>
       out
         .split("\n")

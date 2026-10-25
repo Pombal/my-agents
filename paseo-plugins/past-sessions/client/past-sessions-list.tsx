@@ -631,7 +631,8 @@ function useDensity(): [Density, (density: Density) => void] {
     chosen ?? saved,
     (density) => {
       setChosen(density);
-      if (settings.status === "ready") void settings.save({ density }, settings.revision);
+      // The whole object: a missing field would fall back to its default.
+      if (settings.status === "ready") void settings.save({ ...settings.values, density }, settings.revision);
     },
   ];
 }

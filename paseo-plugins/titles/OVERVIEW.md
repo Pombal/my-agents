@@ -56,8 +56,8 @@ The setting **Automatic titles**:
   (about 2–5 s, on a subscription login).
 
 The same screen holds **Automatic workspace titles** (see
-[Workspace titles](#workspace-titles)) and **Model provider** / **Model** (see
-[Model](#model)).
+[Workspace titles](#workspace-titles)), **Model provider** / **Model** and
+**Timeout** (see [Model](#model)).
 
 **Names you set by hand are never changed automatically.** Titles only manages
 two kinds of names: Paseo's placeholder (the first prompt line: first nonblank
@@ -106,7 +106,7 @@ outcome (it replaces the Retitling… toast):
 | Renamed | ✓ `Renamed to Pagination (was Sorting)` (the "was" part only for short old names) |
 | Nothing to name | ⚠ `Couldn't retitle: The model found no subject to name` |
 | Renamed by hand meanwhile | ⚠ `Couldn't retitle: The tab was renamed meanwhile; that name stays` |
-| CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `OMP …`; `took longer than 20 s`, or `failed:` and its first error line) |
+| CLI missing / slow / broken | ⚠ `Couldn't retitle: Claude CLI not found on the daemon's PATH` (or `OMP …`; `took longer than 20 s` with the Timeout setting's value, or `failed:` and its first error line) |
 
 Pressing a trigger again while a check is running does nothing; the spinner
 shows that a check is already under way. A retitle pressed while an automatic
@@ -223,9 +223,11 @@ OpenRouter left out) only the first ~30 were reachable on a 900 px window.
 
 Both CLIs run with the `ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables stripped,
 so no inherited API key or 3P routing is used. If the daemon's service PATH
-omits `~/.local/bin`, Titles adds it so native installations still work. A
-20 s timeout, no retries. Errors name the provider: `Claude CLI failed: …`,
-`OMP failed: …` with the CLI's first error line.
+omits `~/.local/bin`, Titles adds it so native installations still work. No
+retries; **Timeout** (20 s default; 20 / 40 / 60 / 120 s, any whole 5–120 s
+in the settings file) kills the CLI of either provider, read for each request
+so a change applies to the next one. Errors name the provider: `Claude CLI
+failed: …`, `OMP failed: …` with the CLI's first error line.
 
 **Claude Code**: `claude -p --model haiku` through Stefan's subscription
 login, with `--safe-mode`, no tools, no MCP, no saved session. It takes about
@@ -316,7 +318,7 @@ paseo plugin disable titles
 
 - `shared/agent-titles.mjs`: pure agent-title policy (placeholder rule, which titles Titles manages, how a sibling tab is described to Haiku, which timelines can be read without starting an agent, answer parsing, conversation excerpt).
 - `shared/workspace-titles.mjs`: pure workspace-title policy (whose a workspace's title is, including Paseo's generated one; how project siblings are marked; splitting and capping the sibling lists; a workspace's first agent).
-- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`), *Automatic workspace titles* (`workspaces`, on/off), *Model provider* (`provider`: `claude` / `omp`) and the OMP *Model* (`ompModel`).
+- `shared/settings.ts`: the *Automatic titles* setting (`off` / `first` / `every`), *Automatic workspace titles* (`workspaces`, on/off), *Model provider* (`provider`: `claude` / `omp`), the OMP *Model* (`ompModel`) and *Timeout* (`timeout`, seconds, default 20).
 - `server/prompts.ts`: the shared rules and the three situation tasks; `WORKSPACE_PROMPTS` with the workspace rules and their `first` / `manual` tasks.
 - `server/model.ts`: the Claude CLI and OMP calls, the OMP isolation extension and overlay it writes to the data directory.
 - `server/rename.ts`: compare-and-set rename plus ownership labels over the local daemon RPC.

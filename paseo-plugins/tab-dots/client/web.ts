@@ -149,6 +149,7 @@ const CSS = `
 [${DOTS}] > span { font-size: 11px; line-height: 20px; opacity: .7; margin-left: 1px; font-variant-numeric: tabular-nums; }
 @keyframes tab-dots-pulse { ${PULSE_KEYFRAMES.map(({ offset, opacity, transform }) => `${offset * 100}% { opacity: ${opacity}; transform: ${transform}; }`).join(" ")} }
 @media (prefers-reduced-motion: reduce) { [data-tab-dots-tip] i { animation: none !important; } }
+[data-tab-dots-tip][data-still] i { animation: none; }
 /* Right edge: the time's slot keeps 18 px for the hover menu; the dots take it until the row is hovered. */
 [${REPLACE}] [data-testid="sidebar-workspace-timestamp"] { display: none !important; }
 [${REPLACE}][${ALIGN}="edge"]:not(:hover):not(:focus-within) [${DOTS}] + div:has([data-testid="sidebar-workspace-timestamp"]) { display: none !important; }
@@ -284,8 +285,9 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     const existing = row.querySelector(`[${DOTS}]`);
     if (!titleRow || dots.length === 0) return { row, titleRow: null, dots, more, color: "", tone: "dark", signature: "", existing };
     const { color, tone } = inkOf(titleRow.firstElementChild as El);
-    // Reduced motion is part of the signature: switching it redraws the dots with or without pulse.
-    const signature = JSON.stringify([color, preferences.size, more, dots, reducedMotion.matches]);
+    // Whether running dots pulse is part of the signature: switching the setting or reduced
+    // motion redraws the dots with or without pulse.
+    const signature = JSON.stringify([color, preferences.size, more, dots, preferences.animate && !reducedMotion.matches]);
     return { row, titleRow, dots, more, color, tone, signature, existing };
   };
 
@@ -315,7 +317,7 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
       element.setAttribute("data-state", dot.state);
       element.setAttribute("data-title", dot.title);
       element.setAttribute("data-agent", dot.agentId);
-      if (dot.state === "running" && !reducedMotion.matches) {
+      if (dot.state === "running" && preferences.animate && !reducedMotion.matches) {
         const animation = element.animate(PULSE_KEYFRAMES, { duration: PULSE_MS, iterations: Infinity });
         animation.pause();
         pulses.set(element, { animation, index });
@@ -434,6 +436,8 @@ export function startTabDots(initial: Preferences, openTab: OpenTab): TabDots {
     const state = (dot.getAttribute("data-state") ?? "read") as DotState;
     const container = dot.parentElement;
     tip.setAttribute("data-tone", container?.getAttribute("data-tone") ?? "dark");
+    if (preferences.animate) tip.removeAttribute("data-still");
+    else tip.setAttribute("data-still", "");
     tip.textContent = "";
     const swatch = document.createElement("i");
     swatch.setAttribute("data-state", state);

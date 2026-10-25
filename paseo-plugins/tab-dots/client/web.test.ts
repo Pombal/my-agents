@@ -428,4 +428,21 @@ describe("running pulse", () => {
     expect(dotsIn(row)).toEqual(["a1"]);
     expect(pulses(row)).toEqual({});
   });
+
+  test("with Animate running dots off the dots stay solid, and switching it applies at once", async () => {
+    const row = addRow("srv_A:wks_a");
+    const dots = start(agentsOf(running("a1", "wks_a")), { ...SHOW_RUNNING, animate: false });
+    await frames();
+    expect(dotsIn(row)).toEqual(["a1"]);
+    expect(pulses(row)).toEqual({});
+
+    dots.setPreferences(SHOW_RUNNING);
+    await frames();
+    expect(Object.keys(pulses(row))).toEqual(["a1"]);
+
+    dots.setPreferences({ ...SHOW_RUNNING, animate: false });
+    await frames();
+    expect(dotsIn(row)).toEqual(["a1"]);
+    expect(pulses(row)).toEqual({});
+  });
 });

@@ -4,10 +4,16 @@ import { z } from "zod";
 export const DensitySchema = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof DensitySchema>;
 
-/** List density, saved on the host so it survives app reloads and other windows see it. */
+/**
+ * View preferences, saved on the host so they survive app reloads and other windows see them.
+ * `density`: list rows. `showHeaderButton`: the History button in each workspace's header.
+ */
 export const viewSettings = defineSettings({
   id: "view",
   scope: "host",
   version: 1,
-  schema: z.object({ density: DensitySchema.default("comfortable") }),
+  schema: z.object({
+    density: DensitySchema.default("comfortable"),
+    showHeaderButton: z.boolean().default(true),
+  }),
 });

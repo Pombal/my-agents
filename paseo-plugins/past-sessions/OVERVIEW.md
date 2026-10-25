@@ -94,7 +94,8 @@ on disk. Called "Hide" because Paseo already uses Archive (closing an agent) and
   place: if the list is already open as a tab, the button moves it to the sidebar. A second click
   doesn't close it (the plugin API can't close panels); close it as any explorer tab. Phones show
   no header buttons and their explorer has only Changes/Files, so there the way in stays the
-  sidebar row and the Command Center.
+  sidebar row and the Command Center. Settings → **Show header button** (on by default) hides the
+  button in every workspace header at once (see "Settings").
 
 ## Toolbar
 
@@ -207,6 +208,15 @@ loading the client once).
 - A preview needs an assistant reply in the transcript's last 64 KB; a session that ends in a
   long tool run shows an older reply or no preview. Tooltips (full path, absolute time) and hover
   exist only on web/desktop.
+
+## Settings
+
+Settings → Plugins → **Past sessions** (`client/settings-screen.tsx`), saved on the host in the
+same `view` settings as the density:
+- **Show header button** (default on): the History button in each workspace's header. Off hides
+  it in every workspace (`visible: false`) as soon as the switch saves; other devices pick it up on
+  start or when the app comes back to the foreground. The sidebar row and the Command Center
+  entry stay either way.
 
 ## Disable
 

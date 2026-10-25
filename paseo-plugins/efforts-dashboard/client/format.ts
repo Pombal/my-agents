@@ -41,6 +41,15 @@ export function shortDate(ms: number, now = Date.now()): string {
   return date.getFullYear() === new Date(now).getFullYear() ? day : `${day} ${date.getFullYear()}`;
 }
 
+/**
+ * The Commits heading for `shown` rows out of `sent`; `more` when the server stopped at its cap:
+ * `Commits · 12`, `Commits · 30 of 64`, `Commits · 30 of 100+`.
+ */
+export function commitsHeading(shown: number, sent: number, more: boolean): string {
+  const total = `${sent}${more ? "+" : ""}`;
+  return shown < sent || more ? `Commits · ${shown} of ${total}` : `Commits · ${shown}`;
+}
+
 /** `2026-10-19` → `19 Oct`. */
 export function isoDay(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);

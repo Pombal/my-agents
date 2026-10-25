@@ -44,6 +44,7 @@ const overview = (slug: string | null, etag: string): Overview => ({
   warnings: [],
   showHeaderButton: true,
   showComposerPill: false,
+  commitsShown: 30,
   etag,
 });
 const bound = (value: Overview | null) => {

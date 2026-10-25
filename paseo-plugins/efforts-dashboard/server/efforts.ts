@@ -18,7 +18,7 @@ import type {
   readRpc,
   searchRpc,
 } from "../shared/rpc";
-import type { folderSettings } from "../shared/settings";
+import { MAX_COMMITS, type folderSettings } from "../shared/settings";
 import type { BindingStore } from "./bindings";
 import { commits, effortChanges, numstat, sectionChanges, type Change } from "./git";
 import { firstParagraph, headFields, knownStatus, lead, plain, sections, siblingLinks, topBullets } from "../shared/parse";
@@ -205,7 +205,8 @@ export class EffortsService {
     );
     const showHeaderButton = settings.status === "ready" ? settings.values.showHeaderButton : true;
     const showComposerPill = settings.status === "ready" ? settings.values.showComposerPill : false;
-    return unlessUnchanged({ home, roots: out, workspaces: infos, warnings, showHeaderButton, showComposerPill }, since);
+    const commitsShown = settings.status === "ready" ? settings.values.commitsShown : 30;
+    return unlessUnchanged({ home, roots: out, workspaces: infos, warnings, showHeaderButton, showComposerPill, commitsShown }, since);
   }
 
   private async guardRoot(root: string): Promise<void> {
@@ -379,8 +380,8 @@ export class EffortsService {
         anomalies,
         uncommitted: git ? { rows, paths: changes.map((change) => path.join(scan.key, change.rel)), repo: git.top } : null,
         leansOn,
-        commits: log.slice(0, 100),
-        moreCommits: log.length > 100,
+        commits: log.slice(0, MAX_COMMITS),
+        moreCommits: log.length > MAX_COMMITS,
       } satisfies Omit<EffortDetail, "etag">,
       since,
     );

@@ -8,8 +8,6 @@ import { settings, type Settings } from "../shared/settings";
 import { PROMPTS, WORKSPACE_PROMPTS, type TitleSituation, type WorkspaceSituation } from "./prompts";
 import { DATA_DIR } from "./rename";
 
-const TIMEOUT_MS = 20_000;
-
 // What the model sees besides the conversation: the workspace's other tabs, "title"
 // for the every-reply check, "rejected" for a manual retitle.
 export type Sibling = string | { title: string; note: string };
@@ -19,7 +17,7 @@ export type TitleRequest = { workspace: string; siblings: Sibling[]; conversatio
 // the most recently active ones of other projects; "tabs" and "rejected" for a manual retitle.
 export type WorkspaceTitleRequest = { projectName: string; project: Sibling[]; elsewhere: { title: string; project: string }[]; conversation: string; tabs?: string[]; rejected?: string[] };
 
-export type ModelChoice = Pick<Settings, "provider" | "ompModel">;
+export type ModelChoice = Pick<Settings, "provider" | "ompModel" | "timeout">;
 
 // The settings' model, or the defaults while the settings file is unreadable, so Retitle still works.
 export async function modelChoice(preferences: PluginSettings<typeof settings.schema>): Promise<ModelChoice> {
@@ -33,17 +31,18 @@ export const decideWorkspaceTitle = (model: ModelChoice, situation: WorkspaceSit
 // The same prompt and request either way; the answer is parsed the same way.
 async function ask(model: ModelChoice, systemPrompt: string, request: object) {
   const input = JSON.stringify(request);
-  return parseDecision(model.provider === "omp" ? await askOmp(model.ompModel, systemPrompt, input) : await askClaude(systemPrompt, input));
+  const timeoutMs = model.timeout * 1000;
+  return parseDecision(model.provider === "omp" ? await askOmp(model.ompModel, systemPrompt, input, timeoutMs) : await askClaude(systemPrompt, input, timeoutMs));
 }
 
 // Claude Haiku through Stefan's Claude Code subscription login: no tools, MCP,
 // customizations or saved session.
-function askClaude(systemPrompt: string, input: string) {
+function askClaude(systemPrompt: string, input: string, timeoutMs: number) {
   // No telemetry, update checks or flag fetches for a one-shot title call: about
   // 1 s less per call (1.3 s before the answer, 0.7 s exit flush after it).
   const env = { ...subprocessEnv(), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" };
   const args = ["-p", "--model", "haiku", "--safe-mode", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--system-prompt", systemPrompt, "--output-format", "text"];
-  return run("Claude CLI", "claude", args, env, input).then(({ stdout }) => stdout);
+  return run("Claude CLI", "claude", args, env, input, timeoutMs).then(({ stdout }) => stdout);
 }
 
 // OMP with its own logins. Its CLI flags can't drop the generated project
@@ -81,14 +80,14 @@ const writeOmpFiles = () => ompFiles ??= (async () => {
   return files;
 })().catch(error => { ompFiles = null; throw error; });
 
-async function askOmp(model: string, systemPrompt: string, input: string) {
+async function askOmp(model: string, systemPrompt: string, input: string, timeoutMs: number) {
   const { extension, overlay } = await writeOmpFiles();
   const env = { ...subprocessEnv(), PASEO_TITLES_SYSTEM_PROMPT: systemPrompt };
   const args = ["-p", "--no-session", "--no-title", "--no-tools", "--no-lsp", "--no-skills", "--no-rules", "--no-prewalk",
     "--no-extensions", "-e", extension, "--config", overlay, "--model", model, ...(model.startsWith("@") ? [] : ["--thinking", "medium"])];
   // Run from the data directory: from the temp directory (25,000 entries here)
   // OMP's repository scan took 1.8 s of its 2.2 s startup.
-  const { stdout, stderr } = await run("OMP", "omp", args, env, input, DATA_DIR);
+  const { stdout, stderr } = await run("OMP", "omp", args, env, input, timeoutMs, DATA_DIR);
   // OMP goes on without an extension it couldn't load; that answer saw Stefan's context, so drop it.
   const failed = stderr.split("\n").find(line => line.startsWith("Failed to load extension"));
   if (failed) throw new Error(`OMP failed: ${failed.slice(0, 160)}`);
@@ -108,14 +107,15 @@ function subprocessEnv() {
   return env;
 }
 
-// A failure carries the CLI's first error line (OMP's "Working..." status line skipped).
-function run(name: string, command: string, args: string[], env: NodeJS.ProcessEnv, input: string, cwd = tmpdir()) {
+// A failure carries the CLI's first error line (OMP's "Working..." status line skipped);
+// past `timeoutMs` (the Timeout setting) the CLI is killed.
+function run(name: string, command: string, args: string[], env: NodeJS.ProcessEnv, input: string, timeoutMs: number, cwd = tmpdir()) {
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = execFile(command, args, { cwd, env, timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(command, args, { cwd, env, timeout: timeoutMs, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve({ stdout, stderr });
       const cause = error as NodeJS.ErrnoException & { killed?: boolean };
       if (cause.code === "ENOENT") reject(new Error(`${name} not found on the daemon's PATH`));
-      else if (cause.killed) reject(new Error(`${name} took longer than ${TIMEOUT_MS / 1000} s`));
+      else if (cause.killed) reject(new Error(`${name} took longer than ${timeoutMs / 1000} s`));
       else {
         const line = [stderr, stdout, error.message].flatMap(text => text.split("\n")).map(text => text.trim()).find(text => text && text !== "Working...");
         reject(new Error(`${name} failed: ${(line ?? "").slice(0, 160)}`));

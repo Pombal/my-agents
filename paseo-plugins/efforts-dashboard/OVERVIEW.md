@@ -43,8 +43,9 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 - Settings → Plugins → efforts-dashboard's menu → **Efforts** (route
   `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): **Show header button** (the
   header pill, on by default; off removes it from every workspace header, the Efforts tab and
-  sidebar row stay), **Show composer pill** (off by default) and extra folders. Not in the
-  settings sidebar.
+  sidebar row stay), **Show composer pill** (off by default), **Extra folders** and **Excluded
+  folders** (comma-separated, one Save), and **Commits shown** (10 / 30 / 50 / 100, default 30).
+  A save re-reads the overview, so it applies at once. Not in the settings sidebar.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at
@@ -60,7 +61,9 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   `.artifacts/<slug>/` when it exists.
 - **Files & commits** (branch icon in the head row, amber count when something isn't
   committed): its own page with Not committed (per file/folder with time, changed map sections,
-  `+16 −3` / `2 new`; copy-paths icon) and the effort's commits.
+  `+16 −3` / `2 new`; copy-paths icon) and the effort's newest commits (Settings → Commits shown;
+  the server sends at most 100). The heading counts the rows shown: `Commits · 12`,
+  `Commits · 30 of 64`, `Commits · 30 of 100+`.
 - Drill-in (D): `1 of 9` with prev/next, relations (`blocks`, `after`), path, raw Status line only
   when it says more than the word, the ticket body, **Grill / Prototype / Research / Work in new
   chat** (creates an agent in this workspace with that workspace's latest chat settings and opens
@@ -78,8 +81,8 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
 
 ## Data rules
 - Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so worktrees share their
-  repository's efforts) plus the extra folders setting. `__share__` copies and configured fixture
-  folders are skipped unless listed; a workspace whose `.scratch` is skipped says so in its Efforts tab, with
+  repository's efforts) plus the extra folders setting. `__share__` copies and folders under an
+  Excluded folder are skipped unless listed in Extra folders; a workspace whose `.scratch` is skipped says so in its Efforts tab, with
   the reason and where to list it. `_to_organize_`, hidden folders and folders with no
   map/issues/Markdown are not efforts. No map: title = first `# ` of the biggest top-level `.md`.
 - Ticket status = first word of `Status:` (bold, dates and prose allowed) → open / claimed /
@@ -101,10 +104,8 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   surface2 on dark themes, and on light ones 35 % of the muted text over surface0 (light surface2
   is near-white and the empty bar vanished). Chips and the Status tag on a highlighted row
   (surface2) switch to surface0 so they stay visible.
-- Optional fixture exclusions are configured as `excludedFolders` in the host's `folders` settings
-  document (`~/.paseo/plugin-settings/efforts-dashboard/folders.json`). The default is an empty
-  array. Entries are absolute paths or `~/…` paths; descendants are skipped, and explicit extra
-  folders still override the exclusion. Settings-screen saves preserve this field.
+- Excluded folders (`excludedFolders`, empty by default): absolute or `~/…` paths; their
+  descendants are skipped, and Extra folders still override the exclusion.
 
 ## Speed (measured live 2026-10-20)
 - Server: overview 34 → 13 ms, one detail poll 32 → 10.5 ms, a larger effort ~70 → 16 ms,
