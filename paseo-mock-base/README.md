@@ -14,6 +14,15 @@ updates on reload, so the link is the result. Screenshots, PNG exports,
 visual checks and follow-up fixes run in a subagent while you keep talking
 with him.
 
+## Deceptive simplicity
+
+Clear and dense, not busy. Content first; secondary chrome muted, small, or
+behind hover and pop-outs; nothing visible unless relevant, orienting
+information never stripped. Nothing repeated, nothing lost: a focused
+representation by importance and context, each fact in one home at the
+level it earns (glance, hover, click; phones tap where desktop hovers).
+A screen that is even a little bit confusing didn't get simpler.
+
 ## Build a mock
 
 1. **Copy the starter:**
