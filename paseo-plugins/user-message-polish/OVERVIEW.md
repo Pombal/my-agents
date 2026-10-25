@@ -26,7 +26,8 @@ asked for literal tags with a one-line preview instead of a tag name, hint and l
 - A long opening tag is cut to one line in the row; hovering shows it whole.
 
 **Markdown.** Bold, italic, strikethrough, inline code, fenced code (language kept), links and bare
-URLs (open in a new tab), bullet and numbered lists (nested), quotes, headings (bold, body size),
+URLs (open in a new tab), bullet and numbered lists (nested), quotes (smaller than your text: 12 px
+on a ×1.3 line, muted, left bar), headings (bold, body size),
 rules. Single line breaks stay line breaks, like Paseo's plain text; a blank line becomes an 8 px
 gap. Everything else stays literal text. A message with no Markdown and nothing to fold is left
 exactly as Paseo draws it.
