@@ -36,7 +36,8 @@ function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null 
 
 /**
  * One icon-only header button per workspace (progress pie + chevron; popover option B, a sheet on
- * phones) and, on compact layouts only, one composer pill per chat with the effort and its done count.
+ * phones) and, on compact layouts only and when enabled in settings, one composer pill per chat
+ * with the effort and its done count.
  */
 export function startButtons(client: PluginClientContext): () => void {
   /** What each registration shows now; `update` is only called when that changes. */
@@ -91,7 +92,7 @@ export function startButtons(client: PluginClientContext): () => void {
     }
     for (const [agentId, workspaceId] of agents) {
       const workspace = byId.get(workspaceId);
-      const label = workspace ? pillLabel(overview, workspace) : null;
+      const label = workspace && overview.showComposerPill ? pillLabel(overview, workspace) : null;
       const current = pills.get(agentId);
       if (current) {
         const visible = !!label && compact;

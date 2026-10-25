@@ -97,6 +97,8 @@ const OverviewSchema = z.object({
   warnings: z.array(z.string()),
   /** Settings → Show header button. */
   showHeaderButton: z.boolean(),
+  /** Settings → Show composer pill. */
+  showComposerPill: z.boolean(),
   etag: z.string(),
 });
 export type Overview = z.output<typeof OverviewSchema>;

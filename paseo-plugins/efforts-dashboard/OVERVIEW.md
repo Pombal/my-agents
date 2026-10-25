@@ -38,12 +38,13 @@ effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<s
   readable); chips open that workspace with its Efforts panel. Phones: two-line rows (name /
   `Next 01 …`, done count + bar), the effort opens full screen.
 - **Phone composer pill** `acme-task · 0/9 done` on every chat of a bound workspace, compact
-  layouts only (< 720 px); tap → sheet with all rows; a row opens in place with its Question,
-  status line, the chat button and Read.
+  layouts only (< 720 px) and **off by default** (Settings → Show composer pill); tap → sheet with
+  all rows; a row opens in place with its Question, status line, the chat button and Read.
 - Settings → Plugins → efforts-dashboard's menu → **Efforts** (route
   `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): **Show header button** (the
   header pill, on by default; off removes it from every workspace header, the Efforts tab and
-  sidebar row stay) and extra folders. Not in the settings sidebar.
+  sidebar row stay), **Show composer pill** (off by default) and extra folders. Not in the
+  settings sidebar.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at

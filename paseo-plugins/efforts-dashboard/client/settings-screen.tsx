@@ -6,14 +6,14 @@ import { Text, View } from "react-native";
 import { folderSettings } from "../shared/settings";
 import { fetchOverview } from "./runtime";
 
-/** Folders scanned besides the `.scratch` of Paseo's workspaces, and whether the header pill shows. */
+/** Folders scanned besides the `.scratch` of Paseo's workspaces, and which pills show. */
 export function SettingsScreen({ theme }: PluginSurfaceProps) {
   const settings = useSettings(folderSettings);
   const [draft, setDraft] = useState<string | null>(null);
   if (settings.status !== "ready") {
     return <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>{settings.status === "loading" ? "Loading…" : settings.error}</Text>;
   }
-  const { extraFolders, showHeaderButton } = settings.values;
+  const { extraFolders, showHeaderButton, showComposerPill } = settings.values;
   const saved = extraFolders.join(", ");
   const value = draft ?? saved;
   const folders = value
@@ -28,13 +28,20 @@ export function SettingsScreen({ theme }: PluginSurfaceProps) {
     });
   return (
     <View style={{ gap: 16 }}>
-      <SettingsSection title="Header">
+      <SettingsSection title="Buttons">
         <SettingsSwitch
           label="Show header button"
           hint="The effort pill in each workspace's header. The Efforts tab and the sidebar row stay either way."
           value={showHeaderButton}
           disabled={settings.saving}
           onValueChange={(value) => void save({ showHeaderButton: value })}
+        />
+        <SettingsSwitch
+          label="Show composer pill"
+          hint="The effort pill above each chat's composer, on phones and narrow windows. Off by default."
+          value={showComposerPill}
+          disabled={settings.saving}
+          onValueChange={(value) => void save({ showComposerPill: value })}
         />
       </SettingsSection>
       <SettingsSection
