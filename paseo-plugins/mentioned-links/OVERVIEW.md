@@ -8,7 +8,7 @@ A **links** pill in each chat's composer, next to btw and the other pills. It co
 
 ## Workspace links page
 
-An icon-only **link** button in each workspace's header (Lucide link icon, tooltip "Links in this workspace") opens that workspace's links as a tab in its main area, next to its chats. Paseo shows plugin header buttons on wide layouts only: from 1100 px it shows three plugin buttons, below that one plus a `⋯` overflow, and its phone layout (below 720 px) has no plugin header buttons at all, so on phones the page can't be opened yet (see Limits). Settings → Plugins → mentioned-links → **Mentioned links** (route `/settings/hosts/<server>/plugins/mentioned-links/header`) → **Show header button**: on by default; turning it off removes the button from every workspace header at once, without a reload; the composer pill stays.
+An icon-only **link** button in each workspace's header (Lucide link icon, tooltip "Links in this workspace") opens that workspace's links as a tab in its main area, next to its chats. Paseo shows plugin header buttons on wide layouts only: from 1100 px it shows three plugin buttons, below that one plus a `⋯` overflow, and its phone layout (below 720 px) has no plugin header buttons at all, so on phones the page can't be opened yet (see Limits). **Show header button** (see Settings) turns it off.
 
 ![Links page, Flat, dark](screenshots/workspace-flat-dark.webp)
 
@@ -31,7 +31,7 @@ The page (a workspace panel, `client/page.tsx`) is built from the popover's part
 Links are sorted by what a click does.
 
 - **Web**: any http(s) URL, including GitHub, local mock pages and localhost. Click opens it in the browser.
-- **Images**: image URLs, and image files under `~/www/webshare/` when a webshare origin is configured (shown by their public address). Click opens the image.
+- **Images**: image URLs, and image files in the webshare folder (`~/www/webshare/` by default) when a webshare origin is configured (shown by their public address). Click opens the image.
 - **Files**: every other local path, including images outside the webshare. Click copies the absolute path, with the `:line` or `:a-b` suffix of its newest mention, and the row briefly says "copied".
 
 **Type tabs.** The list's header is one tab per type the chat has, with its count (`Web 5 · Images 24 · Files 7`); a type with no links gets no tab, and tabs appear only when the chat has at least two types. One type shows at a time: tapping a tab shows that type and turns the others off. It opens on **Web** when the chat has web links, otherwise on its first type. The choice is kept per chat until the app reloads.
@@ -55,7 +55,7 @@ Links are sorted by what a click does.
 
 Sub-agents are: OMP task sub-agents (`<session>/<Name>.jsonl`, nested ones and advisors included; named by file), Claude Code sub-agents (`<session>/subagents/agent-*.jsonl`; named by their task description), and Paseo child agents (label `paseo.parent-agent-id`, archived ones included; named by their title, read from their own transcripts, never through Paseo's history). The same rules as for the chat apply to their messages. When one link was mentioned by several sub-agents, the row names the one that mentioned it last.
 
-**Missing files.** A path whose file or folder no longer exists on the daemon machine is marked: its path is muted and struck through, followed by a muted `missing` (`missing · ↳ Scout` for a sub-agent's). Webshare links count as paths here (their file under `~/www/webshare/` is checked); other web URLs are never checked. Every fetch checks each path with one `stat`. A click still copies the path, or opens the webshare URL.
+**Missing files.** A path whose file or folder no longer exists on the daemon machine is marked: its path is muted and struck through, followed by a muted `missing` (`missing · ↳ Scout` for a sub-agent's). Webshare links count as paths here (their file in the webshare folder is checked); other web URLs are never checked. Every fetch checks each path with one `stat`. A click still copies the path, or opens the webshare URL.
 
 **Sentences.** The server still cuts the sentence around each link's newest mention (`snippet`, used by the links page's search): Markdown stripped, every link read as its name, about 120 characters around the link; a link with too few words around it (`Saved in X.`) also gets the sentence before; an image embed on its own line gets its caption (the line under it in the same paragraph), else the line above. The rows no longer show it (until 2026-10-23, hovering a row on desktop swapped the host/folder column for it).
 
@@ -80,18 +80,28 @@ Sub-agent transcripts are read only while the list is open (the pill never asks)
 
 The links page asks `links.for-workspace` (`server/service.ts`): one `agents.list` (archived included, paged), Paseo's root rule (`server/workspace.ts`), then each tab's transcript through the same incremental cache, 16 at a time, and with the switch available each tab's sub-agent transcripts. It reads transcripts only, never Paseo's chat history, because most of a workspace's chats aren't loaded and a history fetch would start them; a tab of another provider lists no links. The page fetches when it becomes visible (switching to its tab, the app returning to the foreground) and every 3 seconds while any agent of the workspace is running; a hidden tab (Paseo keeps it mounted at width 0) fetches nothing. When one of the workspace's agents finishes a turn, is closed or is renamed while the page is on screen, it refetches; otherwise on the next show. The header button is icon-only and fetches nothing. Measured on a workspace (29 tabs, 17 of them closed, 34.8 MB of tab transcripts, 434 links, 107 more from sub-agents; machine load average 17): 0.5 s for the first request after a plugin reload (507 ms without sub-agents, 522 ms with them), then 18–28 ms without and 22–50 ms with sub-agents; the answer is 175 KB (226 KB with sub-agents).
 
+## Settings
+
+Settings → Plugins → mentioned-links → **Mentioned links** (route `/settings/hosts/<server>/plugins/mentioned-links/header`):
+
+- **Buttons** (switches, applied on save without a reload; other devices pick them up when the app returns to the foreground):
+  - **Show header button** (on by default): the links button in every workspace's header. Off removes it from all of them.
+  - **Show composer pill** (on by default): the `N links` pill in every chat's composer. Off hides it in every chat and fetches nothing for it; on brings it back.
+- **Webshare** (text fields, one Save button): maps files in the webshare folder to URLs on the webshare origin, so they are Web or Images rows that open in the browser instead of Files rows that copy their path.
+  - **Webshare origin** (empty by default): the public HTTP(S) origin, e.g. `http://localhost:8080`. Empty turns the mapping off.
+  - **Webshare folder** (`~/www/webshare` by default): the folder that origin serves; `~` is the daemon user's home, a relative path is under it, empty means the default.
+
+  The daemon reads both on every request; when they changed it starts a fresh links cache, so the next fetch (opening a list or the links page, a finished turn) uses them without a plugin reload. They are stored in `~/.paseo/plugin-settings/mentioned-links/webshare.json` as `{"version":1,"values":{"origin":"…","folder":"…"}}`.
+
 ## Limits
 
 - Files can't open in Paseo's file viewer: plugins have no API for that yet, so a click copies the path.
-- Images outside `~/www/webshare/` are Files (copy), since they have no URL.
+- Images outside the webshare folder are Files (copy), since they have no URL.
 - `localhost` URLs opened from a phone point at the phone.
 - In the popover, sub-agents of Paseo child agents (grandchildren) are not included; OMP's own nested sub-agents are. The links page folds every Paseo agent below a tab into it.
 - The links page needs the header button: Paseo's phone layout shows no plugin header buttons, and the page has no other entry (no sidebar row or ⌘K item, by design), so phones can only show a links tab already open in that workspace.
 - A closed tab can't be opened from the page; reopening it is Paseo's History or the `past-sessions` plugin.
 - The page lists no links for chats of providers without a readable transcript (anything but OMP, Claude Code and Codex).
-- Webshare mapping is off by default. Set the host plugin setting `webshare.origin` to your HTTP(S) origin to map `~/www/webshare/` paths to URLs. Other local paths still copy as files.
 
 After editing the source, run `npm run typecheck` and `paseo plugin reload mentioned-links`.
-
-The webshare setting initializes the links cache on the first request after a plugin load. For a local daemon, save `{"version":1,"values":{"origin":"http://localhost:8080"}}` in `~/.paseo/plugin-settings/mentioned-links/webshare.json`, then reload the plugin. Use an empty origin to leave all webshare paths as local files.
 

@@ -34,9 +34,10 @@ Placeholders (used by the `/` menu and the phone send view, OMP's dialect): `$AR
 
 ## Settings
 
-Settings → Plugins → agent-commands (host settings, all off by default):
+Settings → Plugins → agent-commands (host settings, all off by default except **Show cmds pill**):
 
 - **Extra folders**: one switch each for `.claude/commands`, `.cursor/commands`, `.omp/commands`, Codex prompts (`~/.codex/prompts`).
+- **Show cmds pill** (on): the `cmds` pill in every chat. Off removes it from all chats at once (the `/` menu switch keeps working); on brings it back.
 - **Project / User groups**: small muted "Project" and "User" headings in the list.
 - **Commands in the / menu**: each command also becomes a plugin slash command. Pick `/name`, type arguments, Enter: the plugin expands this chat's file and sends the text (busy rules as above). Slash commands are global per plugin, so the menu lists the union of names over all open chats' folders; a name the current chat doesn't have goes to the agent unchanged. Names Paseo rejects (anything but `a-z`, `0-9`, `-`) stay out of the menu. Paseo's built-ins and earlier plugins win name clashes (e.g. `btw`).
 
@@ -46,7 +47,7 @@ Settings → Plugins → agent-commands (host settings, all off by default):
 - **Phones and native apps can't insert**: they get the send view instead (own text field, no attachments, `@file` or voice).
 - Esc with a filter typed: Paseo closes its popovers on Esc before a plugin sees the key, so the plugin reopens the list unfiltered when that Esc is released (a brief flicker).
 - One pill per chat, registered from the agent list: a new chat gets its pill after its first message. The pill's place in the pill row is Paseo's choice.
-- Settings changed on another client reach this client's `/` menu after a reload or the next settings save here.
+- Settings changed on another client reach this client's pill and `/` menu after a reload or the next settings save here.
 - Native apps load plugin updates only after a refresh or reopen.
 
 ## Development

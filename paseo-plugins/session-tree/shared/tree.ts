@@ -1,5 +1,6 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
+import { displaySettings } from "./settings";
 
 /** Paseo agent ids, OMP entry ids and request ids. */
 const IdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
@@ -75,11 +76,11 @@ export const ChatSummarySchema = z.object({
 });
 export type ChatSummary = z.infer<typeof ChatSummarySchema>;
 
-/** Every OMP chat on this daemon, with its branch count. */
+/** Every OMP chat on this daemon, with its branch count, and the plugin's display settings. */
 export const treeChats = defineRpc({
   name: "tree.chats",
   input: z.object({}),
-  output: z.object({ chats: z.array(ChatSummarySchema) }),
+  output: z.object({ chats: z.array(ChatSummarySchema), display: displaySettings.schema }),
 });
 
 export const treeState = defineRpc({

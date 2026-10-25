@@ -1,8 +1,10 @@
 import type { ChatSummary, OpKind, Outcome, TreeState } from "../shared/tree";
+import type { TreeDisplay } from "../shared/settings";
 
 /** How the store reaches the plugin's daemon side (the plugin RPCs in production). */
 export interface TreeTransport {
-  chats(): Promise<ChatSummary[]>;
+  /** The OMP chats and the plugin's display settings (read with them, so a saved change lands on the next poll). */
+  chats(): Promise<{ chats: ChatSummary[]; display: TreeDisplay }>;
   state(agentId: string): Promise<TreeState>;
   /** Both return the server's op id. */
   goto(agentId: string, kind: "continue" | "reask" | "switch" | "undo", target?: string): Promise<string>;
@@ -37,6 +39,8 @@ export interface TreeSnapshot {
   notices: readonly Notice[];
   /** Web in Paseo's compact (phone) layout: no message icons there, so the pill carries everything. */
   compact: boolean;
+  /** Settings → which branch actions show; null until the first chat list arrives. */
+  display: TreeDisplay | null;
 }
 
 const SLOW_CHATS_MS = 5_000;
@@ -61,6 +65,7 @@ export class TreeStore {
   #starting = new Map<string, OpKind>();
   #notices: Notice[] = [];
   #compact = false;
+  #display: TreeDisplay | null = null;
   #snapshot: TreeSnapshot;
   readonly #listeners = new Set<() => void>();
   readonly #watched = new Map<string, number>();
@@ -111,7 +116,9 @@ export class TreeStore {
     if (this.#disposed) return;
     clearTimeout(this.#chatsTimer);
     try {
-      this.#chats = new Map((await this.#transport.chats()).map(chat => [chat.agentId, chat]));
+      const { chats, display } = await this.#transport.chats();
+      this.#chats = new Map(chats.map(chat => [chat.agentId, chat]));
+      this.#display = display;
       this.#emit();
     } catch {
       // Host offline or plugin reloading: keep what is shown and try again.
@@ -307,6 +314,7 @@ export class TreeStore {
       starting: new Map(this.#starting),
       notices: this.#notices,
       compact: this.#compact,
+      display: this.#display,
     };
   }
 

@@ -18,9 +18,10 @@ export function linksLabel(count: number | null): string {
  * hidden while the chat has no links. A chat's links are fetched when its pill first shows (the
  * pill's icon slot mounting is the signal; until then it reads `links`), again when its agent
  * finishes a turn while the pill shows or is hidden for having none, and on opening the popover.
- * Nothing polls while agents are idle. Fed by `followAgents`.
+ * Nothing polls while agents are idle. Fed by `followAgents`. `setVisible(false)` (Settings → Show
+ * composer pill) hides every pill and fetches nothing until it is turned back on.
  */
-export function startPills(client: PluginClientContext): { agents: AgentListener; stop(): void } {
+export function startPills(client: PluginClientContext): { agents: AgentListener; setVisible(visible: boolean): void; stop(): void } {
   const store = new LinksStore<ChatLinks>((agentId, subagents) => client.rpc(linksForAgent, { agentId, subagents }), keepChatSubagents);
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string; visible: boolean }>();
   const statuses = new Map<string, string>();
@@ -28,11 +29,13 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
   const onScreen = new Map<string, number>();
   /** Chats whose agent finished a turn while their pill was hidden: refetch on next show. */
   const stale = new Set<string>();
+  /** Settings → Show composer pill. */
+  let enabled = true;
 
   const countOf = (agentId: string) => store.get(agentId).data?.links.length ?? null;
   const labelOf = (agentId: string) => linksLabel(countOf(agentId));
-  /** Shown while the count is unknown (its mount fetches it), hidden once it is 0. */
-  const visibleOf = (agentId: string) => countOf(agentId) !== 0;
+  /** Shown while the count is unknown (its mount fetches it), hidden once it is 0 or while pills are off. */
+  const visibleOf = (agentId: string) => enabled && countOf(agentId) !== 0;
 
   /**
    * Paseo requires an icon and always draws a 16 px slot for it. This component draws nothing and,
@@ -57,7 +60,8 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
   }
   const Content = createLinksPopover(store);
 
-  const offStore = store.subscribe((agentId) => {
+  /** Brings a chat's pill in line with its count and the setting. */
+  const sync = (agentId: string) => {
     const pill = pills.get(agentId);
     if (!pill) return;
     const label = labelOf(agentId);
@@ -66,7 +70,8 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
     pill.registration.update({ label, visible });
     pill.label = label;
     pill.visible = visible;
-  });
+  };
+  const offStore = store.subscribe(sync);
 
   const remove = (agentId: string) => {
     pills.get(agentId)?.registration.remove();
@@ -81,8 +86,8 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
     const before = statuses.get(agent.id);
     statuses.set(agent.id, agent.status);
     if (before === "running" && agent.status !== "running") {
-      // A hidden pill (no links yet) can't tell whether its chat is on screen, so it refetches now.
-      if (onScreen.has(agent.id) || countOf(agent.id) === 0) void store.refresh(agent.id);
+      // A pill hidden for having no links can't tell whether its chat is on screen, so it refetches now.
+      if (enabled && (onScreen.has(agent.id) || countOf(agent.id) === 0)) void store.refresh(agent.id);
       else if (store.get(agent.id).data) stale.add(agent.id);
     }
     if (pills.has(agent.id)) return;
@@ -106,6 +111,15 @@ export function startPills(client: PluginClientContext): { agents: AgentListener
       },
       update: observe,
       remove,
+    },
+    setVisible(next) {
+      if (next === enabled) return;
+      enabled = next;
+      for (const agentId of pills.keys()) {
+        sync(agentId);
+        // Shown pills refetch a stale chat as they mount; a chat with no links has no pill to mount.
+        if (enabled && countOf(agentId) === 0 && stale.delete(agentId)) void store.refresh(agentId);
+      }
     },
     stop() {
       offStore();

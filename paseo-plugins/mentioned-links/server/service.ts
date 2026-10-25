@@ -42,8 +42,8 @@ export interface LinksService {
  * The workspace endpoint covers many chats that may not be loaded, so it reads transcripts only.
  * Sub-agents are read from their transcripts only, never through the timeline.
  */
-export function createLinksService(home: string, webshareOrigin = ""): LinksService {
-  const site = siteFor(home, webshareOrigin);
+export function createLinksService(home: string, webshareOrigin = "", webshareFolder?: string): LinksService {
+  const site = siteFor(home, webshareOrigin, webshareFolder);
   const transcripts = new TailFold<LinkMap>(() => new Map());
   const fold = (file: string, read: ProseReader) =>
     transcripts.read(file, (acc, line) => {

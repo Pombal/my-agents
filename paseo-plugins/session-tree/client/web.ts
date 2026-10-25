@@ -6,9 +6,10 @@ import { copyToClipboard } from "./clipboard";
  * Web and desktop only: Paseo 0.12 has no plugin slot under a message, so this adds DOM next to
  * Paseo's own buttons (React Native Web turns testID into data-testid):
  * - a branch icon after Fork in each assistant turn's footer ("Continue from here"; not on the
- *   newest turn) and after Rewind in each user message's row ("Re-ask from here");
+ *   newest turn) and after Rewind in each user message's row ("Re-ask from here"), unless
+ *   Settings → Show branch buttons on messages is off;
  * - a right-click menu on messages (Shift+right-click, a text selection, links and inputs keep
- *   the browser's menu);
+ *   the browser's menu), unless Settings → Branch menu on right-click is off;
  * - the "N messages set aside · Summarize them · Undo · ×" strip above the composer, progress
  *   ("Switching branch…", "Summarizing…") and toasts.
  * Rows carry no message ids, so a row is matched to an OMP entry by its text (and repeat index)
@@ -161,7 +162,8 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
   }
 
   function inject(scroll: Element, state: TreeState | undefined): void {
-    if (!state?.supported) {
+    // Settings → Show branch buttons on messages off (or not read yet): remove them live.
+    if (!state?.supported || !snapshot.display?.showMessageButtons) {
       scroll.querySelectorAll(`.stp-ib[${ATTR}]`).forEach(node => node.remove());
       return;
     }
@@ -271,6 +273,7 @@ export function startWeb({ store, openAgent }: WebActions): () => void {
 
   function onContextMenu(event: MouseEvent): void {
     closeMenu();
+    if (!snapshot.display?.contextMenu) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || event.shiftKey) return;
     const scroll = target.closest('[data-testid="agent-chat-scroll"]');

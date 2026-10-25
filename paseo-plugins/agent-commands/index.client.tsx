@@ -7,7 +7,7 @@ import { createSettingsScreen } from "./client/settings";
 import { hideIconSlot, trackPill } from "./client/web";
 import { SLASH_NAME } from "./shared/commands";
 import { sendCommand, slashCatalog } from "./shared/rpc";
-import { settings, type Settings } from "./shared/settings";
+import { DEFAULTS, settings, type Settings } from "./shared/settings";
 
 interface AgentSummary {
   id: string;
@@ -32,23 +32,35 @@ export default function contribute(client: PluginClientContext) {
   const Content = createCommandsPopover(client, () => syncSoon());
 
   // One `cmds` pill per chat (Paseo has no every-chat pill), following the agent list.
+  // No pills until the settings are read (`showPill` undefined), so a switched-off pill never flashes.
   const pills = new Map<string, PluginButtonRegistration>();
-  const cwds = new Map<string, string>();
-  const removeAgent = (agentId: string) => {
+  const chats = new Map<string, { cwd: string; workspaceId: string }>();
+  let showPill: boolean | undefined;
+  const removePill = (agentId: string) => {
     pills.get(agentId)?.remove();
     pills.delete(agentId);
-    cwds.delete(agentId);
+  };
+  const addPill = (agentId: string, workspaceId: string) => {
+    if (!showPill || pills.has(agentId)) return;
+    pills.set(agentId, client.addComposerPill({
+      id: "cmds",
+      workspaceId,
+      agentId,
+      button: { title: "Commands", icon: PillAnchor, label: "cmds", behavior: { kind: "popover", Content } },
+    }));
+  };
+  const removeAgent = (agentId: string) => {
+    removePill(agentId);
+    chats.delete(agentId);
   };
   const observe = (agent: AgentSummary) => {
     if (!agent.workspaceId || agent.archivedAt || agent.internal) return removeAgent(agent.id);
-    cwds.set(agent.id, agent.cwd);
-    if (pills.has(agent.id)) return;
-    pills.set(agent.id, client.addComposerPill({
-      id: "cmds",
-      workspaceId: agent.workspaceId,
-      agentId: agent.id,
-      button: { title: "Commands", icon: PillAnchor, label: "cmds", behavior: { kind: "popover", Content } },
-    }));
+    chats.set(agent.id, { cwd: agent.cwd, workspaceId: agent.workspaceId });
+    addPill(agent.id, agent.workspaceId);
+  };
+  const syncPills = () => {
+    if (!showPill) for (const agentId of [...pills.keys()]) removePill(agentId);
+    else for (const [agentId, chat] of chats) addPill(agentId, chat.workspaceId);
   };
 
   // "Commands in the / menu": the union of names over every chat's folder. On submit the daemon
@@ -58,7 +70,7 @@ export default function contribute(client: PluginClientContext) {
   let syncing = Promise.resolve();
   const syncSlash = () => {
     syncing = syncing.then(async () => {
-      const wanted = slashMenu ? (await client.rpc(slashCatalog, { cwds: [...new Set(cwds.values())] })).commands : [];
+      const wanted = slashMenu ? (await client.rpc(slashCatalog, { cwds: [...new Set([...chats.values()].map((chat) => chat.cwd))] })).commands : [];
       const keep = new Set<string>();
       for (const command of wanted) {
         if (!SLASH_NAME.test(command.name)) continue;
@@ -96,13 +108,19 @@ export default function contribute(client: PluginClientContext) {
     syncTimer = setTimeout(syncSlash, 500);
   };
   const applySettings = (values: Settings) => {
+    showPill = values.pill;
+    syncPills();
     slashMenu = values.slashMenu;
     syncSlash();
   };
+  // Unreadable settings fall back to the defaults, so the pill still shows.
   void client.rpc(settingsRpc(settings.id).read, {}).then((result) => {
     const parsed = result.status === "ready" ? settings.schema.safeParse(result.values) : null;
-    if (parsed?.success) applySettings(parsed.data);
-  }, (error: unknown) => console.warn("[agent-commands] settings read failed", error));
+    applySettings(parsed?.success ? parsed.data : DEFAULTS);
+  }, (error: unknown) => {
+    console.warn("[agent-commands] settings read failed", error);
+    applySettings(DEFAULTS);
+  });
 
   const lifetime = new AbortController();
   void client.paseo.agents
@@ -111,7 +129,7 @@ export default function contribute(client: PluginClientContext) {
       if (lifetime.signal.aborted) return;
       const replace = (list: readonly { agent: AgentSummary }[]) => {
         const ids = new Set(list.map(({ agent }) => agent.id));
-        for (const agentId of [...pills.keys()]) if (!ids.has(agentId)) removeAgent(agentId);
+        for (const agentId of [...chats.keys()]) if (!ids.has(agentId)) removeAgent(agentId);
         for (const { agent } of list) observe(agent);
         syncSoon();
       };
@@ -121,10 +139,10 @@ export default function contribute(client: PluginClientContext) {
         update: (message) => {
           if (message.type !== "agent_update") return;
           const update = message.payload;
-          const before = cwds.size;
+          const before = chats.size;
           if (update.kind === "remove") removeAgent(update.agentId);
           else observe(update.agent);
-          if (cwds.size !== before) syncSoon();
+          if (chats.size !== before) syncSoon();
         },
       });
     })

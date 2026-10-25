@@ -2,8 +2,8 @@ import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /**
- * Everything is off by default: only `.agents/commands` (project, then `~`) is read, the list is
- * one alphabetical run, and the `/` menu is left alone.
+ * Off by default except the pill: only `.agents/commands` (project, then `~`) is read, the list is
+ * one alphabetical run, the `/` menu is left alone, and every chat has its `cmds` pill.
  * A new field with a default needs no version bump: older documents parse unchanged.
  */
 export const settings = defineSettings({
@@ -23,6 +23,8 @@ export const settings = defineSettings({
     groups: z.boolean().default(false),
     /** Each command also as a plugin slash command: `/name args` sends the expanded file. */
     slashMenu: z.boolean().default(false),
+    /** The `cmds` composer pill in every chat. */
+    pill: z.boolean().default(true),
   }),
 });
 export type Settings = z.output<typeof settings.schema>;

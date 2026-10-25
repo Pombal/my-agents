@@ -1,18 +1,21 @@
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import type { Link } from "../shared/links";
+import { DEFAULT_WEBSHARE_FOLDER } from "../shared/settings";
 import { findMentions, type Mention } from "./extract";
 import { snippetAt } from "./snippet";
 
-/** Optional mapping from `~/www/webshare/` to a configured HTTP origin. */
+/** Optional mapping from the webshare folder to a configured HTTP origin. */
 export interface Site {
   home: string;
   webshareDir: string;
   webshareOrigin: string;
 }
 
-export function siteFor(home: string, webshareOrigin = ""): Site {
-  return { home, webshareDir: path.join(home, "www", "webshare"), webshareOrigin: webshareOrigin ? new URL(webshareOrigin).origin : "" };
+/** `webshareFolder` with `~` as `home`, relative to `home`, no trailing `/`; empty means the default. */
+export function siteFor(home: string, webshareOrigin = "", webshareFolder = DEFAULT_WEBSHARE_FOLDER): Site {
+  const folder = (webshareFolder.trim() || DEFAULT_WEBSHARE_FOLDER).replace(/^~(?=$|\/)/, home);
+  return { home, webshareDir: path.resolve(home, folder), webshareOrigin: webshareOrigin ? new URL(webshareOrigin).origin : "" };
 }
 
 /** A message's prose as one transcript record or timeline row gives it. */

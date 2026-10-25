@@ -125,6 +125,24 @@ describe("popover rows", () => {
     expect(siteFor(HOME, "http://MOCK.test:8080/").webshareOrigin).toBe("http://mock.test:8080");
   });
 
+  it("reads the webshare folder with ~ as home, relative to home, without a trailing /; empty is the default", () => {
+    expect(siteFor(HOME, "", "~/public/site/").webshareDir).toBe("/home/user/public/site");
+    expect(siteFor(HOME, "", "public/site").webshareDir).toBe("/home/user/public/site");
+    expect(siteFor(HOME, "", "/srv/share").webshareDir).toBe("/srv/share");
+    expect(siteFor(HOME, "", " ").webshareDir).toBe("/home/user/www/webshare");
+    expect(siteFor(HOME).webshareDir).toBe("/home/user/www/webshare");
+  });
+
+  it("maps paths in a configured webshare folder, and leaves the default folder as files then", () => {
+    const links: LinkMap = new Map();
+    const site = siteFor(HOME, "http://mock.test:8080", "~/public/site");
+    addProse(links, { role: "assistant", text: "`~/public/site/pages/a.html` and `~/www/webshare/pages/b.html`", at: 0 }, site);
+    expect(listLinks(links).map(({ kind, url, copy }) => ({ kind, url, copy }))).toEqual([
+      { kind: "web", url: "http://mock.test:8080/pages/a.html", copy: undefined },
+      { kind: "file", url: undefined, copy: "/home/user/www/webshare/pages/b.html" },
+    ]);
+  });
+
   it("files copy the path with the newest line suffix; images outside the webshare are files", () => {
     const links = rows(
       ["assistant", "`/home/user/workspace/p/server/list.ts:59-71`", 1],

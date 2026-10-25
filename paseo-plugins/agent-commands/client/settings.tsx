@@ -11,7 +11,7 @@ const FOLDERS: { key: "claude" | "cursor" | "omp" | "codex"; label: string; hint
   { key: "codex", label: "Codex prompts", hint: "~/.codex/prompts" },
 ];
 
-/** `onSaved` gets the values the host stored, so the `/` menu follows at once. */
+/** `onSaved` gets the values the host stored, so the pill and the `/` menu follow at once. */
 export function createSettingsScreen(onSaved: (values: Settings) => void) {
   return function AgentCommandsSettings({ theme }: PluginSurfaceProps) {
     const state = useSettings(definition);
@@ -36,6 +36,8 @@ export function createSettingsScreen(onSaved: (values: Settings) => void) {
       </SettingsSection>
       <SettingsSection title="List">
         <SettingsCard>
+          <SettingsSwitch label="Show cmds pill" hint="The cmds pill next to every chat's message box; the / menu switch below works either way"
+            value={state.values.pill} disabled={state.saving} onValueChange={(pill) => save({ pill })} />
           <SettingsSwitch label="Project / User groups" hint="Headings split this project's commands from yours in ~"
             value={state.values.groups} disabled={state.saving} onValueChange={(groups) => save({ groups })} />
           <SettingsSwitch label="Commands in the / menu" hint="Type /name and arguments, Enter: the plugin fills $ARGUMENTS, $@, $1… (or appends the arguments) and sends the text"
