@@ -15,8 +15,8 @@ Fable at extra-high thinking, as a shell command because the subagent tool
 can't set its level: `omp -p --model anthropic/claude-fable-5-1:xhigh`.
 It gets the brief, every round, the engineering notes and the real data,
 and ends with `VERDICT: HAPPY` or `NOT HAPPY` plus must-fixes. Redesign and
-re-review until HAPPY, three rounds at most; every round is reviewable by
-flipping (mock base README, "Review rounds").
+re-review until HAPPY, three rounds at most; each round carries numbered
+notes on what changed and why (mock base README, "Base and notes").
 
 ## Overcorrection check
 
