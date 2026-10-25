@@ -266,18 +266,24 @@ html.kit-export .mock-frame {
 /* kit/data.js: data-if="path" hides the element while the value is empty */
 .kit-data-off { display: none !important; }
 
-/* ---- review rounds (dev.js): Old / New and Notes toggles in the first top bar */
+/* ---- Base / Notes (dev.js): bottom-right corner. Amber like the design bar,
+ * since both are about the design; the situation bar steps aside when narrow. */
+.kit-review {
+  left: auto;
+  right: 14px;
+  bottom: 14px;
+  margin: 0;
+  --kit-accent: var(--kit-design);
+}
 .kit-toggle kbd {
   margin-left: 4px;
   font: 10px/14px var(--kit-font);
   color: var(--kit-dim);
   opacity: 0.7;
 }
-.kit-toggle span { color: var(--kit-dim); }
-.kit-toggle .kit-tg-on { color: var(--kit-accent); font-weight: 700; }
-.kit-toggle .kit-tg-sep { opacity: 0.5; }
-.kit-toggle.kit-on span { color: var(--kit-accent); }
 .kit-seg-btn:disabled { opacity: 0.35; cursor: default; background: transparent; }
+/* Base on: the variant choice doesn't apply, so it fades */
+html.kit-base-on :is(.kit-design-2, .kit-caption) { opacity: 0.35; }
 
 /* Markers over the frame: an outline on what changed plus its number. Outlines
  * and the overlay never take layout space, so the mock doesn't move. */

@@ -164,7 +164,7 @@
         axes.set(axis, list);
       }
     });
-    // <aside data-notes> renders beside the frame, not in it (see "review rounds").
+    // <aside data-notes> renders beside the frame, not in it (README "Base and notes").
     const notes = el.querySelector("[data-notes]");
     notes?.remove();
     notes?.querySelectorAll("[data-note-for]").forEach((p) => {
@@ -175,8 +175,11 @@
     });
     return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes, notes };
   });
-  // Review rounds: page-level, so both toggles look the same on every section.
-  const hasRounds = !!frame.querySelector("[data-round]");
+  // Base: plain Paseo without this mock's changes (variants, data-mod, slot contents).
+  const hasDelta =
+    sections.some((s) => s.variants.length) ||
+    !!frame.querySelector("[data-mod],[data-base],[data-variant]") ||
+    [...frame.querySelectorAll("[data-slot]")].some((s) => s.children.length);
   const hasNotes = sections.some((s) => s.notes || s.el.querySelector("[data-note]"));
 
   const themes = words(html.dataset.themes || DEFAULT_THEMES);
@@ -184,7 +187,7 @@
 
   // ---------------------------------------------------------------- state + hash
   // picks: each section's last variant, so switching sections keeps every choice.
-  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, round: "new", notes: true };
+  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, base: false, notes: true };
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
@@ -205,9 +208,9 @@
     if (state.variant) state.picks[state.section] = state.variant;
     else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "round", "notes"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "base", "notes"].includes(k)) state.states[k] = v;
     state.data = q.get("data") || defaultData;
-    state.round = q.get("round") === "old" ? "old" : "new";
+    state.base = q.get("base") === "1";
     state.notes = q.get("notes") !== "off";
   }
   function writeHash() {
@@ -218,7 +221,7 @@
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
     if (state.data !== defaultData) q.set("data", state.data);
-    if (state.round === "old") q.set("round", "old");
+    if (state.base) q.set("base", "1");
     if (hasNotes && !state.notes) q.set("notes", "off");
     const picks = sections
       .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
@@ -261,10 +264,16 @@
     frame.dataset.theme = state.theme;
     frame.dataset.vp = state.vp;
     frame.dataset.section = sec.id;
-    if (state.variant) frame.dataset.v = state.variant;
+    if (state.variant && !state.base) frame.dataset.v = state.variant;
     else delete frame.dataset.v;
     // data-v-<section>: every section's pick at once, so one section can show another's choice.
-    for (const s of sections) if (s.variants.length) frame.setAttribute("data-v-" + s.id, state.picks[s.id] || s.variants[0].id);
+    for (const s of sections) {
+      if (!s.variants.length) continue;
+      if (state.base) frame.removeAttribute("data-v-" + s.id);
+      else frame.setAttribute("data-v-" + s.id, state.picks[s.id] || s.variants[0].id);
+    }
+    frame.classList.toggle("kit-base", state.base);
+    html.classList.toggle("kit-base-on", state.base);
     for (const k of Object.keys(frame.dataset)) if (k.startsWith("state")) delete frame.dataset[k];
     for (const [axis] of sec.axes) frame.setAttribute("data-state-" + axis, state.states[axis]);
     html.dataset.theme = state.theme; // lets kit-styled controls outside the frame pick up tokens if wanted
@@ -275,11 +284,12 @@
     const structOff = new Set();
     const tagged = new Set();
     shownAxes = new Set();
-    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when],[data-round]")) {
+    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when],[data-mod],[data-base],[data-slot] > *")) {
       let struct = true;
-      if (n.dataset.variant) struct &&= words(n.dataset.variant).includes(state.variant);
+      if (n.dataset.variant) struct &&= !state.base && words(n.dataset.variant).includes(state.variant);
       if (n.dataset.viewport) struct &&= words(n.dataset.viewport).flatMap((v) => VIEWPORT_ALIASES[v] || [v]).includes(state.vp);
-      if (n.dataset.round) struct &&= words(n.dataset.round).includes(state.round);
+      if (n.hasAttribute("data-mod") || n.parentElement.hasAttribute("data-slot")) struct &&= !state.base;
+      if (n.hasAttribute("data-base")) struct &&= state.base;
       let on = struct;
       if (n.dataset.when) {
         const when = parseWhen(n.dataset.when);
@@ -322,7 +332,6 @@
   notesCol.className = "kit-notes";
   holder.append(notesCol);
   stage.append(label, holder);
-  const NOTES_W = 300;
   let notesFrame = 0;
   frame.addEventListener("scroll", () => (notesFrame ||= requestAnimationFrame(renderNotes)), true);
 
@@ -357,11 +366,10 @@
       noteLayer.append(m);
     }
     if (sec.notes && notesCol.firstChild !== sec.notes) notesCol.replaceChildren(sec.notes);
-    // Notes follow the same variant / round tags; a note whose marker is off screen dims.
+    // Notes follow the same variant tags; a note whose marker is off screen dims.
     sec.notes?.querySelectorAll("[data-note-for]").forEach((p) => {
       let ok = true;
       if (p.dataset.variant) ok &&= words(p.dataset.variant).includes(state.variant);
-      if (p.dataset.round) ok &&= words(p.dataset.round).includes(state.round);
       p.classList.toggle("kit-off", !ok);
       p.classList.toggle("kit-note-dim", !shown.has(p.dataset.noteFor));
     });
@@ -395,15 +403,28 @@
       y += 16;
     }
     const top = y + 46;
+    // Base / Notes sit in the bottom-right corner. When the window is too
+    // narrow for both, the situation bar centres in the space left of them.
+    situationBar.style.right = "";
+    situationBar.style.maxWidth = "";
+    if (!reviewBar.hidden && !situationBar.hidden) {
+      const rv = reviewBar.getBoundingClientRect();
+      if (situationBar.getBoundingClientRect().right > rv.left - 12) {
+        const right = window.innerWidth - rv.left + 12;
+        situationBar.style.right = right + "px";
+        situationBar.style.maxWidth = `calc(100vw - ${right + 16}px)`;
+      }
+    }
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
     // The notes column's room is reserved whenever the page has notes, so
     // toggling them never moves the frame.
-    const reserve = hasNotes ? NOTES_W + 24 : 0;
+    const notesW = Math.round(Math.min(300, Math.max(200, window.innerWidth * 0.2)));
+    const reserve = hasNotes ? notesW + 24 : 0;
     const availW = window.innerWidth - 48 - reserve;
     const scale = Math.min(1, availW / vp.w, availH / vp.h);
     stage.style.paddingRight = reserve + "px";
-    notesCol.style.width = NOTES_W + "px";
+    notesCol.style.width = notesW + "px";
     frame.style.transform = `scale(${scale})`;
     holder.style.width = vp.w * scale + "px";
     holder.style.height = vp.h * scale + "px";
@@ -424,6 +445,9 @@
   caption.className = "kit-caption";
   const situationBar = document.createElement("div");
   situationBar.className = "kit-bar kit-situation";
+  // Bottom-right corner: Base (plain Paseo) and Notes, on every mock with a design.
+  const reviewBar = document.createElement("div");
+  reviewBar.className = "kit-bar kit-review";
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -459,28 +483,26 @@
     if (sections.length > 1) {
       designBar.append(segmented(sections.map((s) => ({ key: s.id, label: s.title })), sec.id, (id) => set({ section: id })));
     }
-    // Review rounds: two in-place toggles, the same spot flips back.
-    if (hasRounds || hasNotes) {
-      const wrap = el("div", "kit-seg");
-      if (hasRounds) {
-        const b = el("button", "kit-seg-btn kit-toggle");
-        b.append(el("span", state.round === "old" ? "kit-tg-on" : "", "Old"), el("span", "kit-tg-sep", "/"), el("span", state.round === "new" ? "kit-tg-on" : "", "New"), el("kbd", null, "f"));
-        b.title = "Flip between the previous round and this one (f)";
-        b.disabled = !sec.el.querySelector("[data-round]");
-        b.onclick = () => set({ round: state.round === "old" ? "new" : "old" });
-        wrap.append(b);
-      }
-      if (hasNotes) {
-        const b = el("button", "kit-seg-btn kit-toggle" + (state.notes ? " kit-on" : ""));
-        b.append(el("span", null, "Notes"), el("kbd", null, "a"));
-        b.title = "What changed, how and why (a)";
-        b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
-        b.onclick = () => set({ notes: !state.notes });
-        wrap.append(b);
-      }
-      designBar.append(wrap);
-    }
     designBar.hidden = !designBar.childElementCount;
+
+    // Base / Notes: in-place toggles, the same spot flips back.
+    reviewBar.replaceChildren();
+    const toggle = (label, key, on, title, onClick) => {
+      const b = el("button", "kit-seg-btn kit-toggle" + (on ? " kit-on" : ""));
+      b.append(el("span", null, label), el("kbd", null, key));
+      b.title = title;
+      b.onclick = onClick;
+      return b;
+    };
+    const wrap = el("div", "kit-seg");
+    if (hasDelta) wrap.append(toggle("Base", "b", state.base, "Plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
+    if (hasNotes) {
+      const b = toggle("Notes", "n", state.notes, "What the design changes, how and why (n)", () => set({ notes: !state.notes }));
+      b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
+      wrap.append(b);
+    }
+    if (wrap.childElementCount) reviewBar.append(wrap);
+    reviewBar.hidden = !reviewBar.childElementCount;
 
     // Variants: a row of buttons (an important choice, like sections);
     // data-variants-as="cycle" on the section asks for a cycle button instead.
@@ -542,8 +564,8 @@
     else if (e.key === "t") set({ theme: step(themes, state.theme, e.shiftKey ? -1 : 1) });
     else if (e.key === "v") set({ vp: step(viewports, state.vp, e.shiftKey ? -1 : 1) });
     else if (e.key === "d" && dataSets.live) set({ data: state.data === "live" ? "acme" : "live" });
-    else if (e.key.toLowerCase() === "f" && hasRounds) set({ round: state.round === "old" ? "new" : "old" });
-    else if (e.key.toLowerCase() === "a" && hasNotes) set({ notes: !state.notes });
+    else if (e.key === "b" && hasDelta) set({ base: !state.base });
+    else if (e.key === "n" && hasNotes) set({ notes: !state.notes });
     else return;
     e.preventDefault();
   }
@@ -616,7 +638,7 @@
   if (exportMode) {
     document.body.replaceChildren(frame);
   } else {
-    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar);
+    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar, reviewBar);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {

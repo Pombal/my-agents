@@ -19,7 +19,6 @@
   .cost { color: var(--c-foreground-extra-muted); }
   [data-v="A"] .turn-footer .cost { margin-left: -2px; }
   .tab-cost { font-size: 11px; color: var(--c-foreground-extra-muted); margin-left: 2px; }
-  .tab-cost.over { color: var(--c-status-warning); }
   .empty-state { margin: auto; text-align: center; color: var(--c-foreground-muted); padding-top: 220px; }
   .empty-state .big { font-size: var(--fs-xl); color: var(--c-foreground); margin-bottom: 6px; }
   [data-vp="phone"] .empty-state { padding-top: 160px; }
@@ -93,7 +92,7 @@
     </header>
     <div class="tabs" data-viewport="wide">
       <template data-each="tabs">
-        <div class="tab" data-pick="tabs" data-class="is-active=active"><i data-icon="provider-omp"></i><span class="tab-label" data-text="title"></span><span data-if="active" style="display:contents"><span class="tab-cost" data-variant="C" data-round="old" data-when="session: normal crashed">$1.42</span><!-- DEMO: review round, new version + its note number --><span class="tab-cost over" data-variant="C" data-round="new" data-note="3" data-when="session: normal crashed" title="Over this chat's $1 budget">$1.42</span></span></div>
+        <div class="tab" data-pick="tabs" data-class="is-active=active"><i data-icon="provider-omp"></i><span class="tab-label" data-text="title"></span><span data-if="active" style="display:contents"><span class="tab-cost" data-variant="C" data-note="3" data-when="session: normal crashed">$1.42</span></span></div>
       </template>
       <button class="icon-btn"><i data-icon="plus" data-size="14"></i></button>
       <span class="spacer"></span>
@@ -147,9 +146,8 @@
           <button class="icon-btn"><i data-icon="copy"></i></button>
           <button class="icon-btn"><i data-icon="split"></i></button>
           Worked for 42s
-          <!-- DEMO: an element that exists only in variant A; data-round = review rounds (Old / New toggle), data-note = numbered marker -->
-          <span class="cost" data-variant="A" data-round="old">· $0.08</span>
-          <span class="cost" data-variant="A" data-round="new" data-note="1">· $0.08 · 3.5k tokens</span>
+          <!-- DEMO: an element that exists only in variant A (so Base hides it); data-note = numbered marker -->
+          <span class="cost" data-variant="A" data-note="1">· $0.08</span>
         </div>
       </div>
     </div>
@@ -157,7 +155,7 @@
     <!-- ============================== COMPOSER -->
     <div class="composer-dock">
       <!-- SLOT composer-pills: plugin pills above the composer (use .pill) -->
-      <div class="pills slot" data-slot="composer-pills"><!-- DEMO: kit cycle button inside the mock (same width for every value) --><button class="pill" data-variant="B" data-round="old" data-cycle="$0.08 this turn | $1.42 this chat | $9.70 today"></button><button class="pill" data-variant="B" data-round="new" data-note="2" data-cycle="$1.42 this chat | $9.70 today | $0.08 this turn"></button></div>
+      <div class="pills slot" data-slot="composer-pills"><!-- DEMO: kit cycle button inside the mock (same width for every value) --><button class="pill" data-variant="B" data-note="2" data-cycle="$0.08 this turn | $1.42 this chat | $9.70 today"></button></div>
       <div class="composer">
         <div class="composer-input" data-editable data-placeholder="Message the agent, tag @files, or use /commands and /skills" data-viewport="wide"></div>
         <div class="composer-input" data-editable data-placeholder="Message, @files, /commands" data-viewport="phone"></div>
@@ -237,12 +235,12 @@
     </div>
   </div>
 
-  <!-- DEMO: review notes, shown beside the frame (Notes toggle). One <p> per data-note; data-variant / data-round work here too. -->
+  <!-- DEMO: notes beside the frame (Notes toggle). One <p> per data-note; data-variant works here too. -->
   <aside data-notes>
-    <h3>Round 2: what changed</h3>
-    <p data-note-for="1" data-variant="A"><b>Tokens next to the cost.</b> Same muted footer line, one more fact. Why: cost alone didn't say whether a turn was long or just expensive.</p>
-    <p data-note-for="2" data-variant="B"><b>Pill opens on the chat total.</b> The turn cost moved to the end of the cycle. Why: the running total is what you watch; a single turn's cost jumps around.</p>
-    <p data-note-for="3" data-variant="C"><b>Badge turns amber past the budget.</b> Same text and size; colour only. Why: a number needs reading, a colour is a glance.</p>
+    <h3>What this adds</h3>
+    <p data-note-for="1" data-variant="A"><b>Cost after the turn time.</b> Muted, like the time. Why: the quietest spot that still updates every turn.</p>
+    <p data-note-for="2" data-variant="B"><b>Running total above the composer.</b> Click cycles turn, chat, today. Why: the total is what you watch; one number at a time.</p>
+    <p data-note-for="3" data-variant="C"><b>Chat total on its tab.</b> Active tab only. Why: visible from any chat, but desktop only.</p>
   </aside>
 </div>
 </body>
