@@ -265,3 +265,77 @@ html.kit-export .mock-frame {
 
 /* kit/data.js: data-if="path" hides the element while the value is empty */
 .kit-data-off { display: none !important; }
+
+/* ---- review rounds (dev.js): Old / New and Notes toggles in the first top bar */
+.kit-toggle kbd {
+  margin-left: 4px;
+  font: 10px/14px var(--kit-font);
+  color: var(--kit-dim);
+  opacity: 0.7;
+}
+.kit-toggle span { color: var(--kit-dim); }
+.kit-toggle .kit-tg-on { color: var(--kit-accent); font-weight: 700; }
+.kit-toggle .kit-tg-sep { opacity: 0.5; }
+.kit-toggle.kit-on span { color: var(--kit-accent); }
+.kit-seg-btn:disabled { opacity: 0.35; cursor: default; background: transparent; }
+
+/* Markers over the frame: an outline on what changed plus its number. Outlines
+ * and the overlay never take layout space, so the mock doesn't move. */
+.kit-note-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483000;
+}
+.mock-frame.kit-notes-on [data-note] {
+  outline: 1.5px dashed color-mix(in srgb, var(--kit-design) 75%, transparent);
+  outline-offset: 3px;
+}
+.kit-note-mark,
+.kit-note-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--kit-design);
+  color: #1b1c21;
+  font: 700 11px/18px var(--kit-font);
+}
+.kit-note-mark {
+  position: absolute;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+}
+
+/* Notes column beside the frame (its room is reserved whenever a page has notes) */
+.kit-notes {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 24px);
+  max-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--kit-design) 30%, transparent);
+  border-radius: 10px;
+  background: var(--kit-panel);
+  backdrop-filter: blur(10px);
+  color: var(--kit-text);
+  font: 12px/18px var(--kit-font);
+}
+.kit-notes :is(h1, h2, h3, h4) {
+  margin: 0 0 10px;
+  font: 700 11px/16px var(--kit-font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--kit-design);
+}
+.kit-notes [data-note-for] { margin: 0 0 12px; transition: opacity 0.15s; }
+.kit-notes [data-note-for]:last-child { margin-bottom: 0; }
+.kit-notes .kit-note-num { margin-right: 8px; vertical-align: 1px; }
+.kit-notes .kit-note-dim { opacity: 0.4; }
+.kit-notes .kit-off { display: none; }
+.kit-notes :is(b, strong):not(.kit-note-num) { color: #e8e9ef; }

@@ -79,6 +79,26 @@ not a design choice. PNG export always renders Acme.
 - The mock opens on whichever set its agent was asked for:
   `data-default-data="live"` on `<html>`; Acme otherwise.
 
+## Review rounds
+
+When a design is reworked after critique, Stefan compares rounds by flipping,
+not reading. Two toggles in the first top bar serve that, each pressed in
+place so the same spot flips back:
+
+- **Old / New** (`f`): the screen as it was and as it is now, in one frame,
+  so only the difference moves. Tag what differs with `data-round="old"` or
+  `data-round="new"`; untagged parts are in both.
+- **Notes** (`a`): numbered markers on what changed, and a notes column
+  beside the screen, never over it, saying what changed, how, and why. On by
+  default.
+
+A round that drops or moves information also gets a **Nothing lost** section:
+a plain table of every fact the previous round showed and where it lives now
+(glance, hover, click). No kit code; it's a section like any other.
+
+The toggles appear only on pages with these tags, and the notes column's room
+is kept whether notes are on or off, so nothing moves.
+
 ## Screenshots
 
 Every plugin screenshot is a PNG export of a mock (Stefan, 2026-10-25): images
@@ -99,6 +119,9 @@ own evidence and stay local.
 | `data-text="title"`, `data-attrs="style=projStyle; data-status=badge"`, `data-class="is-selected=selected"`, `data-if="active"` | any element | Text, attributes (removed when empty), class toggles, and hide-when-empty from the current data set. `MockKit.data()` returns it for scripts. |
 | `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a row of buttons in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="cycle"` on the section shows them as a cycle button instead. |
 | `data-variant="B C"` | any element | Exists only in those variants. |
+| `data-round="old"` / `"new"` | any element | Exists only in that review round (Old / New toggle). |
+| `data-note="2"` | any element | Numbered marker on it while Notes is on. |
+| `<aside data-notes>` with `<p data-note-for="2">` | inside a section | That section's notes column, beside the frame. A note dims while its marker is off screen; `data-variant` and `data-round` work on notes too. |
 | `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | App-state axes; first value is the default. The button reads "normal session"; custom wording: `open=Files open`. |
 | `data-when="session: empty crashed"` | any element | Exists only in those states; `;` joins axes. An axis button hides while none of its elements can appear. |
@@ -122,7 +145,8 @@ screen is split into several decisions, style each part by its own section
 (`[data-v-bubble="F"] .msg-user`), and every section then shows all the
 choices together.
 
-Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport. The hash holds the
+Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport, `d` data, `f` old /
+new, `a` notes. The hash holds the
 whole view. Behaviour, only if a design needs it: `MockKit.set({...})`,
 `MockKit.onChange(fn)`, `mockready` event.
 

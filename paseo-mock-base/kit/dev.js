@@ -164,15 +164,27 @@
         axes.set(axis, list);
       }
     });
-    return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes };
+    // <aside data-notes> renders beside the frame, not in it (see "review rounds").
+    const notes = el.querySelector("[data-notes]");
+    notes?.remove();
+    notes?.querySelectorAll("[data-note-for]").forEach((p) => {
+      const num = document.createElement("b");
+      num.className = "kit-note-num";
+      num.textContent = p.dataset.noteFor;
+      p.prepend(num);
+    });
+    return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes, notes };
   });
+  // Review rounds: page-level, so both toggles look the same on every section.
+  const hasRounds = !!frame.querySelector("[data-round]");
+  const hasNotes = sections.some((s) => s.notes || s.el.querySelector("[data-note]"));
 
   const themes = words(html.dataset.themes || DEFAULT_THEMES);
   const viewports = words(html.dataset.viewports || "desktop laptop phone");
 
   // ---------------------------------------------------------------- state + hash
   // picks: each section's last variant, so switching sections keeps every choice.
-  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {} };
+  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, round: "new", notes: true };
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
@@ -193,8 +205,10 @@
     if (state.variant) state.picks[state.section] = state.variant;
     else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "round", "notes"].includes(k)) state.states[k] = v;
     state.data = q.get("data") || defaultData;
+    state.round = q.get("round") === "old" ? "old" : "new";
+    state.notes = q.get("notes") !== "off";
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -204,6 +218,8 @@
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
     if (state.data !== defaultData) q.set("data", state.data);
+    if (state.round === "old") q.set("round", "old");
+    if (hasNotes && !state.notes) q.set("notes", "off");
     const picks = sections
       .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
       .map((s) => s.id + "." + state.picks[s.id]);
@@ -259,10 +275,11 @@
     const structOff = new Set();
     const tagged = new Set();
     shownAxes = new Set();
-    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when]")) {
+    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when],[data-round]")) {
       let struct = true;
       if (n.dataset.variant) struct &&= words(n.dataset.variant).includes(state.variant);
       if (n.dataset.viewport) struct &&= words(n.dataset.viewport).flatMap((v) => VIEWPORT_ALIASES[v] || [v]).includes(state.vp);
+      if (n.dataset.round) struct &&= words(n.dataset.round).includes(state.round);
       let on = struct;
       if (n.dataset.when) {
         const when = parseWhen(n.dataset.when);
@@ -297,7 +314,58 @@
   const holder = document.createElement("div");
   holder.className = "kit-frame-holder";
   holder.append(frame);
+  // Review notes: numbered markers over the frame, the notes column beside it.
+  const noteLayer = document.createElement("div");
+  noteLayer.className = "kit-note-layer";
+  frame.append(noteLayer);
+  const notesCol = document.createElement("div");
+  notesCol.className = "kit-notes";
+  holder.append(notesCol);
   stage.append(label, holder);
+  const NOTES_W = 300;
+  let notesFrame = 0;
+  frame.addEventListener("scroll", () => (notesFrame ||= requestAnimationFrame(renderNotes)), true);
+
+  // Hidden by a scrolled-away ancestor (chat, sidebar list)?
+  function clipped(n, r) {
+    for (let p = n.parentElement; p && p !== frame; p = p.parentElement) {
+      if (getComputedStyle(p).overflow === "visible") continue;
+      const q = p.getBoundingClientRect();
+      if (r.bottom <= q.top || r.top >= q.bottom || r.right <= q.left || r.left >= q.right) return true;
+    }
+    return false;
+  }
+  function renderNotes() {
+    notesFrame = 0;
+    const sec = current();
+    const on = hasNotes && state.notes && !exportMode;
+    frame.classList.toggle("kit-notes-on", on);
+    noteLayer.replaceChildren();
+    notesCol.style.visibility = on && sec.notes ? "" : "hidden";
+    if (!on) return;
+    const fr = frame.getBoundingClientRect();
+    const s = fr.width / frame.offsetWidth || 1;
+    const shown = new Set();
+    for (const n of sec.el.querySelectorAll("[data-note]")) {
+      if (n.closest(".kit-off") || !n.getClientRects().length) continue;
+      const r = n.getBoundingClientRect();
+      if (clipped(n, r)) continue;
+      shown.add(n.dataset.note);
+      const m = el("span", "kit-note-mark", n.dataset.note);
+      m.style.left = Math.max(2, (r.left - fr.left) / s - 9) + "px";
+      m.style.top = Math.max(2, (r.top - fr.top) / s - 9) + "px";
+      noteLayer.append(m);
+    }
+    if (sec.notes && notesCol.firstChild !== sec.notes) notesCol.replaceChildren(sec.notes);
+    // Notes follow the same variant / round tags; a note whose marker is off screen dims.
+    sec.notes?.querySelectorAll("[data-note-for]").forEach((p) => {
+      let ok = true;
+      if (p.dataset.variant) ok &&= words(p.dataset.variant).includes(state.variant);
+      if (p.dataset.round) ok &&= words(p.dataset.round).includes(state.round);
+      p.classList.toggle("kit-off", !ok);
+      p.classList.toggle("kit-note-dim", !shown.has(p.dataset.noteFor));
+    });
+  }
 
   function layout() {
     const vp = VIEWPORTS[state.vp];
@@ -329,13 +397,19 @@
     const top = y + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
-    const availW = window.innerWidth - 48;
+    // The notes column's room is reserved whenever the page has notes, so
+    // toggling them never moves the frame.
+    const reserve = hasNotes ? NOTES_W + 24 : 0;
+    const availW = window.innerWidth - 48 - reserve;
     const scale = Math.min(1, availW / vp.w, availH / vp.h);
+    stage.style.paddingRight = reserve + "px";
+    notesCol.style.width = NOTES_W + "px";
     frame.style.transform = `scale(${scale})`;
     holder.style.width = vp.w * scale + "px";
     holder.style.height = vp.h * scale + "px";
     stage.style.top = top - 22 + "px";
     label.textContent = `${vp.label} · ${vp.w}×${vp.h}${scale < 1 ? ` · ${Math.round(scale * 100)}%` : ""}`;
+    renderNotes();
   }
 
   // ---------------------------------------------------------------- bars
@@ -384,6 +458,27 @@
     designBar.replaceChildren();
     if (sections.length > 1) {
       designBar.append(segmented(sections.map((s) => ({ key: s.id, label: s.title })), sec.id, (id) => set({ section: id })));
+    }
+    // Review rounds: two in-place toggles, the same spot flips back.
+    if (hasRounds || hasNotes) {
+      const wrap = el("div", "kit-seg");
+      if (hasRounds) {
+        const b = el("button", "kit-seg-btn kit-toggle");
+        b.append(el("span", state.round === "old" ? "kit-tg-on" : "", "Old"), el("span", "kit-tg-sep", "/"), el("span", state.round === "new" ? "kit-tg-on" : "", "New"), el("kbd", null, "f"));
+        b.title = "Flip between the previous round and this one (f)";
+        b.disabled = !sec.el.querySelector("[data-round]");
+        b.onclick = () => set({ round: state.round === "old" ? "new" : "old" });
+        wrap.append(b);
+      }
+      if (hasNotes) {
+        const b = el("button", "kit-seg-btn kit-toggle" + (state.notes ? " kit-on" : ""));
+        b.append(el("span", null, "Notes"), el("kbd", null, "a"));
+        b.title = "What changed, how and why (a)";
+        b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
+        b.onclick = () => set({ notes: !state.notes });
+        wrap.append(b);
+      }
+      designBar.append(wrap);
     }
     designBar.hidden = !designBar.childElementCount;
 
@@ -447,6 +542,8 @@
     else if (e.key === "t") set({ theme: step(themes, state.theme, e.shiftKey ? -1 : 1) });
     else if (e.key === "v") set({ vp: step(viewports, state.vp, e.shiftKey ? -1 : 1) });
     else if (e.key === "d" && dataSets.live) set({ data: state.data === "live" ? "acme" : "live" });
+    else if (e.key.toLowerCase() === "f" && hasRounds) set({ round: state.round === "old" ? "new" : "old" });
+    else if (e.key.toLowerCase() === "a" && hasNotes) set({ notes: !state.notes });
     else return;
     e.preventDefault();
   }
