@@ -1,9 +1,10 @@
 # Paseo mock base
 
 A static copy of Paseo's normal screen plus a small engine for flipping
-design variants. Every Paseo plugin mockup starts here. Live at
-`a local mock page` (`demo/` shows every feature; search it
-for `DEMO:`).
+design variants. Every Paseo plugin mockup, and every screenshot of a plugin,
+starts here. Live at `<webshare-origin>/pages/paseo-base/` (origin in
+`~/.config/my-agents/local.md`; `demo/` shows every feature; search it for
+`DEMO:`).
 
 ## Pace: link first
 
@@ -17,7 +18,7 @@ with him.
 
 1. **Copy the starter:**
    `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`.
-   Done when the local mock page shows the Paseo screen.
+   Done when `<webshare-origin>/pages/<plugin>-mocks/` shows the Paseo screen.
    A plugin settings screen starts from `starter-settings/` instead: Paseo's
    settings page with a plugin screen built from every primitive plugins get.
 2. **Add the design as a delta.** Keep one copy of the screen. Add the new UI
@@ -77,6 +78,16 @@ not a design choice. PNG export always renders Acme.
   tags below.
 - The mock opens on whichever set its agent was asked for:
   `data-default-data="live"` on `<html>`; Acme otherwise.
+
+## Screenshots
+
+Every plugin screenshot is a PNG export of a mock (Stefan, 2026-10-25): images
+posted in chat, embedded in docs, or used in a plugin's store listing.
+`node tools/export.mjs <mock-url> [out-dir] --vp=desktop,phone` renders Acme
+only. Live data is for Stefan's own screen; it never goes into an image.
+Nobody screenshots Stefan's real Paseo. An agent checking that a plugin really
+works does it on a test daemon with made-up projects; those captures are its
+own evidence and stay local.
 
 
 ## Tags
