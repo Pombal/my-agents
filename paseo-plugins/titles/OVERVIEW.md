@@ -224,8 +224,11 @@ OpenRouter left out) only the first ~30 were reachable on a 900 px window.
 Both CLIs run with the `ANTHROPIC_*`/`CLAUDE_CODE_USE_*` variables stripped,
 so no inherited API key or 3P routing is used. If the daemon's service PATH
 omits `~/.local/bin`, Titles adds it so native installations still work. On
-Windows, an npm install's `claude.cmd` shim is skipped for the `claude.exe` it
-wraps, since Node can't run `.cmd` files without a shell. No retries;
+Windows, an npm global install's `claude.cmd` shim is skipped for the
+`claude.exe` it wraps, since Node can't run `.cmd` files without a shell; each
+PATH folder is checked for a native `claude.exe` first, so whichever install
+comes first on PATH runs. Other installers (pnpm, Volta, bun) are not looked
+up. No retries;
 **Timeout** (20 s default; 20 / 40 / 60 / 120 s, any whole 5–120 s in the
 settings file) kills the CLI of either provider, read for each request so a
 change applies to the next one. Errors name the provider: `Claude CLI failed:
