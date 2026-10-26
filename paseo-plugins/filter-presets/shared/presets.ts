@@ -4,15 +4,18 @@ import { z } from "zod";
 export const ruleTypes = ["folderPrefix", "folderName", "remoteGlob", "pathGlob", "pathRegex"] as const;
 export type RuleType = (typeof ruleTypes)[number];
 
-// Windows daemons report roots like `D:\Sources\Nilo`; rules and matching compare with `/` separators.
-const slashes = (path: string) => path.replace(/\\/g, "/");
+// Windows daemons report roots like `D:\Sources\Acme` or `\\server\share`. Those compare with `/` separators and an
+// upper-case drive letter; POSIX paths stay as they are, since `\` is a legal character in their folder names.
+const windowsPath = /^([A-Za-z]:[\\/]|\\\\)/;
+const comparable = (path: string) =>
+  windowsPath.test(path) ? path.replace(/\\/g, "/").replace(/^[a-z]:/, (drive) => drive.toUpperCase()) : path;
 
 // One check shared by the schema and the settings form, so both report the same problem.
 export function ruleValueError(type: RuleType, value: string): string | undefined {
   if (!value) return "Enter a value";
-  if (type === "folderName" && /[\\/]/.test(value)) return "One folder name, without / or \\";
+  if (type === "folderName" && value.includes("/")) return "One folder name, without /";
   // Project roots are absolute daemon paths; `~` and relative paths would silently never match.
-  if ((type === "folderPrefix" || type === "pathGlob") && !/^(\/|[A-Za-z]:\/)/.test(slashes(value))) return "Use an absolute path (~ is not expanded)";
+  if ((type === "folderPrefix" || type === "pathGlob") && !value.startsWith("/") && !windowsPath.test(value)) return "Use an absolute path (~ is not expanded)";
   if (type === "pathRegex") {
     try { new RegExp(value); } catch (cause) {
       return `Invalid regular expression: ${cause instanceof Error ? cause.message.replace(/^Invalid regular expression: /, "") : String(cause)}`;
@@ -72,8 +75,8 @@ export function projectName(project: Project): string {
  */
 export function projectOnlyRule(project: Project, projects: readonly Project[]): { type: "folderPrefix" | "pathGlob"; value: string } {
   const root = project.projectRootPath;
-  const inside = slashes(root).replace(/\/+$/, "") + "/";
-  const nested = projects.some((other) => slashes(other.projectRootPath).startsWith(inside));
+  const inside = comparable(root).replace(/\/+$/, "") + "/";
+  const nested = projects.some((other) => comparable(other.projectRootPath).startsWith(inside));
   return nested && !/[*?]/.test(root) ? { type: "pathGlob", value: root } : { type: "folderPrefix", value: root };
 }
 
@@ -93,23 +96,23 @@ function glob(pattern: string): RegExp {
 export function compilePreset(preset: Pick<Preset, "rules">): (project: Project) => boolean {
   const rules = preset.rules.map((rule) => {
     if (rule.type === "folderPrefix") {
-      const prefix = slashes(rule.value).replace(/\/+$/, "");
+      const prefix = comparable(rule.value).replace(/\/+$/, "");
       return (project: Project) => {
-        const root = slashes(project.projectRootPath);
+        const root = comparable(project.projectRootPath);
         return root === prefix || root.startsWith(prefix + "/");
       };
     }
     if (rule.type === "folderName") {
       const regex = glob(rule.value);
-      return (project: Project) => slashes(project.projectRootPath).split("/").some((segment) => regex.test(segment));
+      return (project: Project) => comparable(project.projectRootPath).split("/").some((segment) => regex.test(segment));
     }
     if (rule.type === "pathRegex") {
       const regex = new RegExp(rule.value);
       return (project: Project) => regex.test(project.projectRootPath);
     }
     if (rule.type === "pathGlob") {
-      const regex = glob(slashes(rule.value));
-      return (project: Project) => regex.test(slashes(project.projectRootPath));
+      const regex = glob(comparable(rule.value));
+      return (project: Project) => regex.test(comparable(project.projectRootPath));
     }
     const raw = rule.value.replace(/^remote:/, "");
     // org/repo patterns are GitHub shortcuts. Full host/org/repo patterns work on other forges.
