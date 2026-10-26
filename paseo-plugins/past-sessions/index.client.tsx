@@ -8,8 +8,10 @@ import { useState } from "react";
 import { startHeaderButtons } from "./client/header-buttons";
 import { PastSessionsList } from "./client/past-sessions-list";
 import { lastScreenParams, PastSessionsScreen } from "./client/screen";
+import { createSettingsScreen } from "./client/settings-screen";
 import { startFocusModality } from "./client/web";
 import { starAndArchive, type Scope } from "./shared/rpc";
+import { viewSettings } from "./shared/view";
 
 const SCREEN_ID = "browse";
 const PANEL_ID = "past-sessions";
@@ -40,6 +42,7 @@ function WorkspacePanel({ workspaceId, theme, layout, host, navigation }: Plugin
 }
 
 export default function contribute(client: PluginClientContext) {
+  const headerButtons = startHeaderButtons(client, PANEL_ID);
   const cleanups = [
     startFocusModality(),
     client.addScreen({ id: SCREEN_ID, title: "Past sessions", Component: PastSessionsScreen }),
@@ -74,7 +77,13 @@ export default function contribute(client: PluginClientContext) {
         await rpc(starAndArchive, { agentId: agent.id });
       },
     }),
-    startHeaderButtons(client, PANEL_ID),
+    client.addSettingsScreen({
+      id: viewSettings.id,
+      title: "Past sessions",
+      icon: "History",
+      Component: createSettingsScreen(headerButtons.setVisible),
+    }),
+    headerButtons.stop,
   ];
   return () => {
     for (const cleanup of cleanups) void cleanup();

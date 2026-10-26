@@ -1,14 +1,14 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { copyText, Icon, ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import type { EffortDetail, Section, Ticket } from "../shared/rpc";
 import { useDetail, useDoc, usePrefetch, useVisible } from "./data";
-import { age, daysSince, isoDay, linkPage, shortDate, stamp, ticketBody } from "./format";
+import { age, commitsHeading, daysSince, isoDay, linkPage, shortDate, stamp, ticketBody } from "./format";
 import { Menu, type MenuItem } from "./legend";
 import { MarkdownView } from "./markdown-view";
 import { Bar, colorsOf, Dot, Glyph, LABEL, MONO, ROW, SMALL, Tag, type Palette } from "./marks";
-import { bindOrToast, chatSettings, chatVerb, client, openAllEfforts, startTicketChat } from "./runtime";
+import { bindOrToast, chatSettings, chatVerb, client, latestOverview, onOverview, openAllEfforts, startTicketChat } from "./runtime";
 import { useViewState, viewKey, type Page, type ViewState } from "./state";
 import { BackRow, Button, CountsLine, FoldHeader, GroupLabel, IconButton, RowButton, TicketRow, styles as ui } from "./ui";
 import { UnboundView } from "./unbound-view";
@@ -453,6 +453,9 @@ function GitPage(props: InnerProps) {
   const toast = useToast();
   const rows = data.uncommitted?.rows ?? [];
   const paths = data.uncommitted?.paths ?? [];
+  // Settings → Commits shown, from the shared overview so a save applies at once.
+  const commitsShown = useSyncExternalStore(onOverview, latestOverview)?.commitsShown ?? 30;
+  const commits = data.commits.slice(0, commitsShown);
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
       <BackRow
@@ -484,8 +487,8 @@ function GitPage(props: InnerProps) {
         ))}
         {data.commits.length ? (
           <View style={{ marginTop: 8 }}>
-            <GroupLabel c={c} text={`Commits · ${data.commits.length}${data.moreCommits ? "+" : ""}`} />
-            {data.commits.slice(0, 30).map((commit) => (
+            <GroupLabel c={c} text={commitsHeading(commits.length, data.commits.length, data.moreCommits)} />
+            {commits.map((commit) => (
               <View key={commit.hash} style={[styles.frow, { paddingHorizontal: 12 }]}>
                 <Text style={{ ...SMALL, color: c.muted, fontFamily: MONO }}>{commit.hash}</Text>
                 <Text numberOfLines={1} style={{ ...SMALL, color: c.fg, flex: 1, minWidth: 0 }}>

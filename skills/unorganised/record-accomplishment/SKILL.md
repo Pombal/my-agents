@@ -21,6 +21,7 @@ as three" → three entries).
 
 - Write the entry as one well-formed markdown document, then pipe it to 
   `~/.agents/skills/record-accomplishment/record.sh`
+- `AGENTS_WIKI_DIR` selects the wiki root; `~/.config/my-agents/paths.sh` can supply it locally. Without configuration, the root is `~/.local/share/my-agents/wiki`.
 - The script handles everything else — directory, timestamped filename, slug
   from the title — and prints the final path. Verify it echoed one.
 - Append-only: improving something already recorded gets a new entry linking

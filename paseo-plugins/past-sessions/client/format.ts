@@ -50,7 +50,7 @@ export function folderChip(cwd: string, folder: string, home: string): { label: 
   return { label, path: tildify(cwd, home) };
 }
 
-/** `/home/cx/agentspace/index` → `~/agentspace/index`. */
+/** An absolute home path becomes its `~/…` form. */
 export function tildify(target: string, home: string): string {
   if (!home) return target;
   if (target === home) return "~";

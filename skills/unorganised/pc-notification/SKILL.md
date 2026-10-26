@@ -3,7 +3,7 @@ name: pc-notification
 description: Push a notification to Stefan's computers via ntfy.sh. Use ONLY when the user explicitly asks for a PC / Windows / desktop notification — NEVER on your own initiative.
 ---
 
-The ntfy topic URL is a secret and lives outside the repo. Read it from `/home/cx/workspace/my-agents/.agents-local/pc-notifications.md`, then, once the task is complete, fire the notification as the last action of the turn:
+The ntfy topic URL is a secret and lives outside the repo. Read it from `~/workspace/my-agents/.agents-local/pc-notifications.md`, then, once the task is complete, fire the notification as the last action of the turn:
 
 ```sh
 curl -s -X POST <URL-from-doc> \

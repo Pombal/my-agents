@@ -19,7 +19,7 @@ When Stefan asks to start a coding agent, default to **OMP inside Herdr**, using
 Preferred launch in the selected pane/workspace:
 
 ```bash
-export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"
 omp --auto-approve "<prompt>"
 ```
 
@@ -53,7 +53,7 @@ First find an existing checkout for that branch, then reuse it if already open i
 BRANCH='stefan/example-branch' python3 - <<'PY'
 import json, os, pathlib, subprocess, sys
 branch = os.environ['BRANCH']
-roots = [pathlib.Path('/home/cx/workspace'), pathlib.Path('/home/cx/workspace/nilo-worktrees')]
+roots = [(pathlib.Path.home() / 'workspace'), (pathlib.Path.home() / 'workspace/nilo-worktrees')]
 matches = []
 for root in roots:
     for p in root.glob('*'):
@@ -79,9 +79,9 @@ PY
   Leave the workspace label default (cwd); name it only if it will operate across different folders inside (see herdr-multiplexer naming rules).
 - `NO_MATCH` for a NILO branch: create the worktree with:
   ```bash
-  cd /home/cx/workspace && ./create-nilo-worktree.sh <branch>
+  cd ~/workspace && ./create-nilo-worktree.sh <branch>
   ```
-  It goes under `/home/cx/workspace/nilo-worktrees/<branch-with-/-as-__>/`, then create/focus a Herdr workspace there.
+  It goes under `~/workspace/nilo-worktrees/<branch-with-/-as-__>/`, then create/focus a Herdr workspace there.
 - `NO_MATCH` outside NILO: ask where to work.
 
 ## Starting in Herdr

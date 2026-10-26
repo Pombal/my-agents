@@ -5,8 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { bucketOf, headFields, parseBlockedBy, statusWord, ticketKind } from "../shared/parse";
 import { resolveTickets, scanEffort, scratchFor, skipReason } from "./scan";
 
-// Every value below is copied from a real ticket or map under nilo-wayfinder, index or
-// nilo-observatory `.scratch` (2026-10-20).
+// Synthetic fixtures exercise the free-form ticket and map formats.
 
 describe("Status lines", () => {
   it.each([
@@ -15,7 +14,7 @@ describe("Status lines", () => {
     ["**Status:** closed (2026-10-09)", "closed", "done"],
     ["Status: resolved, 2026-10-04. [spec.md](../spec.md) reviewed", "resolved", "done"],
     ["**Status:** open, follow-up to [03](03-x.md)", "open", "open"],
-    ["**Status:** in progress — Opus (high) in worktree wa-ftue", "in progress", "claimed"],
+    ["**Status:** in progress — agent (high) in worktree acme-worktree", "in progress", "claimed"],
     ["Status: ready-for-agent", "ready-for-agent", "open"],
     ["**Status**: parked", "parked", "parked"],
   ])("%s", (line, word, bucket) => {
@@ -30,15 +29,15 @@ describe("Status lines", () => {
 });
 
 describe("what a ticket asks of you", () => {
-  // Real `Type:` values, world-agent-subagents and wa-ftue (2026-10-23).
+  // Synthetic `Type:` values with optional qualifiers.
   it.each([
-    ["wayfinder:grilling (HITL, Stefan drives)", "talk"],
+    ["wayfinder:grilling (HITL, user drives)", "talk"],
     ["wayfinder:prototype", "talk"],
     ["wayfinder:task (HITL)", "hands-on"],
     ["wayfinder:task (AFK)", "agent"],
-    ["wayfinder:task (execution, per the map's Notes override)", "agent"],
+    ["wayfinder:task (execution, per the map's local override)", "agent"],
     ["wayfinder:research", "agent"],
-    ["grievance / design question (Stefan, 2026-10-22)", "yours"],
+    ["grievance / example question (user, 2026-01-02)", "yours"],
     ["spike", null],
   ])("%s → %s", (raw, kind) => {
     expect(ticketKind(raw)).toBe(kind);
@@ -50,17 +49,17 @@ describe("Blocked by", () => {
     ["none", [], [], null],
     ["—", [], [], null],
     ["None — can start immediately. Blocks ticket 09.", [], [], null],
-    ["none (05 reconcile closed 2026-10-16). Stacks on 11.", [], [], null],
+    ["none (05 example closed 2026-01-02). Stacks on 11.", [], [], null],
     ["04, 06", ["04", "06"], [], null],
-    ["[02](02-export-real-threads.md) (needs the exported threads); uses the formatter", ["02"], [], null],
-    ["[01](01-whats-wrong.md), [03](03-in-flight-work.md)", ["01", "03"], [], null],
-    ["12 — Linked Teleporter behavior.", ["12"], [], null],
+    ["[02](02-export-items.md) (needs the exported items); uses the formatter", ["02"], [], null],
+    ["[01](01-example.md), [03](03-another-example.md)", ["01", "03"], [], null],
+    ["12 — Example feature behavior.", ["12"], [], null],
     ["03 (08 resolved 2026-09-04)", ["03"], [], null],
-    ["10 — sensor host; 11 — entitySelector property.", ["10", "11"], [], null],
-    ["01 Who owns the Google OAuth client; 06 Commercial terms and costs of the stack; 07 New name", ["01", "06", "07"], [], null],
-    ["02, chat-widgets 08", ["02"], [{ effort: "chat-widgets", num: "08" }], null],
-    ["v0 shipped and in real use (weights need real visits; the dev seed has none)", [], [], "v0 shipped and in real use (weights need real visits; the dev seed has none)"],
-    ["PR #12895 merging", [], [], "PR #12895 merging"],
+    ["10 — sample host; 11 — sampleSelector property.", ["10", "11"], [], null],
+    ["01 Who owns the example client; 06 Service terms and operating costs; 07 Example name", ["01", "06", "07"], [], null],
+    ["02, acme-widgets 08", ["02"], [{ effort: "acme-widgets", num: "08" }], null],
+    ["release shipped (metrics need more samples; the fixture has none)", [], [], "release shipped (metrics need more samples; the fixture has none)"],
+    ["PR #123 merging", [], [], "PR #123 merging"],
   ])("%s", (raw, own, elsewhere, note) => {
     expect(parseBlockedBy(raw)).toEqual({ own, elsewhere, note });
   });
@@ -71,14 +70,14 @@ describe("symlinked .scratch roots", () => {
   afterAll(() => rm(dir, { recursive: true, force: true }));
 
   it("resolves a worktree's .scratch symlink to the shared folder", async () => {
-    // nilo and its worktrees link `.scratch` to nilo-wayfinder's.
+    // A repository and its worktrees share one `.scratch` folder.
     dir = await mkdtemp(path.join(tmpdir(), "efforts-"));
-    const shared = path.join(dir, "nilo-wayfinder", ".scratch");
-    await mkdir(path.join(shared, "wa-ftue"), { recursive: true });
-    await writeFile(path.join(shared, "wa-ftue", "map.md"), "# wa-ftue\n");
+    const shared = path.join(dir, "acme-app", ".scratch");
+    await mkdir(path.join(shared, "acme-task"), { recursive: true });
+    await writeFile(path.join(shared, "acme-task", "map.md"), "# acme-task\n");
     await mkdir(path.join(dir, "worktree"));
     await symlink(shared, path.join(dir, "worktree", ".scratch"));
-    const real = await scratchFor(path.join(dir, "nilo-wayfinder"), dir);
+    const real = await scratchFor(path.join(dir, "acme-app"), dir);
     expect(await scratchFor(path.join(dir, "worktree"), dir)).toBe(real);
     expect(await scratchFor("~/worktree/.scratch", dir)).toBe(real);
   });
@@ -89,7 +88,7 @@ describe("tickets sharing a number", () => {
   afterAll(() => rm(dir, { recursive: true, force: true }));
 
   it("keeps each file's own state and counts both", async () => {
-    // world-agent-subagents has `05-build-slice-1.md` (open) and `05-reconcile-….md` (closed).
+    // An open ticket and a closed ticket can share the same number.
     dir = await mkdtemp(path.join(tmpdir(), "efforts-"));
     const issues = path.join(dir, "subagents", "issues");
     await mkdir(issues, { recursive: true });
@@ -105,13 +104,17 @@ describe("tickets sharing a number", () => {
 
 describe("skipped .scratch roots", () => {
   it.each([
-    ["/home/cx/tmp-archive/efforts-grill-test/.scratch", "under ~/tmp-archive"],
-    ["/home/cx/workspace/nilo/__share__/nilo-wayfinder/.scratch", "inside __share__"],
+    ["/home/user/fixtures/acme-test/.scratch", "under an excluded fixture folder"],
+    ["/home/user/workspace/acme/__share__/acme-app/.scratch", "inside __share__"],
   ])("%s says why", (root, reason) => {
-    expect(skipReason(root, "/home/cx")).toContain(reason);
+    expect(skipReason(root, "/home/user", ["~/fixtures"])).toContain(reason);
   });
 
-  it.each(["/home/cx/workspace/nilo-wayfinder/.scratch", "/home/cx/tmp-archived/.scratch"])("%s is scanned", (root) => {
-    expect(skipReason(root, "/home/cx")).toBeNull();
+  it.each(["/home/user/workspace/acme-app/.scratch", "/home/user/fixtures-other/.scratch"])("%s is scanned", (root) => {
+    expect(skipReason(root, "/home/user", ["~/fixtures"])).toBeNull();
+  });
+
+  it("scans fixture folders by default when no exclusions are configured", () => {
+    expect(skipReason("/home/user/fixtures/acme-test/.scratch", "/home/user")).toBeNull();
   });
 });

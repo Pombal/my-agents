@@ -45,7 +45,7 @@ trees, and --since/--until keep only the messages inside a time window. A
 window with no folder covers every folder. Without any of these, [dir] is
 the current directory.
   ${COMMAND} --since today
-  ${COMMAND} --under ~/workspace/nilo --under ~/.herdr/worktrees/nilo --since 1w
+  ${COMMAND} --under ~/workspace/acme-app --under ~/.herdr/worktrees/acme-app --since 1w
 
 Without --model on a terminal, it asks for the model, thinking level, and
 optional guidance, and afterwards offers to open OMP in [dir] with the recap

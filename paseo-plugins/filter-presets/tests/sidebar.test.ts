@@ -8,10 +8,10 @@ vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 
 const host = "srv_test";
 const project = (projectId: string, projectKey: string): Project => ({
-  projectId, projectKey, projectRootPath: `/home/cx/workspace/${projectId}`, projectDisplayName: projectId,
+  projectId, projectKey, projectRootPath: `/home/user/workspace/${projectId}`, projectDisplayName: projectId,
 });
-const nilo = project("prj_nilo", "remote:github.com/nilo-technologies/nilo");
-const game = project("prj_game", "/home/cx/workspace/drimgar-game");
+const nilo = project("prj_acme", "remote:github.com/acme/acme-app");
+const game = project("prj_game", "/home/user/workspace/acme-game");
 const projects = [nilo, game];
 const row = (workspaceId: string) => `<button data-testid="sidebar-workspace-row-${host}:${workspaceId}"></button>`;
 
@@ -34,12 +34,12 @@ function hiddenTestIds(css: string): string[] {
 
 const workspaces = [
   { id: "wks_pinned_game", projectId: "prj_game" },
-  { id: "wks_nilo", projectId: "prj_nilo" },
+  { id: "wks_nilo", projectId: "prj_acme" },
   { id: "wks_game", projectId: "prj_game" },
   { id: "wks_game_2", projectId: "prj_game" },
 ];
 
-describe("hiding the game project (NILO selected)", () => {
+describe("hiding the game project (company preset selected)", () => {
   const css = sidebarCss(host, projects, [game], workspaces);
 
   beforeEach(() => { document.body.innerHTML = ""; });
@@ -63,7 +63,7 @@ describe("hiding the game project (NILO selected)", () => {
 });
 
 describe("workspace updates", () => {
-  const start = [{ id: "wks_nilo", projectId: "prj_nilo" }];
+  const start = [{ id: "wks_nilo", projectId: "prj_acme" }];
 
   test("a workspace created in a hidden project gets hidden", () => {
     const next = applyWorkspaceUpdate(start, { kind: "upsert", workspace: { id: "wks_new", projectId: "prj_game" } });
@@ -73,7 +73,7 @@ describe("workspace updates", () => {
   });
 
   test("status-only updates keep the same list, so the stylesheet is not rebuilt", () => {
-    expect(applyWorkspaceUpdate(start, { kind: "upsert", workspace: { id: "wks_nilo", projectId: "prj_nilo" } })).toBe(start);
+    expect(applyWorkspaceUpdate(start, { kind: "upsert", workspace: { id: "wks_nilo", projectId: "prj_acme" } })).toBe(start);
     expect(applyWorkspaceUpdate(start, { kind: "remove", id: "wks_unknown" })).toBe(start);
   });
 

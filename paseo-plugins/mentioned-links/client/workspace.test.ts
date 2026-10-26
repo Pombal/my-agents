@@ -18,13 +18,13 @@ const tab = (title: string, links: Link[], extra: Partial<WorkspaceTab> = {}): W
 describe("flat rows", () => {
   it("show a link several tabs mention once, naming the tab that mentioned it last and counting the others", () => {
     const tabs = [
-      tab("Links", [link("a.dev/x", 5), link("b.dev", 2)]),
-      tab("Titles", [link("a.dev/x", 9)]),
-      tab("Tree", [link("a.dev/x", 1)]),
+      tab("Alpha", [link("a.dev/x", 5), link("b.dev", 2)]),
+      tab("Beta", [link("a.dev/x", 9)]),
+      tab("Gamma", [link("a.dev/x", 1)]),
     ];
     expect(flatRows(tabs, false).map((row) => [row.link.key, row.link.lastAt, row.tab.title, row.others])).toEqual([
-      ["a.dev/x", 9, "Titles", 2],
-      ["b.dev", 2, "Links", 0],
+      ["a.dev/x", 9, "Beta", 2],
+      ["b.dev", 2, "Alpha", 0],
     ]);
   });
 
@@ -38,26 +38,26 @@ describe("flat rows", () => {
 
   it("add sub-agent links only when shown; `+N subagents` counts links no tab mentioned itself", () => {
     const tabs = [
-      tab("Links", [link("a.dev", 5)], { subagentLinks: [link("b.dev", 8, { via: "Scout" }), link("c.dev", 1, { via: "Scout" })] }),
-      // Titles mentioned c.dev itself, so only b.dev is new to the workspace.
-      tab("Titles", [link("c.dev", 4)]),
+      tab("Alpha", [link("a.dev", 5)], { subagentLinks: [link("b.dev", 8, { via: "Scout" }), link("c.dev", 1, { via: "Scout" })] }),
+      // Beta mentioned c.dev itself, so only b.dev is new to the workspace.
+      tab("Beta", [link("c.dev", 4)]),
     ];
     expect(subagentExtra(tabs)).toBe(1);
     expect(flatRows(tabs, false).map((row) => row.link.key)).toEqual(["a.dev", "c.dev"]);
     expect(flatRows(tabs, true).map((row) => [row.link.key, row.tab.title, row.link.via, row.others])).toEqual([
-      ["b.dev", "Links", "Scout", 0],
-      ["a.dev", "Links", undefined, 0],
-      ["c.dev", "Titles", undefined, 1],
+      ["b.dev", "Alpha", "Scout", 0],
+      ["a.dev", "Alpha", undefined, 0],
+      ["c.dev", "Beta", undefined, 1],
     ]);
   });
 
   it("merge a link's variants across tabs: every distinct URL once, counts summed, newest first; a single URL shows none", () => {
-    const page = "http://axalon:8080/pages/m";
+    const page = "http://mock.test:8080/pages/m";
     const variant = (query: string, count: number, lastAt: number, title?: string) => ({ url: `${page}${query}`, query, ...(title ? { title } : {}), count, lastAt });
     const tabs = [
-      tab("Links", [link("m", 5, { url: `${page}?f=a`, variants: [variant("?f=a", 2, 5, "A"), variant("", 1, 1)] }), link("one", 3, { variants: [variant("", 2, 3)] })]),
+      tab("Alpha", [link("m", 5, { url: `${page}?f=a`, variants: [variant("?f=a", 2, 5, "A"), variant("", 1, 1)] }), link("one", 3, { variants: [variant("", 2, 3)] })]),
       tab("Mocks", [link("m", 9, { url: `${page}?f=b`, variants: [variant("?f=b", 1, 9), variant("?f=a", 3, 4)] })]),
-      tab("Tree", [link("one", 2, { variants: [variant("", 1, 2)] })]),
+      tab("Gamma", [link("one", 2, { variants: [variant("", 1, 2)] })]),
     ];
     const [m, one] = flatRows(tabs, false);
     expect([m!.link.url, m!.tab.title, m!.others]).toEqual([`${page}?f=b`, "Mocks", 1]);
@@ -66,8 +66,8 @@ describe("flat rows", () => {
     // By tab keeps each tab's own variants, with the same 2+ rule.
     expect(byTab(tabs, false, () => true).map((group) => [group.title, group.rows.map((row) => row.link.variants?.length)])).toEqual([
       ["Mocks", [2]],
-      ["Links", [2, undefined]],
-      ["Tree", [undefined]],
+      ["Alpha", [2, undefined]],
+      ["Gamma", [undefined]],
     ]);
   });
 });
@@ -94,12 +94,12 @@ describe("grouping", () => {
   it("by site: one group per host (GitHub per repo) or folder, newest group first, with Flat's rows", () => {
     const rows = flatRows(
       [
-        tab("Links", [
+        tab("Alpha", [
           link("github.com/getpaseo/paseo/pull/12", 9, { url: "https://github.com/getpaseo/paseo/pull/12" }),
-          link("file:/home/cx/a.md", 7, { kind: "file", where: "~/notes", url: undefined }),
-          link("axalon:8080/pages/x", 5, { url: "http://axalon:8080/pages/x" }),
+          link("file:/home/user/a.md", 7, { kind: "file", where: "~/notes", url: undefined }),
+          link("mock.test:8080/pages/x", 5, { url: "http://mock.test:8080/pages/x" }),
           link("github.com/getpaseo/paseo/issues/3", 4, { url: "https://github.com/getpaseo/paseo/issues/3" }),
-          link("axalon:8080/images/y.png", 2, { kind: "image", url: "http://axalon:8080/images/y.png" }),
+          link("mock.test:8080/images/y.png", 2, { kind: "image", url: "http://mock.test:8080/images/y.png" }),
         ]),
       ],
       false,
@@ -107,7 +107,7 @@ describe("grouping", () => {
     expect(bySite(rows).map((group) => [group.title, group.rows.length])).toEqual([
       ["github.com/getpaseo/paseo", 2],
       ["~/notes", 1],
-      ["axalon:8080", 2],
+      ["mock.test:8080", 2],
     ]);
   });
 });

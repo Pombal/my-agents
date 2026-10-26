@@ -6,9 +6,9 @@ const project = (projectRootPath: string, projectKey?: string): Project => ({
 });
 
 describe("Add to: this project only", () => {
-  const vault = project("/mnt/obsidian-vault");
-  const infra = project("/mnt/obsidian-vault/Infra - Ofis");
-  const game = project("/home/cx/workspace/drimgar-game");
+  const vault = project("/mnt/notes");
+  const infra = project("/mnt/notes/Example Team");
+  const game = project("/home/user/workspace/acme-game");
   const projects = [vault, infra, game];
 
   test("a project with another project inside its folder matches only itself", () => {
@@ -22,34 +22,34 @@ describe("Add to: this project only", () => {
   });
 
   test("a similarly named neighbour is not nested", () => {
-    const neighbour = project("/mnt/obsidian-vault-2");
+    const neighbour = project("/mnt/notes-2");
     expect(projectOnlyRule(vault, [vault, neighbour]).type).toBe("folderPrefix");
   });
 });
 
 describe("rules that could never match are rejected", () => {
   test.each([
-    ["folderPrefix", "~/workspace/nilo"],
-    ["folderPrefix", "workspace/nilo"],
-    ["pathGlob", "~/workspace/nilo-*"],
+    ["folderPrefix", "~/workspace/acme"],
+    ["folderPrefix", "workspace/acme"],
+    ["pathGlob", "~/workspace/acme-*"],
   ] as const)("%s %s", (type, value) => {
     expect(ruleValueError(type, value)).toMatch(/absolute path/);
-    expect(presetsSchema.safeParse([{ id: "nilo", name: "Nilo", rules: [{ type, value }] }]).success).toBe(false);
+    expect(presetsSchema.safeParse([{ id: "acme", name: "Acme", rules: [{ type, value }] }]).success).toBe(false);
   });
 
   test("absolute paths stay valid", () => {
-    expect(ruleValueError("folderPrefix", "/home/cx/workspace/nilo")).toBeUndefined();
-    expect(ruleValueError("pathGlob", "/home/*/workspace/nilo-*")).toBeUndefined();
+    expect(ruleValueError("folderPrefix", "/home/user/workspace/acme")).toBeUndefined();
+    expect(ruleValueError("pathGlob", "/home/*/workspace/acme-*")).toBeUndefined();
   });
 });
 
 describe("GitHub remote patterns ignore case", () => {
   // The daemon lower-cases GitHub owner/repo in project keys.
-  const nilo = project("/home/cx/workspace/nilo", "remote:github.com/nilo-technologies/nilo");
-  const gitlab = project("/home/cx/work/team", "remote:gitlab.com/Team/App");
+  const acme = project("/home/user/workspace/acme", "remote:github.com/acme/acme-app");
+  const gitlab = project("/home/user/work/team", "remote:gitlab.com/Team/App");
 
-  test.each(["Nilo-Technologies/*", "github.com/Nilo-Technologies/Nilo", "remote:GitHub.com/nilo-technologies/*"])("%s", (value) => {
-    expect(compilePreset({ rules: [{ type: "remoteGlob", value }] })(nilo)).toBe(true);
+  test.each(["Acme/*", "github.com/Acme/Acme-App", "remote:GitHub.com/acme/*"])("%s", (value) => {
+    expect(compilePreset({ rules: [{ type: "remoteGlob", value }] })(acme)).toBe(true);
   });
 
   test("other forges stay case-sensitive", () => {

@@ -62,7 +62,7 @@ Confirm an alias resolves to the expected provider/model without launching a
 full session:
 
 ```bash
-cd /home/cx/.hermes/hermes-agent && python3 -c "
+cd $HOME/.hermes/hermes-agent && python3 -c "
 from hermes_cli.model_switch import _load_direct_aliases
 da = _load_direct_aliases().get('glm')
 print('glm ->', da)

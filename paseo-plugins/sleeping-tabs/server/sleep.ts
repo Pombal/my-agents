@@ -3,7 +3,7 @@ import type { KeptAwakeReason, ProviderSleep } from "../shared/rpc";
 
 type Paseo = PluginHandlerContext["paseo"];
 
-// The fork's (axalon) additions to the daemon's PaseoApi. The official 0.12 client types don't
+// The custom fork's additions to the daemon's PaseoApi. The official 0.12 client types don't
 // have them, and official daemons don't either, so every use goes through `sleepApi`.
 interface SleepMarker { sleptAt: string; reason: "idle" | "manual"; rssBytes: number | null }
 interface SleepState {

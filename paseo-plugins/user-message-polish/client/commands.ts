@@ -1,7 +1,6 @@
 import { Platform } from "react-native";
 
-// Slash commands (Stefan's pick 2026-10-24, mock "bubble F + answer F" on
-// http://axalon:8080/pages/user-message-polish-command-mocks/). Web and desktop only.
+// Slash commands (Stefan's pick from a local mock page). Web and desktop only.
 //
 // - A one-line message that starts with `/name` loses its bubble: just the command, muted,
 //   in the code font, still right-aligned. Paseo's time/rewind/copy row under it is untouched.

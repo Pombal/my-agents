@@ -3,7 +3,7 @@
  * message aloud or toggle auto-speak, with speed control.
  *
  * Uses `omp say` for Kokoro TTS synthesis and `ffmpeg atempo` for pitch-preserving
- * playback speed adjustment (e.g. 1.5x) to axalon's default PulseAudio sink.
+ * playback speed adjustment (e.g. 1.5x) to the default PulseAudio sink.
  *
  * Commands:
  *   /say-last-message          speak the last assistant prose message

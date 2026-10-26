@@ -8,7 +8,7 @@ Three sources, newest activity first, starred sessions before the rest:
   the footer counts those ("23 terminal sessions are already in Paseo and not repeated").
 - **Claude Code & Codex**, on demand (Folder and Project scopes): see below.
 
-Rows follow design 6 from `~/www/webshare/pages/past-sessions-mocks-2/`, in two densities. One
+Rows have two densities. One
 icon button next to refresh toggles them; its icon and tooltip show the density a click switches
 to. The choice is saved on the host as plugin settings, so it survives reloads:
 - **Comfortable** (default): provider mark; title, then a folder chip for rows outside the
@@ -26,8 +26,8 @@ Preview: the last assistant reply from the session's transcript; else nothing (t
 title line). (Until 2026-10-23 it preferred the `paseo-recap` plugin's summary; that plugin is
 uninstalled and its leftover file was stale, so that was removed.) Transcripts: the OMP session file (terminal rows, and OMP agents'
 native handle) or Claude Code's `~/.claude/projects/<cwd>/<id>.jsonl`. Codex keeps rollouts in
-date folders that would need a search, so Codex rows have no preview (Stefan, 2026-10-20: skip it,
-keep the list fast). Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,
+date folders that would need a search, so Codex rows have no preview to keep listing fast.
+Only the last 64 KB of a transcript is read; harness wrappers (`<paseo-system>`,
 `<system-notice>` … any hyphenated tag), OMP `/prose` `[ran …; recover: …]` records, code blocks
 and markdown markup are removed. Rows are dated by the transcript's newest message, not the file
 mtime: OMP appends `session_exit` records to old sessions when their terminal is killed (a herdr
@@ -94,14 +94,15 @@ on disk. Called "Hide" because Paseo already uses Archive (closing an agent) and
   place: if the list is already open as a tab, the button moves it to the sidebar. A second click
   doesn't close it (the plugin API can't close panels); close it as any explorer tab. Phones show
   no header buttons and their explorer has only Changes/Files, so there the way in stays the
-  sidebar row and the Command Center.
+  sidebar row and the Command Center. Settings → **Show header button** (on by default) hides the
+  button in every workspace header at once (see "Settings").
 
 ## Toolbar
 
 Scope buttons, search (its placeholder counts the listed sessions, "Search 141 sessions"), the
 density toggle, refresh. On phones, and wherever the list is narrower than 480 px (the explorer
 sidebar), the search box gets its own line; in the sidebar rows keep their desktop hover behaviour. What a scope covers ("Archived
-agents of Paseo Plugins · ~/agentspace/index") is the scope button's tooltip, not a line of text.
+agents of Example workspace · ~/workspace/acme-app") is the scope button's tooltip, not a line of text.
 Hovering (or pressing) a scope button loads that scope in the background, so the click usually
 finds it ready (37 ms measured).
 
@@ -116,7 +117,7 @@ new list shows once the pointer leaves the rows. Starring and opening apply at o
 ## Scopes
 
 - **Workspace** (default): archived agents whose Paseo workspace is this one, even when other
-  workspaces share the folder (index has four). Below them, collapsed, **Terminal sessions in this
+  workspaces share the folder. Below them, collapsed, **Terminal sessions in this
   folder (N)**: the folder's OMP sessions never opened in Paseo. Click to expand; a search opens it.
 - **Folder**: everything whose cwd is the workspace folder: archived agents of any workspace
   there (including workspaces archived since) and OMP sessions, mixed by time.
@@ -151,7 +152,7 @@ listing per provider, filtered to the scope here, kept until its refresh button 
 Sessions a Paseo agent owns are skipped. Click imports through the session id. Not remembered:
 each visit starts with the button off.
 
-Timing (live, 2026-10-19): first listing 2.0 s (Infra - Ofis folder; the daemon starts a Codex
+Timing (live, 2026-10-19): first listing 2.0 s (the daemon starts a Codex
 app-server per call); forced refresh 1.2 s; other scopes and workspaces after that 0.4–0.6 s, from
 the cache. The rest of the list doesn't wait for it.
 
@@ -164,7 +165,7 @@ sessions already fall off.
 Session folders come from the daemon's provider config: `omp` → `~/.omp/agent/sessions`; a
 provider extending `omp` with `OMP_PROFILE=<name>` (e.g. `omp-nilo`) → `~/.omp/profiles/<name>/agent/sessions`,
 imported with that provider. Folder names follow OMP 18's rule (`server/slug.ts`): under home
-`-<path>` (`~/agentspace/index` → `-agentspace-index`), under `/tmp` `-tmp-<path>`, elsewhere
+`-<path>` (`~/workspace/acme-app` → `-workspace-acme-app`), under `/tmp` `-tmp-<path>`, elsewhere
 `--<path>--`, plus the legacy `--<abs>--` and `<home|tmp|abs>-<basename>-<sha256>` names OMP still
 migrates. The name only picks candidate folders; each session's header cwd decides. Nested
 subagent transcripts are skipped.
@@ -179,55 +180,14 @@ session folders are listed at once; cold reads run 64 at a time. Results are cac
 plugin's daemon-side process by mtime and size. Scope checks are string-prefix compares of
 resolved paths (`path.relative` cost 67 ms per large Project request).
 
-Measured 2026-10-20 (audit `~/agentspace/index/.scratch/paseo-grievances/past-sessions-perf.md`,
-then old vs new code on the same data, output byte-identical): nilo whole project (96 worktrees,
+Measured 2026-10-20 (old vs new code on the same data, output byte-identical): a large project
+with 96 worktrees and
 829 listed sessions) scan warm 82–89 → 16–18 ms, cold 500–620 → 265–270 ms; tail summaries warm
 9.8 → 1.5 ms. In the web app a search keystroke on that list took 66–87 ms of handler time before
 (every row re-rendered; rows now get only plain values, so unchanged rows skip rendering) and
 3–18 ms after. Restore: 308 ms through the CLI, 178 ms on the first direct call (most of it
 loading the client once).
 
-## Proof (live web app, 2026-10-19/20, `screenshots/`)
-
-- `desktop-dark-starred.webp`: two starred agents above an unstarred one.
-- `phone-dark-star-and-close.webp`: **Star and close this chat** in the Command Center, opened
-  from the phone sidebar's Search.
-- `phone-dark-starred.webp`: filled stars at phone width.
-- Proven live 2026-10-20 with throwaway Claude Haiku agents (deleted afterwards): Star and close
-  archived the agent and closed its tab (desktop and phone width); clicking the hover star
-  starred and unstarred without restoring the row; long press starred on phone width.
-- `desktop-dark-folder-toolbar.webp`: toolbar with the single density toggle and no description
-  line, Folder scope, Infra - Ofis › Assorted.
-- `desktop-dark-folder-external-compact.webp`: Compact, Claude Code & Codex shown (3), a
-  `claude code` row mixed in by time.
-- `phone-dark-folder-external.webp`: phone width, index › Paseo Plugins Folder scope with 18
-  Claude Code & Codex sessions, search on its own line.
-- Scope tooltips and the toggle's label were read from the page's `title` attributes; the toggle
-  saved `compact` and the reload kept it; set back to Comfortable afterwards.
-
-Earlier, before the toolbar change:
-
-- `desktop-dark-workspace-recap.webp`: Workspace scope, index › Paseo Plugins; the hovered row
-  shows the Recap preview and Restore; the collapsed terminal section below.
-- `desktop-dark-project-chips.webp`: Project scope, nilo › Playtest Errors: terminal rows with
-  `terminal · …`, folder chips for herdr worktrees, a hovered Paseo row with Restore, a
-  preview-less row (then shown as *No reply*; the placeholder is gone since), `omp-nilo` marks
-  repainted by provider-icons.
-- `desktop-dark-compact-hover.webp`: Compact density, a hovered row opened to its Recap, the
-  terminal section expanded with `terminal · 1h` rows.
-- `desktop-light-workspace.webp`: light theme, nilo-wayfinder › Subagents: OMP, Claude (with
-  previews from Claude Code transcripts) and Codex rows (*No reply* then, no preview now), a
-  hovered Restore.
-- `phone-light-project-comfortable.webp`, `phone-light-project-compact.webp`,
-  `phone-dark-workspace-comfortable.webp`: phone width; search on its own line; the terminal
-  section expanded.
-- Density choice survived a page reload (checked; settings file
-  `~/.paseo/plugin-settings/past-sessions/`), and was set back to Comfortable afterwards.
-- From earlier versions (same reopen code): `restored-claude-agent.webp` (a throwaway Claude
-  Haiku agent restored by a click), `reopened-paseo-agent.webp`, `reopened-omp-session.webp`
-  (an OMP-only session imported in 3.1 s). Earlier counts matched an independent brute-force
-  scan (index 114 = 14 + 100, 20 hidden; Infra - Ofis 31 = 5 + 26, 17 hidden; nilo project 656
-  OMP only, 9 hidden).
 
 ## Limits
 
@@ -249,6 +209,15 @@ Earlier, before the toolbar change:
 - A preview needs an assistant reply in the transcript's last 64 KB; a session that ends in a
   long tool run shows an older reply or no preview. Tooltips (full path, absolute time) and hover
   exist only on web/desktop.
+
+## Settings
+
+Settings → Plugins → **Past sessions** (`client/settings-screen.tsx`), saved on the host in the
+same `view` settings as the density:
+- **Show header button** (default on): the History button in each workspace's header. Off hides
+  it in every workspace (`visible: false`) as soon as the switch saves; other devices pick it up on
+  start or when the app comes back to the foreground. The sidebar row and the Command Center
+  entry stay either way.
 
 ## Disable
 

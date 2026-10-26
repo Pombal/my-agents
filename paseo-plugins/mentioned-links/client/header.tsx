@@ -1,10 +1,11 @@
 import type { PluginButtonRegistration, PluginClientContext, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useSettings } from "@getpaseo/plugin/client";
-import { SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { SettingsAction, SettingsInput, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { settingsRpc } from "@getpaseo/plugin";
-import { AppState, Text } from "react-native";
+import { useState } from "react";
+import { AppState, Text, View } from "react-native";
 import { linksForWorkspace } from "../shared/links";
-import { headerSettings } from "../shared/settings";
+import { DEFAULT_WEBSHARE_FOLDER, headerSettings, webshareSettings } from "../shared/settings";
 import type { AgentListener, AgentSummary } from "./agents";
 import { createLinksPage } from "./page";
 import { keepWorkspaceSubagents, LinksStore, type WorkspaceLinks } from "./store";
@@ -14,13 +15,14 @@ export const PANEL_ID = "links";
 /**
  * The workspace links page (a workspace panel, opened as a tab in the workspace's main area) and
  * an icon-only header button per workspace that opens it. Settings → **Show header button** turns
- * the buttons off and on at once, on every workspace.
+ * the buttons off and on at once, on every workspace; **Show composer pill** does the same for
+ * `pills`. The settings screen also edits the webshare mapping (`WebshareSettings`).
  *
  * A workspace's links are fetched when its links page becomes visible; again when one of its agents
  * finishes a turn, is closed or renamed while the page is on screen, else on next show. Nothing
  * polls while idle, and the header button itself fetches nothing.
  */
-export function startWorkspaceLinks(client: PluginClientContext) {
+export function startWorkspaceLinks(client: PluginClientContext, pills: { setVisible(visible: boolean): void }) {
   const store = new LinksStore<WorkspaceLinks>((workspaceId, subagents) => client.rpc(linksForWorkspace, { workspaceId, subagents }), keepWorkspaceSubagents);
   /** Visible links pages per workspace. */
   const onScreen = new Map<string, number>();
@@ -110,36 +112,59 @@ export function startWorkspaceLinks(client: PluginClientContext) {
     if (!lifetime.signal.aborted) console.warn("[mentioned-links] workspace subscription failed", error);
   });
 
-  // Settings → Show header button: read at start and when the app comes back to the foreground
-  // (another device may have changed it); this device's settings screen applies it on save.
+  /** Applies Settings → Show header button and Show composer pill. */
+  const apply = ({ showHeaderButton, showComposerPill }: { showHeaderButton: boolean; showComposerPill: boolean }) => {
+    setVisible(showHeaderButton);
+    pills.setVisible(showComposerPill);
+  };
+  // Read at start and when the app comes back to the foreground (another device may have changed
+  // them); this device's settings screen applies them on save.
   const readSetting = () =>
     client.rpc(settingsRpc(headerSettings.id).read, {}).then(
       (result) => {
         const parsed = result.status === "ready" ? headerSettings.schema.safeParse(result.values) : null;
-        setVisible(parsed?.success ? parsed.data.showHeaderButton : true);
+        apply(parsed?.success ? parsed.data : { showHeaderButton: true, showComposerPill: true });
       },
       (error: unknown) => console.warn("[mentioned-links] reading settings failed", error),
     );
   void readSetting();
   const appState = AppState.addEventListener("change", (state) => state === "active" && void readSetting());
 
-  function SettingsScreen({ theme }: PluginSurfaceProps) {
+  function ButtonsSettings({ theme }: PluginSurfaceProps) {
     const settings = useSettings(headerSettings);
     if (settings.status !== "ready") {
       return <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>{settings.status === "loading" ? "Loading…" : settings.error}</Text>;
     }
+    const save = (values: Partial<typeof settings.values>) => {
+      const next = { ...settings.values, ...values };
+      void settings.save(next, settings.revision).then((ok) => ok && apply(next));
+    };
     return (
-      <SettingsSection title="Header">
+      <SettingsSection title="Buttons">
         <SettingsSwitch
           label="Show header button"
-          hint="The links button in each workspace's header; it opens that workspace's links as a tab. The composer pill stays either way."
+          hint="The links button in each workspace's header; it opens that workspace's links as a tab."
           value={settings.values.showHeaderButton}
           disabled={settings.saving}
-          onValueChange={(value) =>
-            void settings.save({ ...settings.values, showHeaderButton: value }, settings.revision).then((ok) => ok && setVisible(value))
-          }
+          onValueChange={(value) => save({ showHeaderButton: value })}
+        />
+        <SettingsSwitch
+          label="Show composer pill"
+          hint="The links pill in each chat's composer, which opens that chat's links."
+          value={settings.values.showComposerPill}
+          disabled={settings.saving}
+          onValueChange={(value) => save({ showComposerPill: value })}
         />
       </SettingsSection>
+    );
+  }
+
+  function SettingsScreen(props: PluginSurfaceProps) {
+    return (
+      <View style={{ gap: 16 }}>
+        <ButtonsSettings {...props} />
+        <WebshareSettings {...props} />
+      </View>
     );
   }
 
@@ -179,4 +204,50 @@ export function startWorkspaceLinks(client: PluginClientContext) {
       for (const id of [...buttons.keys()]) removeButton(id);
     },
   };
+}
+
+/** Webshare origin and folder, saved together; the server picks them up on its next fetch. */
+function WebshareSettings({ theme }: PluginSurfaceProps) {
+  const settings = useSettings(webshareSettings);
+  const [origin, setOrigin] = useState<string | null>(null);
+  const [folder, setFolder] = useState<string | null>(null);
+  if (settings.status !== "ready") {
+    return <Text style={{ color: theme.colors.foregroundMuted, padding: 16 }}>{settings.status === "loading" ? "Loading…" : settings.error}</Text>;
+  }
+  const next = { ...settings.values, origin: (origin ?? settings.values.origin).trim(), folder: (folder ?? settings.values.folder).trim() };
+  const changed = next.origin !== settings.values.origin || next.folder !== settings.values.folder;
+  return (
+    <SettingsSection
+      title="Webshare"
+      info="Files in the webshare folder become links on the webshare origin: they open in the browser instead of copying their path. Changes apply from the next fetch."
+    >
+      <SettingsInput
+        label="Webshare origin"
+        hint="e.g. http://myhost:8080; empty turns mapping off"
+        initialValue={settings.values.origin}
+        placeholder="http://localhost:8080"
+        onChangeText={setOrigin}
+      />
+      <SettingsInput
+        label="Webshare folder"
+        hint={`The folder that origin serves; ~ is the daemon user's home. Empty means ${DEFAULT_WEBSHARE_FOLDER}`}
+        initialValue={settings.values.folder}
+        placeholder={DEFAULT_WEBSHARE_FOLDER}
+        onChangeText={setFolder}
+      />
+      <SettingsAction
+        label={changed ? "Unsaved changes" : "Saved"}
+        actionLabel={settings.saving ? "Saving…" : "Save"}
+        disabled={settings.saving || !changed}
+        error={settings.saveError}
+        onPress={() =>
+          void settings.save(next, settings.revision).then((ok) => {
+            if (!ok) return;
+            setOrigin(null);
+            setFolder(null);
+          })
+        }
+      />
+    </SettingsSection>
+  );
 }

@@ -40,9 +40,9 @@ export const presetsSchema = z.array(z.object({
 }).strict()).refine((presets) => new Set(presets.map((preset) => preset.id)).size === presets.length, "Preset IDs must be unique");
 
 export const defaultPresets = [{
-  id: "nilo",
-  name: "Nilo",
-  rules: [{ type: "folderName" as const, value: "nilo" }, { type: "folderName" as const, value: "nilo-*" }],
+  id: "acme",
+  name: "Acme",
+  rules: [{ type: "folderName" as const, value: "acme" }, { type: "folderName" as const, value: "acme-*" }],
 }];
 
 export const preferences = defineSettings({

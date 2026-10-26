@@ -60,22 +60,22 @@ re-discovery.
   once open (`handle_context_menu_key_via_api` exists). Worth a one-line
   upstream issue: "add a `pane_menu` keybinding; the menu already handles keys."
 
-Evidence base for prioritisation: 1086 OMP sessions across 198 project dirs
-(830 MB, 254 in the last 7 days); `omp` is 457/1411 lines of bash history (32%);
-94 hand-typed `omp --resume=<160-char path>`; live herdr state of 35 workspaces
-/ 73 tabs / **85 panes** / 46 worktrees (28 nilo).
+Evidence base for prioritisation: repeated session-resume commands and many
+concurrent workspaces, tabs and worktrees make navigation and status visibility
+useful. The examples below are synthetic, not excerpts from session history.
+
 
 ---
 
 ## 1. `shot` — screenshot into the agent prompt
 
-**Pinned by Stefan explicitly.** "It would make me use screenshots way more
-often, which I'd like very much."
+**Goal:** make it easier to include screenshots in an agent prompt.
+
 
 Grab the newest file from the screenshot dir, inject `@<path>` into the focused
 agent's prompt. Today this is done by hand:
-`@"/mnt/6t/tmp/Screenshot 2026-08-07 153509.png"`. The UI-nit loop
-(screenshot → paste path → describe) was 12 hits across 30 sampled sessions.
+`@"<screenshots-dir>/Screenshot 2026-01-01 120000.png"`. The UI-nit loop
+is screenshot → paste path → describe.
 
 **Split:** OMP extension owns the injection, herdr action is the trigger. Only
 OMP knows what "the focused agent's prompt" means and can inject without going
@@ -93,13 +93,13 @@ Size: small. Highest fun-per-line of anything here.
 
 ## 2. `agent-board` — status + a sentence per agent
 
-The problem: 85 panes, and attention is the bottleneck. Verbatim from sessions:
-*"What's happening right now? Put me in the loop."* / *"status report"*.
+The problem: many panes, with attention as the bottleneck. A synthetic request:
+*"Summarize the current work across these panes."*
 
 The sidebar already lists agents by status. What's missing is **what each one
 is**. The persisted session `title` is the *opening* title and never updates —
-e.g. a session titled "Reading the Task12 brief and required docs" whose actual
-in-progress todo is "Design focused production asset loading module". That gap
+e.g. a session titled "Read the example brief" whose actual
+in-progress task is "Implement the example parser". That gap
 is the whole feature.
 
 **v1 is not a board.** It's an OMP extension that pushes a sentence onto its own
@@ -147,8 +147,8 @@ For reference, OMP's own recap prompt (`prompts/system/recap-user.md`):
    (see #3) — don't let the board grow into the browser.
 
 **Second half:** on `blocked`, or on `idle` after >N minutes of `working`, fire
-a Moshi notification. Answers *"Send me a notification with the outcome of the
-integration test"* (`wait_ci`, 14 hits) — for every pane, not just the one you
+a Moshi notification. Answers a request such as "Notify me when the checks
+finish" for every pane, not just the one you
 remembered to ask about.
 
 ---
@@ -159,8 +159,8 @@ Overlay pane, fuzzy list of `~/.omp/agent/sessions/**`, scoped to the focused
 pane's cwd by default with a global toggle, showing session title and mtime.
 Enter → resume in a split; `f` → fork; `t` → `omp-transcript` in a pager.
 
-Kills 94 hand-pasted 160-char `--resume` paths, plus 7 raw `omp-transcript
-<giant path>` invocations. Needs its own recap generation from JSONL (no live
+Replaces hand-pasted long `--resume` paths and raw `omp-transcript
+<session-path>` invocations. Needs its own recap generation from JSONL (no live
 extension to push from) — that's the producer split from #2.
 
 Size: real TUI. `placement = "overlay"`, one bun or Rust binary.
@@ -169,7 +169,7 @@ Size: real TUI. `placement = "overlay"`, one bun or Rust binary.
 
 ## 4. `thumb-sheet` — mobile-reachable action menu
 
-**The answer to "I can't right-click on mobile."** One keybind → overlay pane,
+**Goal: reach pane actions on mobile without right-clicking.** One keybind → overlay pane,
 numbered rows, big touch targets. Tap a row *or* press its digit.
 
 ```
@@ -229,7 +229,7 @@ Then delete `skills/unorganised/moshi-notification/SKILL.md` — a hand-rolled
 Also dormant: `moshi-hook diff` serves a local git diff viewer
 (`/api/source/tree`, `/api/source/blob`, `/api/git/stage|unstage|discard`,
 `web/diff`) — a real mobile code-review surface. And `moshi-hook servers` probes
-local TCP listeners for SSH preflight, i.e. the nilo dev server can be reachable
+local TCP listeners for SSH preflight, i.e. a project dev server can be reachable
 from the phone.
 
 **Free `config.toml` wins for mobile** (nothing there is mobile-tuned today):
@@ -259,12 +259,12 @@ in one key, and it only pays off once the omp hook is installed.
 One action → prompt file in an overlay editor → N panes, one per model, each
 `omp --model <m> @<file>`, tiled, plus a moderator pane.
 
-Currently typed by hand, three near-identical 220-char lines per review:
+Synthetic example of three near-identical commands per review:
 
 ```
-omp --model anthropic/claude-fable-5  @/tmp/spinoff-pr73-social-role-review.md "You are the FABLE reviewer…"
-omp --model openai-codex/gpt-5.6-sol  @/tmp/spinoff-pr73-social-role-review.md "You are the SOL reviewer…"
-omp --model anthropic/claude-opus-5   @/tmp/spinoff-pr73-social-role-review.md "You are the OPUS reviewer…"
+omp --model anthropic/claude-fable-5  @/tmp/example-review.md "You are reviewer A…"
+omp --model openai-codex/gpt-5.6-sol  @/tmp/example-review.md "You are reviewer B…"
+omp --model anthropic/claude-opus-5   @/tmp/example-review.md "You are reviewer C…"
 ```
 
 Each prefixed by the same 90-char `export PATH="…mise/shims:…bun/bin:$PATH";`
@@ -309,8 +309,8 @@ re-deriving deterministic steps every time. Moderation loop is
 
 ## Explicitly rejected
 
-- **Generic `git`/`gh` wrapper.** `git` is 104 uses but spread thin across
-  normal subcommands — no repeated incantation worth encoding. `lazygit` (10)
+- **Generic `git`/`gh` wrapper.** Git usage is spread across
+  normal subcommands — no repeated incantation worth encoding. `lazygit`
   already covers it.
 
 ## Cost note
@@ -320,7 +320,7 @@ Only `omp-fork-pane` and `worktree-setup` are plain shell. Ideas #2, #3, #4 and
 `[[build]]` step, bun or a static binary, `[[startup]]` daemon. **That's the
 real cost, not the herdr wiring.**
 
-## Unfinished thought
 
-Stefan's message was cut off mid-sentence: `"- on right click menu - sh"`.
-Never resumed.
+
+
+

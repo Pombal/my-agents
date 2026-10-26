@@ -23,7 +23,7 @@ Hand the tangent off without working on it yourself.
    spinoff.sh -b <slug> -f /tmp/spinoff-<slug>.md [-m <model>]... [-t <tab-desc>] [-r <repo>]
    ```
 
-   It fetches origin, resolves the base (existing branch → its head; else `origin/main`), cuts the worktree as its own workspace labelled `<slug>`, names the tabs `<slug>-<model>[-<desc>]`, launches one omp per `-m` on the brief, and verifies each pane has a live omp inside the worktree. Pass `-r` when the work belongs to a different repo than the session's cwd (e.g. master sits in nilo-wayfinder, work is in `~/workspace/nilo`).
+   It fetches origin, resolves the base (existing branch → its head; else `origin/main`), cuts the worktree as its own workspace labelled `<slug>`, names the tabs `<slug>-<model>[-<desc>]`, launches one omp per `-m` on the brief, and verifies each pane has a live omp inside the worktree. Pass `-r` when the work belongs to a different repo than the session's cwd (e.g. master sits in acme-notes, work is in `~/workspace/acme-app`).
 
    Always suffix every `-m` with `:high` or `:xhigh` (e.g. `-m opus:high`); a bare model name inherits `defaultThinkingLevel`, which can resolve to low.
 

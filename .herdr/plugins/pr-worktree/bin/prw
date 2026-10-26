@@ -5,8 +5,8 @@
 # soft keyboard), and a PR number has to be typed either way — so a command is
 # the better mobile surface, not a fallback.
 #
-#   prw 11309
-#   prw https://github.com/owner/repo/pull/11309
+#   prw 123
+#   prw https://github.com/acme/example-app/pull/123
 #   prw                      # prompts, same as the popup
 set -euo pipefail
 

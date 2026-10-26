@@ -1,8 +1,7 @@
 # Sleeping tabs (`sleeping-tabs`)
 
-Shows which OMP chats are asleep and lets you wake them. "Asleep" is a feature of Stefan's daemon
-fork (branch `axalon` on `choephix/paseo`, ticket 06 of
-`~/agentspace/index/.scratch/paseo-fork/`): after an idle time the daemon closes an OMP chat and
+Shows which OMP chats are asleep and lets you wake them. "Asleep" is a feature of a custom daemon
+fork: after an idle time the daemon closes an OMP chat and
 frees its memory (about 250–290 MB each). The conversation stays readable without starting OMP,
 and the chat starts again when you send a message or press Wake. This plugin is the UI for that, in
 the official apps (web app.paseo.sh, desktop, Android), served by the daemon like any plugin.
@@ -19,7 +18,7 @@ message also wakes it." The pill shows only in that chat's composer, so you see 
 chat you're looking at is asleep.
 
 - **Wake:** press the pill. It turns into Paseo's own busy pill (spinner, "Waking…") and disappears
-  once the chat is running again (about 1 s on axalon).
+  once the chat is running again (about 1 s in the tested setup).
 - **Send:** just send. The message goes through and the pill disappears as the chat starts.
 - **`/wake`:** same as pressing the pill.
 - **Wake failed:** the pill turns into ⚠ `Failed · Retry` (red icon) and Paseo shows its error

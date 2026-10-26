@@ -3,7 +3,7 @@ import { sessionRootsFromProviders, transcriptFile } from "./list";
 
 describe("sessionRootsFromProviders", () => {
   it("maps omp and profile-based omp providers to their session folders", () => {
-    // Shape of Stefan's ~/.paseo/config.json agents.providers (2026-10-19).
+    // Synthetic provider configuration, including a company profile.
     const roots = sessionRootsFromProviders(
       {
         claude: { enabled: true },
@@ -11,11 +11,11 @@ describe("sessionRootsFromProviders", () => {
         omp: { env: { PI_CONFIG_FILES: "/x.yml" }, enabled: true },
         grok: { extends: "acp", command: ["grok"] },
       },
-      "/home/cx",
+      "/home/user",
     );
     expect(roots).toEqual([
-      { dir: "/home/cx/.omp/agent/sessions", provider: "omp" },
-      { dir: "/home/cx/.omp/profiles/nilo/agent/sessions", provider: "omp-nilo" },
+      { dir: "/home/user/.omp/agent/sessions", provider: "omp" },
+      { dir: "/home/user/.omp/profiles/nilo/agent/sessions", provider: "omp-nilo" },
     ]);
   });
 
@@ -29,13 +29,13 @@ describe("sessionRootsFromProviders", () => {
 
 describe("transcriptFile", () => {
   it("uses OMP's file handle and derives Claude Code's project file; Codex has none", () => {
-    const omp = "/home/cx/.omp/agent/sessions/-agentspace-index/2026-10-17_01a1.jsonl";
-    expect(transcriptFile({ provider: "omp", sessionId: "01a1", nativeHandle: omp }, "/x", "/home/cx")).toBe(omp);
-    // Claude Code replaces every non-alphanumeric in the cwd, e.g. ~/.paseo/plugin-data → -home-cx--paseo-plugin-data.
+    const omp = "/home/user/.omp/agent/sessions/-workspace-acme-app/2026-01-01_session-a.jsonl";
+    expect(transcriptFile({ provider: "omp", sessionId: "session-a", nativeHandle: omp }, "/x", "/home/user")).toBe(omp);
+    // Claude Code replaces every non-alphanumeric in the cwd, e.g. ~/.paseo/plugin-data → -home-user--paseo-plugin-data.
     expect(
-      transcriptFile({ provider: "claude", sessionId: "015e", nativeHandle: "015e" }, "/home/cx/.paseo/plugin_data", "/home/cx"),
-    ).toBe("/home/cx/.claude/projects/-home-cx--paseo-plugin-data/015e.jsonl");
-    expect(transcriptFile({ provider: "codex", sessionId: "01a14", nativeHandle: "01a14" }, "/x", "/home/cx")).toBeNull();
-    expect(transcriptFile(null, "/x", "/home/cx")).toBeNull();
+      transcriptFile({ provider: "claude", sessionId: "session-b", nativeHandle: "session-b" }, "/home/user/.paseo/plugin_data", "/home/user"),
+    ).toBe("/home/user/.claude/projects/-home-user--paseo-plugin-data/session-b.jsonl");
+    expect(transcriptFile({ provider: "codex", sessionId: "session-c", nativeHandle: "session-c" }, "/x", "/home/user")).toBeNull();
+    expect(transcriptFile(null, "/x", "/home/user")).toBeNull();
   });
 });

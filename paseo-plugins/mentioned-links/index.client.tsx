@@ -5,7 +5,7 @@ import { startPills } from "./client/pills";
 
 export default function contribute(client: PluginClientContext) {
   const pills = startPills(client);
-  const workspaces = startWorkspaceLinks(client);
+  const workspaces = startWorkspaceLinks(client, pills);
   const cleanups = [
     client.addWorkspacePanel({ id: PANEL_ID, title: "Links", icon: "Link", context: "workspace", locations: ["workspace"], Component: workspaces.Page }),
     client.addSettingsScreen({ id: "header", title: "Mentioned links", icon: "Link", Component: workspaces.SettingsScreen }),

@@ -1,6 +1,6 @@
 # Folder-backed Kanban route pattern
 
-Session pattern from Rhinox Console: build a compact status board from markdown files where directory location is workflow state.
+Example pattern for Example Console: build a compact status board from markdown files where directory location is workflow state.
 
 ## Shape
 

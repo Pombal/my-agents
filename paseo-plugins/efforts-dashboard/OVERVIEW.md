@@ -1,6 +1,5 @@
 Wayfinder efforts (`.scratch/<effort>/map.md` + `issues/NN-*.md`) inside Paseo, read-only. Built on
-Paseo 0.12.0 from the final mockups `http://axalon:8080/pages/efforts-dashboard-mocks-4/` plus the
-approved additions in `/home/cx/agentspace/index/.scratch/paseo-grievances/efforts-dashboard-overcorrection-check.md`.
+Paseo 0.12.0 from local mock pages.
 
 ## Status (2026-10-20)
 All four steps built and checked live in the web app, dark and light (desktop 1440 px, explorer
@@ -9,14 +8,12 @@ Tickets / Docs groups; each kind opens in the right column, or binds and opens i
 and Unbind (popover and `⋯`), and "Grill in new chat" (new chat in the bound workspace's folder, on
 that workspace's latest model, prompt `Grill ticket <abs path> with the grilling skill. Read the
 effort's map first: <abs map.md>`, title `<slug> <NN> <title>`, label `effort=<slug>`).
-Throwaway fixture: workspace "Grill Test" at `~/tmp-archive/efforts-grill-test` (a `~/tmp-archive`
-folder, so it only shows up while listed under extra folders).
 
 ## Where Stefan sees it
 - Explorer panel → `+` → **Efforts** (⌘K "Efforts for this workspace").
 - **Header button** per workspace, icon-only: a progress pie (solid green = done, faint green =
   claimed; a pie because a part-filled ring this small reads as a spinner) + Paseo's chevron. Its
-  tooltip carries the name: `wa-ftue · 0/9 done`. A dashed empty circle
+  tooltip carries the name: `acme-task · 0/9 done`. A dashed empty circle
   (`No effort · suggested: …`) when unbound with a suggestion; nothing when there is none. Popover
   (Paseo's maximum, 420 × 440): name + status, the map's Destination (2 lines), the **route bar**
   (done · claimed · open · blocked/parked, then a dashed fog tail a quarter as wide: fog is counted,
@@ -40,13 +37,15 @@ folder, so it only shows up while listed under extra folders).
   same component as the panel, keyed by effort path, so efforts without a workspace are
   readable); chips open that workspace with its Efforts panel. Phones: two-line rows (name /
   `Next 01 …`, done count + bar), the effort opens full screen.
-- **Phone composer pill** `wa-ftue · 0/9 done` on every chat of a bound workspace, compact
-  layouts only (< 720 px); tap → sheet with all rows; a row opens in place with its Question,
-  status line, the chat button and Read.
+- **Phone composer pill** `acme-task · 0/9 done` on every chat of a bound workspace, compact
+  layouts only (< 720 px) and **off by default** (Settings → Show composer pill); tap → sheet with
+  all rows; a row opens in place with its Question, status line, the chat button and Read.
 - Settings → Plugins → efforts-dashboard's menu → **Efforts** (route
   `/settings/hosts/<server>/plugins/efforts-dashboard/folders`): **Show header button** (the
   header pill, on by default; off removes it from every workspace header, the Efforts tab and
-  sidebar row stay) and extra folders. Not in the settings sidebar.
+  sidebar row stay), **Show composer pill** (off by default), **Extra folders** and **Excluded
+  folders** (comma-separated, one Save), and **Commits shown** (10 / 30 / 50 / 100, default 30).
+  A save re-reads the overview, so it applies at once. Not in the settings sidebar.
 
 ## Efforts tab
 - **Bound workspace (E):** name + map `Status:` pill, Destination (one line; click opens map.md at
@@ -62,7 +61,9 @@ folder, so it only shows up while listed under extra folders).
   `.artifacts/<slug>/` when it exists.
 - **Files & commits** (branch icon in the head row, amber count when something isn't
   committed): its own page with Not committed (per file/folder with time, changed map sections,
-  `+16 −3` / `2 new`; copy-paths icon) and the effort's commits.
+  `+16 −3` / `2 new`; copy-paths icon) and the effort's newest commits (Settings → Commits shown;
+  the server sends at most 100). The heading counts the rows shown: `Commits · 12`,
+  `Commits · 30 of 64`, `Commits · 30 of 100+`.
 - Drill-in (D): `1 of 9` with prev/next, relations (`blocks`, `after`), path, raw Status line only
   when it says more than the word, the ticket body, **Grill / Prototype / Research / Work in new
   chat** (creates an agent in this workspace with that workspace's latest chat settings and opens
@@ -79,20 +80,20 @@ folder, so it only shows up while listed under extra folders).
   Paseo's own sidebar step; surface1 alone was ~5 levels and invisible). Links underline on hover.
 
 ## Data rules
-- Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so nilo's worktrees count as
-  nilo-wayfinder) plus the extra folders setting. `__share__` and `~/tmp-archive` are
-  skipped unless listed; a workspace whose `.scratch` is skipped says so in its Efforts tab, with
+- Roots: the `.scratch` of every Paseo workspace (realpath, deduped, so worktrees share their
+  repository's efforts) plus the extra folders setting. `__share__` copies and folders under an
+  Excluded folder are skipped unless listed in Extra folders; a workspace whose `.scratch` is skipped says so in its Efforts tab, with
   the reason and where to list it. `_to_organize_`, hidden folders and folders with no
   map/issues/Markdown are not efforts. No map: title = first `# ` of the biggest top-level `.md`.
 - Ticket status = first word of `Status:` (bold, dates and prose allowed) → open / claimed /
   done / parked; unknown words count as open. Blocked = open and a `Blocked by:` ticket here is
-  not done; `chat-widgets 08` style references resolve to the other effort; prose blocks nothing.
+  not done; `acme-widgets 08` style references resolve to the other effort; prose blocks nothing.
   next = lowest-numbered open, unblocked, unclaimed ticket. Ticket titles drop a repeated number
   (`# 04 — Slice-1 spec`, or `# 01 Pick a colour` when it is the file's own number).
 - Leans on = sibling efforts linked as `../<slug>/` from map.md outside Out of scope; the reason is
   the linking bullet's bold lead or first clause.
 - Not committed = `git status` of the repo owning the effort's real path (so the symlinked worktree
-  `.scratch` shows nilo-wayfinder's changes).
+  `.scratch` shows the shared repository's changes).
 - Binding: workspace id → effort in `~/.paseo/plugin-data/efforts-dashboard/bindings.json`
   (or "no effort"); Unbind deletes the workspace's entry. Never set silently. Suggestions, in
   order: the folder's `.omp/RULES.md`, `.scratch/<slug>/` mentions in the last 256 KB of the
@@ -103,9 +104,11 @@ folder, so it only shows up while listed under extra folders).
   surface2 on dark themes, and on light ones 35 % of the muted text over surface0 (light surface2
   is near-white and the empty bar vanished). Chips and the Status tag on a highlighted row
   (surface2) switch to surface0 so they stay visible.
+- Excluded folders (`excludedFolders`, empty by default): absolute or `~/…` paths; their
+  descendants are skipped, and Extra folders still override the exclusion.
 
-## Speed (measured live 2026-10-20, audit `/home/cx/agentspace/index/.scratch/paseo-grievances/efforts-dashboard-perf.md`)
-- Server: overview 34 → 13 ms, wa-ftue detail poll 32 → 10.5 ms, world-agent-subagents ~70 → 16 ms,
+## Speed (measured live 2026-10-20)
+- Server: overview 34 → 13 ms, one detail poll 32 → 10.5 ms, a larger effort ~70 → 16 ms,
   search 18 → 5 ms. File stats are synchronous (the scan and `.artifacts/` walk), overlapping callers
   share one pending root scan, and `git diff` results are reused while a file's `git status` v2
   record (HEAD/index blob hashes) and mtime/size stay the same.
@@ -113,7 +116,7 @@ folder, so it only shows up while listed under extra folders).
   `{ unchanged: true }` (55 B) and the client keeps the same object, so nothing re-renders. Idle
   relay traffic with the tab open: ~115 KB → ~1.4 KB per 5 s; 0 React commits per idle poll.
 - Detail folds don't carry Markdown the client never draws (fold bodies with bullets, Decisions
-  bullets): chat-widgets 96 → 48 KB, wa-ftue 34 → 25 KB.
+  bullets): a larger effort 96 → 48 KB, a smaller effort 34 → 25 KB.
 - Feels instant: Bind / Unbind / No effort show at once, popovers close at once; a failed write
   puts the old binding back with an error toast, and a poll already in flight can't undo a bind.
   Hovering a global row reads its detail ahead (row → column 436 → ~150 ms), hovering a ticket

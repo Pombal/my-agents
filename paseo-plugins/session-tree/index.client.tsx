@@ -9,6 +9,8 @@ import { TreeStore } from "./client/store";
 import { createPillIcon } from "./client/sheet";
 import { createSummaryRow } from "./client/summary-row";
 import { startWeb } from "./client/web";
+import { createSettingsScreen } from "./client/settings-screen";
+import { displaySettings } from "./shared/settings";
 
 /** DOM code and slash commands have no navigation; this screen opens a chat through the host's. */
 function OpenAgent({ navigation, params }: PluginScreenProps) {
@@ -24,7 +26,7 @@ const BOOKKEEPING = /^\[(credential_pin|model_usage)\] Unsupported history recor
 
 export default function contribute(client: PluginClientContext) {
   const store = new TreeStore({
-    chats: async () => (await client.rpc(treeChats, {})).chats,
+    chats: () => client.rpc(treeChats, {}),
     state: agentId => client.rpc(treeState, { agentId }),
     goto: async (agentId, kind, target) => (await client.rpc(treeGoto, { agentId, kind, ...(target ? { target } : {}) })).opId,
     summarize: async (agentId, focus) => (await client.rpc(treeSummarize, { agentId, focus })).opId,
@@ -37,7 +39,7 @@ export default function contribute(client: PluginClientContext) {
 
   // One muted "Tree · N" pill per chat with more than one branch. The native apps and Paseo's compact
   // (phone) web layout have no message icons, so there every OMP chat gets the pill, and it carries
-  // the "set aside" offer.
+  // the "set aside" offer. Settings → Show composer pill off keeps only the pills that host a sheet or toast.
   const pills = new Map<string, { registration: PluginButtonRegistration; label: string }>();
   /** Workspaces of chats that asked for the sheet with /tree before the next chat list arrived. */
   const workspaceOf = new Map<string, string>();
@@ -52,7 +54,12 @@ export default function contribute(client: PluginClientContext) {
       const phase = chat?.phase ?? (starting ? (starting === "summarize" ? "summarizing" : "switching") : null);
       const branches = chat?.branches ?? 1;
       const touch = NATIVE || snapshot.compact;
-      if (!(branches > 1 || phase || snapshot.forced.has(agentId) || touch)) continue;
+      // Pill off: it still appears while it hosts this chat's branch sheet (/tree) or, on phones, a
+      // toast, because Paseo does not mount a hidden pill's icon and has no other per-chat host.
+      const shown = snapshot.display?.showComposerPill === false
+        ? snapshot.forced.has(agentId) || (NATIVE && snapshot.notices.some(notice => notice.agentId === agentId))
+        : branches > 1 || phase || snapshot.forced.has(agentId) || touch;
+      if (!shown) continue;
       const label = phase === "summarizing"
         ? "Summarizing…"
         : phase
@@ -115,6 +122,7 @@ export default function contribute(client: PluginClientContext) {
       },
     }),
     client.addTimelineRenderer({ kind: SUMMARY_KIND, version: 1, schema: SummaryItemSchema, Component: SummaryRow }),
+    client.addSettingsScreen({ id: displaySettings.id, title: "Session tree", icon: "GitBranch", Component: createSettingsScreen(() => store.refreshChats()) }),
     NATIVE ? () => {} : startWeb({ store, openAgent }),
   ];
 

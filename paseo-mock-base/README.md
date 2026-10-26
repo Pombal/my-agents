@@ -1,9 +1,10 @@
 # Paseo mock base
 
 A static copy of Paseo's normal screen plus a small engine for flipping
-design variants. Every Paseo plugin mockup starts here. Live at
-`http://axalon:8080/pages/paseo-base/` (`demo/` shows every feature; search it
-for `DEMO:`).
+design variants. Every Paseo plugin mockup, and every screenshot of a plugin,
+starts here. Live at `<webshare-origin>/pages/paseo-base/` (origin in
+`~/.config/my-agents/local.md`; `demo/` shows every feature; search it for
+`DEMO:`).
 
 ## Pace: link first
 
@@ -13,11 +14,20 @@ updates on reload, so the link is the result. Screenshots, PNG exports,
 visual checks and follow-up fixes run in a subagent while you keep talking
 with him.
 
+## Deceptive simplicity
+
+Clear and dense, not busy. Content first; secondary chrome muted, small, or
+behind hover and pop-outs; nothing visible unless relevant, orienting
+information never stripped. Nothing repeated, nothing lost: a focused
+representation by importance and context, each fact in one home at the
+level it earns (glance, hover, click; phones tap where desktop hovers).
+A screen that is even a little bit confusing didn't get simpler.
+
 ## Build a mock
 
 1. **Copy the starter:**
    `cp -r ~/workspace/my-agents/paseo-mock-base/starter ~/www/webshare/pages/<plugin>-mocks`.
-   Done when `http://axalon:8080/pages/<plugin>-mocks/` shows the Paseo screen.
+   Done when `<webshare-origin>/pages/<plugin>-mocks/` shows the Paseo screen.
    A plugin settings screen starts from `starter-settings/` instead: Paseo's
    settings page with a plugin screen built from every primitive plugins get.
 2. **Add the design as a delta.** Keep one copy of the screen. Add the new UI
@@ -78,6 +88,32 @@ not a design choice. PNG export always renders Acme.
 - The mock opens on whichever set its agent was asked for:
   `data-default-data="live"` on `<html>`; Acme otherwise.
 
+## Base and notes
+
+Two toggles in the top-right corner, each flipped in place:
+
+- **Base** (`b`, off by default): plain Paseo, without the mock's changes, for
+  comparing by eye. It hides variant-only elements, `data-mod`, and anything
+  inside a slot, and drops the `data-v` attributes, so variant CSS stops
+  applying. No "current Paseo" variant needed.
+- **Notes** (`n`): numbered markers on what the design changes, and a column
+  beside the screen, never over it: what, how, why.
+
+A rework that drops or moves information gets a **Nothing lost** section: a
+table of every fact the previous version showed and where it lives now
+(glance, hover, click).
+
+
+## Screenshots
+
+Every plugin screenshot is a PNG export of a mock (Stefan, 2026-10-25): images
+posted in chat, embedded in docs, or used in a plugin's store listing.
+`node tools/export.mjs <mock-url> [out-dir] --vp=desktop,phone` renders Acme
+only. Live data is for Stefan's own screen; it never goes into an image.
+Nobody screenshots Stefan's real Paseo. An agent checking that a plugin really
+works does it on a test daemon with made-up projects; those captures are its
+own evidence and stay local.
+
 
 ## Tags
 
@@ -88,6 +124,9 @@ not a design choice. PNG export always renders Acme.
 | `data-text="title"`, `data-attrs="style=projStyle; data-status=badge"`, `data-class="is-selected=selected"`, `data-if="active"` | any element | Text, attributes (removed when empty), class toggles, and hide-when-empty from the current data set. `MockKit.data()` returns it for scripts. |
 | `data-variants="A: Label — note \| B: Label"` | the section | Variants, in order, as a row of buttons in the second top bar. `— note` is a caption under the bars; use it for facts that sway the choice ("phones can't show this"). `data-variants-as="cycle"` on the section shows them as a cycle button instead. |
 | `data-variant="B C"` | any element | Exists only in those variants. |
+| `data-mod` / `data-base` | any element | Exists only with the design / only in Base (what the design replaces). Variant-only elements and slot contents count as `data-mod` already. |
+| `data-note="2"` | any element | Numbered marker on it while Notes is on. |
+| `<aside data-notes>` with `<p data-note-for="2">` | inside a section | That section's notes column, beside the frame. A note dims while its marker is off screen; `data-variant` works on notes too. |
 | `data-viewport="phone"` | any element | Exists only in `desktop`, `laptop`, `phone`, or `wide` (desktop + laptop). |
 | `data-states="session: normal \| empty \| crashed; …"` | `<html>` or a section | App-state axes; first value is the default. The button reads "normal session"; custom wording: `open=Files open`. |
 | `data-when="session: empty crashed"` | any element | Exists only in those states; `;` joins axes. An axis button hides while none of its elements can appear. |
@@ -111,7 +150,8 @@ screen is split into several decisions, style each part by its own section
 (`[data-v-bubble="F"] .msg-user`), and every section then shows all the
 choices together.
 
-Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport. The hash holds the
+Keys: ← → variant, ↑ ↓ section, `t` theme, `v` viewport, `d` data, `b` base,
+`n` notes. The hash holds the
 whole view. Behaviour, only if a design needs it: `MockKit.set({...})`,
 `MockKit.onChange(fn)`, `mockready` event.
 

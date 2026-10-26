@@ -27,13 +27,13 @@ beforeEach(async () => {
 });
 
 const overview = (slug: string | null, etag: string): Overview => ({
-  home: "/home/cx",
+  home: "/home/user",
   roots: [],
   workspaces: [
     {
       id: "wks_1",
-      name: "WA FTUE",
-      projectName: "nilo-wayfinder",
+      name: "Example Task",
+      projectName: "acme-app",
       dir: "/w",
       root: "/w/.scratch",
       skipped: null,
@@ -43,6 +43,8 @@ const overview = (slug: string | null, etag: string): Overview => ({
   ],
   warnings: [],
   showHeaderButton: true,
+  showComposerPill: false,
+  commitsShown: 30,
   etag,
 });
 const bound = (value: Overview | null) => {
@@ -63,33 +65,33 @@ describe("binding a workspace", () => {
     runtime.onOverview((value) => seen.push(bound(value)));
 
     const poll = runtime.fetchOverview();
-    const binding = runtime.bind("wks_1", { kind: "effort", root: "/w/.scratch", slug: "wa-ftue" });
+    const binding = runtime.bind("wks_1", { kind: "effort", root: "/w/.scratch", slug: "acme-task" });
     const [pollCall, bindCall] = calls.splice(0, 2);
     expect(bindCall.name).toBe("efforts.bind");
     pollCall.resolve(overview(null, "e2"));
     await poll;
     bindCall.resolve({ ok: true });
     await settle();
-    calls.shift()!.resolve(overview("wa-ftue", "e3"));
+    calls.shift()!.resolve(overview("acme-task", "e3"));
     await binding;
 
-    expect(seen).toEqual(["wa-ftue", "wa-ftue"]);
-    expect(bound(runtime.latestOverview())).toBe("wa-ftue");
+    expect(seen).toEqual(["acme-task", "acme-task"]);
+    expect(bound(runtime.latestOverview())).toBe("acme-task");
   });
 
   it("puts the old binding back and throws when the write fails", async () => {
-    await loaded("wa-ftue");
+    await loaded("acme-task");
     const binding = runtime.bind("wks_1", { kind: "clear" });
     expect(bound(runtime.latestOverview())).toBeNull();
     calls.shift()!.reject(new Error("EACCES"));
     await expect(binding).rejects.toThrow("EACCES");
-    expect(bound(runtime.latestOverview())).toBe("wa-ftue");
+    expect(bound(runtime.latestOverview())).toBe("acme-task");
   });
 });
 
 describe("polling the overview", () => {
   it("keeps the same object and tells nobody when the server says unchanged", async () => {
-    await loaded("wa-ftue");
+    await loaded("acme-task");
     const held = runtime.latestOverview();
     let told = 0;
     runtime.onOverview(() => told++);

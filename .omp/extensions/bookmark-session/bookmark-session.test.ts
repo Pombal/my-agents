@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import {
 	extractTranscript,
-	isNiloTree,
+	isProjectTree,
 	parseBookmarkFilename,
 	parseSummary,
 	registerBookmarkSessionExtension,
@@ -78,23 +78,23 @@ describe("bookmark filename and path", () => {
 	});
 
 	test("expands tilde and tolerates a trailing slash", () => {
-		expect(resolveBookmarkFile("", "~/agentspace/index/wiki/", "/home/stefan", "default")).toBe(
-			"/home/stefan/agentspace/index/wiki/omp-bookmarks/default.md",
+		expect(resolveBookmarkFile("", "~/notes/wiki/", "/home/user", "default")).toBe(
+			"/home/user/notes/wiki/omp-bookmarks/default.md",
 		);
-		expect(resolveBookmarkFile("", "~/agentspace/index/wiki/", "/home/stefan", "herdr-pane-1")).toBe(
-			"/home/stefan/agentspace/index/wiki/omp-bookmarks/herdr-pane-1.md",
+		expect(resolveBookmarkFile("", "~/notes/wiki/", "/home/user", "herdr-pane-1")).toBe(
+			"/home/user/notes/wiki/omp-bookmarks/herdr-pane-1.md",
 		);
 		expect(resolveBookmarkFile("strange-ideas", "/wiki/", "/unused", "herdr-pane-1")).toBe(
 			"/wiki/omp-bookmarks/strange-ideas.md",
 		);
 	});
 
-	test("missing wiki configuration routes bookmarks to the index wiki", () => {
+	test("missing wiki configuration uses the portable default", () => {
 		const original = process.env.AGENTS_WIKI_DIR;
 		try {
 			delete process.env.AGENTS_WIKI_DIR;
-			const home = "/home/cx";
-			const wiki = "/home/cx/agentspace/index/wiki";
+			const home = "/home/user";
+			const wiki = "/home/user/.local/share/my-agents/wiki";
 			expect(resolveDefaultWikiRoot("/tmp/other", home)).toBe(wiki);
 			expect(resolveBookmarkFile("", undefined, home, "default")).toBe(
 				`${wiki}/omp-bookmarks/default.md`,
@@ -108,25 +108,40 @@ describe("bookmark filename and path", () => {
 		}
 	});
 
-	test("every Nilo checkout and worktree shares the wayfinder wiki", () => {
-		const home = "/home/cx";
-		const envWiki = "/home/cx/agentspace/index/wiki";
-		const shared = "/home/cx/workspace/nilo-wayfinder/wiki";
+	test("configured project checkouts and worktrees share their wiki", () => {
+		const home = "/home/user";
+		const envWiki = "/home/user/.local/share/my-agents/wiki";
+		const shared = "/home/user/workspace/acme-notes/wiki";
 		for (const cwd of [
-			"/home/cx/workspace/nilo",
-			"/home/cx/workspace/nilo-website",
-			"/home/cx/workspace/nilo-wayfinder",
-			"/home/cx/workspace/nilo-worktrees/pr-9073-fix-wb-res-review",
-			"/home/cx/.herdr/worktrees/nilo/locomotion-mixer-exclusivity",
-			"/home/cx/.herdr/worktrees/nilo-website/pr59-review-fixes",
-			"/home/cx/.herdr/worktrees/nilo-wayfinder/worktree-brave-field-c3d0",
+			"/home/user/workspace/acme-app",
+			"/home/user/workspace/acme-site",
+			"/home/user/workspace/acme-notes",
+			"/home/user/workspace/acme-worktrees/pr-123-example-review",
+			"/home/user/.herdr/worktrees/acme-app/example-feature",
+			"/home/user/.herdr/worktrees/acme-site/pr-456-review",
+			"/home/user/.herdr/worktrees/acme-notes/acme-worktree",
 		]) {
-			expect(isNiloTree(cwd)).toBe(true);
-			expect(resolveDefaultWikiRoot(cwd, home, envWiki)).toBe(shared);
+			expect(isProjectTree(cwd, "acme")).toBe(true);
+			expect(resolveDefaultWikiRoot(cwd, home, envWiki, { projects: { acme: shared } })).toBe(shared);
 		}
-		expect(isNiloTree("/tmp/other")).toBe(false);
+		expect(isProjectTree("/tmp/other", "acme")).toBe(false);
 		expect(resolveDefaultWikiRoot("/tmp/other", home, envWiki)).toBe(envWiki);
-		expect(resolveDefaultWikiRoot("/tmp/other", home, "")).toBe("/home/cx/agentspace/index/wiki");
+		expect(resolveDefaultWikiRoot("/tmp/other", home, "")).toBe("/home/user/.local/share/my-agents/wiki");
+	});
+
+	test("loads local routing configuration without exposing machine paths in code", () => {
+		const home = makeTemporaryDirectory();
+		const configDir = join(home, ".config", "my-agents");
+		mkdirSync(configDir, { recursive: true });
+		const shared = join(home, "work-notes", "wiki");
+		const personal = join(home, "notes", "wiki");
+		writeFileSync(join(configDir, "bookmarks.json"), JSON.stringify({
+			defaultRoot: personal,
+			projects: { acme: shared },
+		}));
+		expect(resolveDefaultWikiRoot("/workspace/acme-app", home, "/env/wiki")).toBe(shared);
+		expect(resolveDefaultWikiRoot("/workspace/other", home, "/env/wiki")).toBe("/env/wiki");
+		expect(resolveDefaultWikiRoot("/workspace/other", home, "")).toBe(personal);
 	});
 });
 

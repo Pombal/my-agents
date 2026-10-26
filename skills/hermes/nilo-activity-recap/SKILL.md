@@ -34,13 +34,13 @@ Important: OMP logs are large. **Always delegate OMP/session-log browsing to a s
 
 Unless Stefan says otherwise:
 
-- Scope is NILO under `/home/cx/workspace/nilo*` and `/home/cx/workspace/nilo-worktrees/*`.
+- Scope is NILO under `~/workspace/nilo*` and `~/workspace/nilo-worktrees/*`.
 - Use the live system timezone.
 - If he says “yesterday,” compute it with `date`; do not infer mentally.
 - Include all NILO clones/worktrees, but deduplicate commits by SHA.
 - Prioritize Stefan-related author names:
   - `Stefan`
-  - `Stefan Ginev`
+  - the configured Git author name
   - `Cursor Agent`
 - Treat teammate/remote commits as context only, not as “Stefan did this,” unless other evidence links them to Stefan.
 
@@ -72,7 +72,7 @@ TARGET_DATE = 'YYYY-MM-DD'  # replace before running
 AUTHOR_HINTS = ('Stefan', 'Cursor Agent')
 
 candidates = []
-base = Path('/home/cx/workspace')
+base = (Path.home() / 'workspace')
 candidates += [p for p in base.glob('nilo*') if p.is_dir()]
 wt = base / 'nilo-worktrees'
 if wt.is_dir():
@@ -128,7 +128,7 @@ from pathlib import Path
 import subprocess
 
 candidates = []
-base = Path('/home/cx/workspace')
+base = (Path.home() / 'workspace')
 candidates += [p for p in base.glob('nilo*') if p.is_dir()]
 wt = base / 'nilo-worktrees'
 if wt.is_dir():
@@ -160,7 +160,7 @@ Subagent prompt template:
 User asked for a NILO activity recap for TARGET_DATE.
 
 Browse OMP / Oh My Pi session logs under ~/.omp/agent/sessions/**/*.jsonl.
-Match sessions whose first-line session.cwd starts with /home/cx/workspace/nilo, including /home/cx/workspace/nilo-worktrees/*.
+Match sessions whose first-line session.cwd starts with ~/workspace/nilo, including ~/workspace/nilo-worktrees/*.
 Filter to TARGET_DATE using the session timestamp and message timestamps.
 Do not dump full logs.
 Return concise evidence only:
@@ -187,13 +187,13 @@ What to expect from the subagent:
 Always check the nested durable-artifact directory first:
 
 ```text
-/home/cx/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD Day>/
+~/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD Day>/
 ```
 
 Example for Wednesday 2026-06-17:
 
 ```bash
-find '/home/cx/workspace/nilo/.agents-local/docs/artifacts/2026-06-17 Wednesday' -maxdepth 1 -type f -printf '%f\n' | sort
+find "$HOME/workspace/nilo/.agents-local/docs/artifacts/2026-06-17 Wednesday" -maxdepth 1 -type f -printf '%f\n' | sort
 ```
 
 If you need the day name:
@@ -216,7 +216,7 @@ Do not stop at top-level `.agents-local`. The important files may be under `docs
 Also inspect nearby `.agents-local` files if they are date-relevant or topic-relevant:
 
 ```bash
-find /home/cx/workspace/nilo/.agents-local -type f -printf '%TY-%Tm-%Td %TH:%TM %p\n' | sort -r | head -80
+find $HOME/workspace/nilo/.agents-local -type f -printf '%TY-%Tm-%Td %TH:%TM %p\n' | sort -r | head -80
 ```
 
 ### 5. Synthesize by evidence class
@@ -294,10 +294,10 @@ Exact summary:
 When Stefan asks for brevity and exact wording, answer in 3–7 bullets:
 
 ```markdown
-1. **Prod blank-screen crash**
-   - Error: `Cannot access 'P' before initialization` at `RoomMode.ts:9:13`.
-   - Cause: `RoomMode` / `ClientMode` were re-exported through `@/core/client`, dragging eager TypeScript enum initialization into the large cyclic `Client` graph.
-   - Fix: keep `src/core/client/index.ts` exporting only `Client`; import `RoomMode` and `ClientMode` directly.
+1. **Example initialization crash**
+   - Error: `Cannot access 'Widget' before initialization` at `WidgetMode.ts:12:7`.
+   - Cause: `WidgetMode` was imported through a barrel with a circular dependency.
+   - Fix: import `WidgetMode` directly from its defining module.
 ```
 
 Do not include process narration unless asked.
@@ -321,7 +321,7 @@ Do not include process narration unless asked.
 ## Verification Checklist
 
 - [ ] Target date established with `date` or explicit user date.
-- [ ] Git scan covered `/home/cx/workspace/nilo*` and `/home/cx/workspace/nilo-worktrees/*`.
+- [ ] Git scan covered `~/workspace/nilo*` and `~/workspace/nilo-worktrees/*`.
 - [ ] Commits deduplicated by full SHA.
 - [ ] OMP/session logs delegated to a subagent; raw logs not loaded into main context.
 - [ ] `.agents-local/docs/artifacts/<YYYY-MM-DD Day>/` inspected directly.

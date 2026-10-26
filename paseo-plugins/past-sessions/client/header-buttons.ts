@@ -1,12 +1,23 @@
+import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
+import { AppState } from "react-native";
+import { viewSettings } from "../shared/view";
+
+export interface HeaderButtons {
+  /** Shows or hides every workspace's button at once (Settings → Show header button). */
+  setVisible(visible: boolean): void;
+  stop(): void;
+}
 
 /**
  * An icon-only History button in every workspace header that opens the Past sessions panel in
  * the explorer sidebar, next to the chat. Header buttons are registered per workspace, so this
  * follows Paseo's workspace directory and adds or removes buttons as workspaces come and go.
+ * Settings → Show header button hides them all (`visible: false`).
  */
-export function startHeaderButtons(client: PluginClientContext, panelId: string): () => void {
+export function startHeaderButtons(client: PluginClientContext, panelId: string): HeaderButtons {
   const buttons = new Map<string, PluginButtonRegistration>();
+  let visible = true;
 
   const add = (workspaceId: string) => {
     if (buttons.has(workspaceId)) return;
@@ -19,6 +30,7 @@ export function startHeaderButtons(client: PluginClientContext, panelId: string)
           button: {
             title: "Past sessions",
             icon: "History",
+            visible,
             behavior: { kind: "action", onPress: () => client.openPanel(panelId, { workspaceId, location: "explorer" }) },
           },
         }),
@@ -34,6 +46,11 @@ export function startHeaderButtons(client: PluginClientContext, panelId: string)
   const replace = (ids: ReadonlySet<string>) => {
     for (const id of [...buttons.keys()]) if (!ids.has(id)) remove(id);
     for (const id of ids) add(id);
+  };
+  const setVisible = (next: boolean) => {
+    if (next === visible) return;
+    visible = next;
+    for (const registration of buttons.values()) registration.update({ visible });
   };
 
   const lifetime = new AbortController();
@@ -67,8 +84,26 @@ export function startHeaderButtons(client: PluginClientContext, panelId: string)
     if (!lifetime.signal.aborted) console.warn("[past-sessions] workspace subscription failed", error);
   });
 
-  return () => {
-    lifetime.abort();
-    for (const id of [...buttons.keys()]) remove(id);
+  // Read at start and when the app comes back to the foreground (another device may have changed
+  // it); this device's settings screen applies it on save. Unreadable settings keep the buttons.
+  const readSetting = () =>
+    client.rpc(settingsRpc(viewSettings.id).read, {}).then(
+      (result) => {
+        if (lifetime.signal.aborted) return;
+        const parsed = result.status === "ready" ? viewSettings.schema.safeParse(result.values) : null;
+        setVisible(parsed?.success ? parsed.data.showHeaderButton : true);
+      },
+      (error: unknown) => console.warn("[past-sessions] reading settings failed", error),
+    );
+  void readSetting();
+  const appState = AppState.addEventListener("change", (state) => state === "active" && void readSetting());
+
+  return {
+    setVisible,
+    stop() {
+      lifetime.abort();
+      appState.remove();
+      for (const id of [...buttons.keys()]) remove(id);
+    },
   };
 }

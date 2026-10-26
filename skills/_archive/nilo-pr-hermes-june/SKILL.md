@@ -26,18 +26,18 @@ Both sub-tasks share the same worktree and Herdr workspace. The agents are **sco
 
 ## Glossary / Conventions (memorize)
 
-- NILO repo: `nilo-technologies/Nilo`, source checkout at `/home/cx/workspace/nilo`.
-- Worktrees live under `/home/cx/workspace/nilo-worktrees/`.
-- Worktree helper: `/home/cx/workspace/create-nilo-worktree.sh <branch> [folder-name]`.
-- OMP binary: `/home/cx/.bun/bin/omp`, needs Bun from mise on PATH (see below).
+- NILO repo: `nilo-technologies/Nilo`, source checkout at `~/workspace/nilo`.
+- Worktrees live under `~/workspace/nilo-worktrees/`.
+- Worktree helper: `~/workspace/create-nilo-worktree.sh <branch> [folder-name]`.
+- OMP binary: `~/.bun/bin/omp`, needs Bun from mise on PATH (see below).
 - Default models: GPT = `openai-codex/gpt-5.5:xhigh`, Opus = `anthropic/claude-opus-4-8:xhigh`. Only deviate if Stefan names a model. Cursor Opus fallback = `cursor/claude-opus-4-8-xhigh` if native Anthropic auth is unavailable.
 - Launch OMP in **normal TUI** (watchable), `--auto-approve`. Do **not** use `--mode json` for Herdr panes Stefan watches.
-- Artifacts (only if asked): under `/home/cx/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/`, following `/mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md`. Never `.agents-local/artifacts/`.
+- Artifacts (only if asked): under `~/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/`, following `/mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md`. Never `.agents-local/artifacts/`.
 
 ### PATH export (prepend to every OMP command)
 
 ```bash
-export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"
 ```
 
 If `omp` says `env: 'bun': No such file or directory`, this PATH is missing.
@@ -45,7 +45,7 @@ If `omp` says `env: 'bun': No such file or directory`, this PATH is missing.
 ## Step 1 — Resolve PR + Branch
 
 ```bash
-cd /home/cx/workspace/nilo
+cd $HOME/workspace/nilo
 gh pr view <PR> --repo nilo-technologies/Nilo \
   --json headRefName,headRefOid,baseRefName,title,body,url,files,author
 git worktree list --porcelain   # check for an existing worktree on the head branch
@@ -58,7 +58,7 @@ Capture `headRefName` (branch), `headRefOid` (exact SHA), `baseRefName` (usually
 If a clean worktree already exists on the PR head branch, reuse it. Otherwise create one. Name the folder descriptively, e.g. `pr-<PR>-<short>-review`:
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 ./create-nilo-worktree.sh <head-branch> pr-<PR>-<short>-review
 ```
 
@@ -69,22 +69,22 @@ The helper assigns a PORT, symlinks `.agents-local`, runs hijack, and runs `pnpm
 The helper calls `pnpm install`. If it fails immediately with `Error: pnpm is not installed or not on PATH`, retry with a temporary shim using the version in `package.json` `packageManager`:
 
 ```bash
-cd /home/cx/workspace
+cd $HOME/workspace
 TMPBIN=$(mktemp -d)
 printf '#!/usr/bin/env bash\nexec npx -y pnpm@10.14.0 "$@"\n' > "$TMPBIN/pnpm"
 chmod +x "$TMPBIN/pnpm"
 PATH="$TMPBIN:$PATH" ./create-nilo-worktree.sh <head-branch> pr-<PR>-<short>-review
 ```
 
-Confirm the actual version: `node -p "require('/home/cx/workspace/nilo/package.json').packageManager"`. The `Failed to create bin ... isolated-environments / deployment-tools / vercel-deployment` warnings are benign (unbuilt workspace tools); the install still completes.
+Confirm the actual version: `node -p "require(require('node:os').homedir() + '/workspace/nilo/package.json').packageManager"`. The `Failed to create bin ... isolated-environments / deployment-tools / vercel-deployment` warnings are benign (unbuilt workspace tools); the install still completes.
 
 ### Verify worktree before launching
 
 ```bash
-cd /home/cx/workspace/nilo-worktrees/pr-<PR>-<short>-review
+cd $HOME/workspace/nilo-worktrees/pr-<PR>-<short>-review
 pwd; git branch --show-current; git status --short | wc -l; git rev-parse HEAD
 gh pr view <PR> --repo nilo-technologies/Nilo --json headRefOid --jq .headRefOid
-readlink .agents-local   # must be /home/cx/workspace/nilo/.agents-local
+readlink .agents-local   # must be ~/workspace/nilo/.agents-local
 ```
 
 Local HEAD must equal PR `headRefOid` (unless Stefan asks for a different revision); status must be clean; `.agents-local` must be the symlink.
@@ -126,7 +126,7 @@ Constraints:
 - MAKE NO EDITS. No file changes, commits, formatters, autofix, or GitHub posting.
 - Review the PR diff against base, not the whole codebase from scratch.
 - Do not run tests unless necessary; if you do, use NILO-safe worker limits (--maxWorkers=4 --workerIdleMemoryLimit=1.5G) and never run autofixers.
-- Artifact (only if asked): /home/cx/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/, per /mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md.
+- Artifact (only if asked): ~/workspace/nilo/.agents-local/docs/artifacts/<YYYY-MM-DD dddd>/, per /mnt/obsidian-vault/Workspace/Hermes/HOW_TO_WRITE_VAULT_ARTIFACTS.md.md.
 
 Context files: /tmp/pr<PR>/pr-metadata.json, /tmp/pr<PR>/diff.patch, /tmp/pr<PR>/review-comments.json, /tmp/pr<PR>/issue-comments.json
 
@@ -177,7 +177,7 @@ Substantive comments to validate:
 Create a workspace **rooted at the exact worktree** (workspace identity must match working-tree identity — never reuse the generic `nilo` workspace for a separate worktree).
 
 ```bash
-WT=/home/cx/workspace/nilo-worktrees/pr-<PR>-<short>-review
+WT=$HOME/workspace/nilo-worktrees/pr-<PR>-<short>-review
 herdr workspace create --cwd "$WT" --label "pr-<PR>-<short>" --focus   # returns workspace_id, e.g. w2, root pane w2:p1
 ```
 
@@ -202,7 +202,7 @@ Pane IDs are deterministic (`w2:p1..p4`) but confirm with `herdr pane list --wor
 ## Step 6 — Launch OMP in Each Pane
 
 ```bash
-P='export PATH="/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH"'
+P='export PATH="$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH"'
 # Full review (always):
 herdr pane run w2:p1 "$P; cd $WT; omp --auto-approve --model openai-codex/gpt-5.5:xhigh @/tmp/pr<PR>/full-review-prompt.md"
 herdr pane run w2:p2 "$P; cd $WT; omp --auto-approve --model anthropic/claude-opus-4-8:xhigh @/tmp/pr<PR>/full-review-prompt.md"

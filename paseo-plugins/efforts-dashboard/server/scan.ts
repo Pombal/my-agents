@@ -35,13 +35,15 @@ export async function realOrNull(target: string): Promise<string | null> {
 }
 
 /**
- * Default exclusions, as a reason in words (null = scanned): `__share__` holds frozen copies of
- * nilo-wayfinder's efforts, and `~/tmp-archive` holds fixtures. A folder listed in the settings is
- * scanned anyway.
+ * Exclusions, as a reason in words (null = scanned): `__share__` holds frozen copies.
+ * Configured fixture folders are skipped too. A folder listed in the extra settings is scanned anyway.
  */
-export function skipReason(root: string, home: string): string | null {
+export function skipReason(root: string, home: string, excludedFolders: readonly string[] = []): string | null {
   if (root.includes(`${path.sep}__share__${path.sep}`)) return "it is inside __share__, which holds frozen copies";
-  if (root.startsWith(path.join(home, "tmp-archive") + path.sep)) return "it is under ~/tmp-archive, which holds throwaway fixtures";
+  for (const folder of excludedFolders) {
+    const expanded = folder.trim().replace(/^~(?=$|\/)/, home).replace(/\/+$/, "");
+    if (expanded && path.isAbsolute(expanded) && root.startsWith(expanded + path.sep)) return "it is under an excluded fixture folder";
+  }
   return null;
 }
 
@@ -309,7 +311,7 @@ export interface Resolved {
   next: { num: string; title: string } | null;
 }
 
-/** Looks up `chat-widgets` in `02, chat-widgets 08`: exact slug, short name or slug suffix. */
+/** Looks up `acme-widgets` in `02, acme-widgets 08`: exact slug, short name or slug suffix. */
 export function findSibling(scans: readonly EffortScan[], shorts: Map<string, string>, name: string): EffortScan | null {
   return (
     scans.find((scan) => scan.slug === name) ??
@@ -364,7 +366,7 @@ const headCache = new Lru<string, { mtimeMs: number; head: EffortHead }>(500);
 
 /**
  * Title, Status and Destination from map.md; without a map, the title is the first `# ` of the
- * biggest top-level Markdown file (`paseo-grievances/paseo-grievances.md`).
+ * biggest top-level Markdown file (`notes/notes.md`).
  */
 async function effortHead(scan: EffortScan): Promise<EffortHead> {
   const source = scan.hasMap

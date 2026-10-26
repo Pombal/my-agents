@@ -26,6 +26,10 @@ const PROVIDER_HINT: Record<Provider, string> = {
   omp: "The model below through OMP's logins, without your OMP context files, skills, rules or persona.",
 };
 
+// Seconds; a value outside these (written by hand, 5–120) is listed too, so the select shows it.
+const TIMEOUTS = [20, 40, 60, 120];
+const timeoutOptions = (current: number) => [...new Set([...TIMEOUTS, current])].sort((a, b) => a - b).map(seconds => ({ label: `${seconds} s`, value: String(seconds) }));
+
 export function TitlesSettings({ theme }: PluginSurfaceProps) {
   const state = useSettings(definition);
   // The model being typed; saved only with Save, so a half-typed name never names a tab.
@@ -53,6 +57,9 @@ export function TitlesSettings({ theme }: PluginSurfaceProps) {
         <SettingsAction label={model === state.values.ompModel ? `Using ${state.values.ompModel}` : `Use ${model || "…"}`} actionLabel="Save"
           disabled={state.saving || !model || model === state.values.ompModel} onPress={() => save({ ompModel: model })} />
       </> : null}
+      <SettingsSelect label="Timeout" hint="How long a title request may take before it is given up, for either provider. A slow model or a busy login may need longer."
+        value={String(state.values.timeout)} options={timeoutOptions(state.values.timeout)}
+        disabled={state.saving} onValueChange={timeout => save({ timeout: Number(timeout) })} />
     </SettingsCard>
     <Text style={muted}>Names you set by hand are never changed automatically. Retitle (Ctrl+Shift+Alt+T, ⌘K, /retitle) always picks a new title; for the workspace, ⌘K → Retitle workspace or /retitle-workspace.</Text>
     {state.saveError ? <Text accessibilityRole="alert" style={{ color: theme.colors.foreground }}>{state.saveError}</Text> : null}

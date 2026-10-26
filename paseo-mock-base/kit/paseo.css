@@ -1,6 +1,6 @@
 /* Paseo 0.12 look: layout + components. Colours/sizes come from tokens.css
  * (generated from Paseo's theme.ts). Measurements: layout-spec.md in the
- * effort dir (/home/cx/agentspace/index/.scratch/paseo-mock-base/).
+ * effort dir (<notes-dir>/).
  *
  * RULE: add classes, never rename or remove them; existing mocks depend on them.
  * Viewport hooks on the frame: [data-vp="desktop|laptop|phone"]. */

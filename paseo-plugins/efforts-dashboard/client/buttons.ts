@@ -14,7 +14,7 @@ const REFRESH_MS = 30_000;
 
 /**
  * The icon-only header button's tooltip (and accessible name):
- * `wa-ftue · 0/9 done`, `No effort · suggested: wa-ftue`, or null when the
+ * `acme-task · 0/9 done`, `No effort · suggested: acme-task`, or null when the
  * workspace shows nothing.
  */
 function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | null {
@@ -27,7 +27,7 @@ function headerTitle(overview: Overview, workspace: WorkspaceInfo): string | nul
   return !binding && suggestion ? `No effort · suggested: ${suggestion.slug}` : null;
 }
 
-/** `wa-ftue · 0/9 done`. */
+/** `acme-task · 0/9 done`. */
 function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null {
   if (workspace.binding?.kind !== "effort") return !workspace.binding && workspace.suggestion ? "effort: bind?" : null;
   const effort = findEffort(overview, workspace.binding.root, workspace.binding.slug);
@@ -36,7 +36,8 @@ function pillLabel(overview: Overview, workspace: WorkspaceInfo): string | null 
 
 /**
  * One icon-only header button per workspace (progress pie + chevron; popover option B, a sheet on
- * phones) and, on compact layouts only, one composer pill per chat with the effort and its done count.
+ * phones) and, on compact layouts only and when enabled in settings, one composer pill per chat
+ * with the effort and its done count.
  */
 export function startButtons(client: PluginClientContext): () => void {
   /** What each registration shows now; `update` is only called when that changes. */
@@ -91,7 +92,7 @@ export function startButtons(client: PluginClientContext): () => void {
     }
     for (const [agentId, workspaceId] of agents) {
       const workspace = byId.get(workspaceId);
-      const label = workspace ? pillLabel(overview, workspace) : null;
+      const label = workspace && overview.showComposerPill ? pillLabel(overview, workspace) : null;
       const current = pills.get(agentId);
       if (current) {
         const visible = !!label && compact;

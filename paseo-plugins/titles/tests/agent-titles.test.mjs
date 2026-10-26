@@ -21,22 +21,22 @@ test("automatic titling touches only the placeholder or a title it chose itself;
 });
 
 test("siblings: Titles' own titles go in bare; placeholders and hand names carry a note", () => {
-  const placeholder = { title: "Why does the inventory page jump?", note: "placeholder: first prompt line, not a title" };
-  assert.equal(siblingEntry("Inventory", { [LABEL_NAMED]: "Inventory" }), "Inventory");
-  assert.deepEqual(siblingEntry("Why does the inventory page jump?", {}, ["Why does the inventory page jump?"]), placeholder);
+  const placeholder = { title: "Why does the catalog table scroll?", note: "placeholder: first prompt line, not a title" };
+  assert.equal(siblingEntry("Catalog", { [LABEL_NAMED]: "Catalog" }), "Catalog");
+  assert.deepEqual(siblingEntry("Why does the catalog table scroll?", {}, ["Why does the catalog table scroll?"]), placeholder);
   // A placeholder Titles already recorded needs no prompt lines.
-  assert.deepEqual(siblingEntry("Why does the inventory page jump?", { [LABEL_UNNAMED]: "Why does the inventory page jump?" }), placeholder);
+  assert.deepEqual(siblingEntry("Why does the catalog table scroll?", { [LABEL_UNNAMED]: "Why does the catalog table scroll?" }), placeholder);
   // Titles named it, then Stefan renamed it: his name now.
-  assert.deepEqual(siblingEntry("Stock UI", { [LABEL_NAMED]: "Inventory" }, ["Fix the stock page"]), { title: "Stock UI", note: "named by hand" });
+  assert.deepEqual(siblingEntry("Product UI", { [LABEL_NAMED]: "Catalog" }, ["Fix the product table"]), { title: "Product UI", note: "named by hand" });
   // Only the whole first-prompt line is the placeholder, not a name that starts like it.
-  assert.deepEqual(siblingEntry("Inventory notes", {}, ["Inventory notes for Q3"]), { title: "Inventory notes", note: "named by hand" });
-  assert.equal(siblingEntry(null, { [LABEL_NAMED]: "Inventory" }), null);
+  assert.deepEqual(siblingEntry("Catalog notes", {}, ["Catalog notes for Q1"]), { title: "Catalog notes", note: "named by hand" });
+  assert.equal(siblingEntry(null, { [LABEL_NAMED]: "Catalog" }), null);
 });
 
 test("keep wins over a stray title; a title comes back as Haiku wrote it, fence and outer whitespace aside", () => {
   assert.deepEqual(parseDecision('{"keep":true,"title":"Unwanted"}'), { kind: "keep" });
   assert.deepEqual(parseDecision('```json\n{"title":" dark mode "}\n```'), { kind: "rename", title: "dark mode" });
-  assert.deepEqual(parseDecision('{"title":"Opus Thinking Levels"}'), { kind: "rename", title: "Opus Thinking Levels" });
+  assert.deepEqual(parseDecision('{"title":"Example Title Words"}'), { kind: "rename", title: "Example Title Words" });
 });
 
 test("answers that are not JSON or carry no title are malformed", () => {

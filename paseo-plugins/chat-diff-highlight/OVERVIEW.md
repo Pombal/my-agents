@@ -4,8 +4,7 @@ included) is pulled halfway toward green or red, and every stretch of words that
 changed line is marked in reverse video: solid green/red with white text (in dark themes the solid
 color is deepened so white stays readable). Each `@@` hunk header gets a tinted band and each file
 header a grey band. Context lines keep the syntax colors of your Syntax theme (Settings →
-Appearance). Style picked by Stefan as variant 11 of the workshop page
-`http://axalon:8080/pages/diff-style-mocks.html`.
+Appearance). Style picked by Stefan as variant 11 of a local mock page.
 
 Diff blocks are also deeper than other code blocks: a 50% black layer (white in light themes) sits
 over the theme's own block background, so the theme's hue stays (a purple block becomes deep
@@ -30,8 +29,7 @@ says no more than the row color.
 Paseo keeps rendering every message itself. The plugin only paints colors over the text it already
 shows, so the copy button, selection, Find and copy as Markdown work as before (copying gives the raw
 diff), and blocks color while the reply streams, at most once per frame. Measured 2026-10-20 in
-headless Chromium on a shared VM (a desktop is likely 2–4× faster); audit in
-`~/agentspace/index/.scratch/paseo-grievances/chat-diff-highlight-perf.md`:
+headless Chromium on a shared VM (a desktop is likely 2–4× faster):
 
 - Streaming a 361-line diff: 0.34–0.46 s of plugin work in total (was 0.68–0.70 s), the last frames
   4–5 ms (were 8–10 ms). Each frame re-colors once; no second repaint after it.

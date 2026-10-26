@@ -24,7 +24,7 @@ describe("btwReady", () => {
       host(11, "chat-b"),
       host(12, "chat-a", ["bash", "-c", "sleep 30"]),
       host(13, "chat-a", ["omp", "-p", "summarize"]),
-      host(14, "chat-a", ["/home/cx/.local/bin/omp", "--mode=rpc"]),
+      host(14, "chat-a", ["/home/user/.local/bin/omp", "--mode=rpc"]),
     ];
     expect(btwReady(processes, "chat-a", new Set([10, 14]))).toBe(true);
     expect(btwReady(processes, "chat-a", new Set([10]))).toBe(false);

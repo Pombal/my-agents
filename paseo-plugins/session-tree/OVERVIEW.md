@@ -2,10 +2,9 @@
 
 OMP's `/tree` inside Paseo: go back to any earlier message and continue from there as a new
 branch. The old branch stays in the same OMP session file and can be switched back to,
-summarized, or opened in its own tab. Design: variant 1 "Instant, offer after"
-(`~/www/webshare/pages/session-tree-popout-alts/`), overall UI from
-`~/www/webshare/pages/session-tree-demo/`. OMP chats only (provider `omp` or a provider that
-`extends` it in `~/.paseo/config.json`); every other chat shows nothing.
+summarized, or opened in its own tab. The design was selected from local mock pages.
+OMP chats only (provider `omp` or a provider that `extends` it in `~/.paseo/config.json`);
+every other chat shows nothing.
 
 Needs the companion OMP extension `~/workspace/my-agents/.omp/extensions/session-tree/`, loaded
 for every Paseo OMP agent in every OMP profile (`omp`, `omp-nilo`) through the Paseo-only overlay
@@ -49,6 +48,17 @@ message and copies it).
 
 Busy agents are refused ("The agent is busy. Try again when it has finished.").
 
+## Settings
+
+Settings → Plugins → session-tree → Session tree (`shared/settings.ts`, all on by default). The
+client reads them with the chat list (every 5 s; at once on the client that saves), so changes
+apply without a reload. `/tree` works whatever is off.
+- **Show composer pill**: off hides the Tree pill. It still appears while the branch list that
+  `/tree` opened is up, and in the phone apps for a moment to show a toast: Paseo mounts no hidden
+  pill and the pill is the only per-chat plugin host for the sheet and phone toasts.
+- **Show branch buttons on messages**: the Continue / Re-ask icons (web and desktop).
+- **Branch menu on right-click**: off leaves the browser's menu (web and desktop).
+
 ## How it works
 
 - `server/session-file.ts` reads the chat's OMP JSONL (`persistence.nativeHandle`) as a tree:
@@ -86,8 +96,9 @@ Busy agents are refused ("The agent is busy. Try again when it has finished.").
 ## Files
 
 `index.server.ts`, `server/` (tree model + test, extension link, daemon client, branch copy),
-`index.client.tsx`, `client/` (store, web DOM layer, RN sheet + pill, summary row, clipboard),
-`shared/tree.ts` (RPC contracts). Typecheck `npm run typecheck`, tests `npm test`.
+`index.client.tsx`, `client/` (store, web DOM layer, RN sheet + pill, summary row, clipboard,
+settings screen), `shared/tree.ts` (RPC contracts), `shared/settings.ts` (settings). Typecheck
+`npm run typecheck`, tests `npm test`.
 Apply edits with `paseo plugin reload session-tree`.
 
 Screenshots (`screenshots/`, live on a throwaway Haiku OMP agent, 2026-10-21): 00 icons,

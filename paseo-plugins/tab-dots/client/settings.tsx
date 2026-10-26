@@ -21,7 +21,7 @@ const ALIGN_OPTIONS: { label: string; value: DotAlign }[] = [
 ];
 const INFO =
   "One dot per tab in the sidebar's workspace rows, in tab order; sub-agents are left out. " +
-  "Green: finished, unread. Red: error. Amber: waiting for permission. Blue, pulsing: running. " +
+  "Green: finished, unread. Red: error. Amber: waiting for permission. Blue, pulsing unless turned off: running. " +
   "Gray: read. Hover a dot for the tab's title; click it to open that tab. Web and desktop apps only.";
 
 const PHONE_INFO =
@@ -87,6 +87,9 @@ export function createSettingsScreen(apply: (values: Preferences) => void) {
           <SettingsSelect label="Dot position" hint="Right edge: where the time was; moves left while the row's menu shows on hover · Steady: right, never moves · Left: right after the title"
             value={current.align} options={ALIGN_OPTIONS} disabled={settings.saving || !current.enabled}
             onValueChange={(align) => save({ align })} />
+          <SettingsSwitch label="Animate running dots" hint="Off: running dots stay solid. Reduced motion always stops the pulse"
+            value={current.animate} disabled={settings.saving || !current.enabled}
+            onValueChange={(animate) => save({ animate })} />
         </> : null}
       </SettingsCard>
     </SettingsSection>;

@@ -28,8 +28,8 @@ describe("variant rows", () => {
   });
 
   it("drop a webshare `index.html` the row's key dropped, and keep one the key kept", () => {
-    const webshare = link("http://axalon:8080/pages/mocks", [variant("http://axalon:8080/pages/mocks/index.html?f=2", 9), variant("http://axalon:8080/pages/mocks/?f=1", 3)]);
-    expect(variantRows(webshare)[0]).toEqual({ url: "http://axalon:8080/pages/mocks/", query: "" });
+    const webshare = link("http://mock.test:8080/pages/mocks", [variant("http://mock.test:8080/pages/mocks/index.html?f=2", 9), variant("http://mock.test:8080/pages/mocks/?f=1", 3)]);
+    expect(variantRows(webshare)[0]).toEqual({ url: "http://mock.test:8080/pages/mocks/", query: "" });
     const other = link("https://site.dev/index.html", [variant("https://site.dev/index.html?a=1", 9), variant("https://site.dev/index.html?a=2", 3)]);
     expect(variantRows(other)[0]).toEqual({ url: "https://site.dev/index.html", query: "" });
   });
@@ -68,33 +68,33 @@ describe("path shortening", () => {
   });
 
   it("go from a short webshare URL's full path to its last two segments, its last, then cut that at the end", () => {
-    expect(at("axalon:8080/observatory-design/post-anatomy.html", 50, 40, 25, 12)).toEqual([
-      "axalon:8080/observatory-design/post-anatomy.html",
-      "…/observatory-design/post-anatomy.html",
-      "…/post-anatomy.html",
-      "…/post-anat…",
+    expect(at("mock.test:8080/component-design/widget-layout.html", 50, 40, 25, 12)).toEqual([
+      "mock.test:8080/component-design/widget-layout.html",
+      "…/component-design/widget-layout.html",
+      "…/widget-layout.html",
+      "…/widget-la…",
     ]);
   });
 
   it("keep `~` and the `:line` suffix of a home file", () => {
-    expect(at("~/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318", 70, 44, 42, 30, 20)).toEqual([
-      "~/agentspace/index/.scratch/paseo-grievances/paseo-grievances.md:318",
-      "~/…/paseo-grievances/paseo-grievances.md:318",
-      "…/paseo-grievances/paseo-grievances.md:318",
-      "…/paseo-grievances.md:318",
-      "…/paseo-grievances.…",
+    expect(at("~/workspace/acme-app/.scratch/example-notes/example-notes.md:318", 70, 38, 36, 30, 20)).toEqual([
+      "~/workspace/acme-app/.scratch/example-notes/example-notes.md:318",
+      "~/…/example-notes/example-notes.md:318",
+      "…/example-notes/example-notes.md:318",
+      "…/example-notes.md:318",
+      "…/example-notes.md:…",
     ]);
   });
 
   it("keep a folder's trailing slash on its last segment", () => {
-    expect(at("axalon:8080/nilo-wayfinder-artifacts/nilo-observatory/share-previews/final/", 40, 30, 10)).toEqual([
-      "axalon:8080/…/share-previews/final/",
+    expect(at("mock.test:8080/acme-app-other-artifacts/acme-portal/share-previews/final/", 40, 30, 10)).toEqual([
+      "mock.test:8080/…/share-previews/final/",
       "…/share-previews/final/",
       "…/final/",
     ]);
   });
 
   it("cut a bare host at the end", () => {
-    expect(at("nilo-observatory.vercel.app", 30, 10)).toEqual(["nilo-observatory.vercel.app", "nilo-obse…"]);
+    expect(at("acme-portal.vercel.app", 30, 10)).toEqual(["acme-portal.vercel.app", "acme-port…"]);
   });
 });

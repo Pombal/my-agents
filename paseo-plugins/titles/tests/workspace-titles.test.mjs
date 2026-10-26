@@ -4,24 +4,24 @@ import { PASEO_TITLE_WINDOW_MS, firstAgent, observeTitle, projectEntry, splitWor
 import { readable } from "../shared/agent-titles.mjs";
 import { isDelegatedAgent } from "@getpaseo/protocol/agent-labels";
 
-const PROMPT = "Why does the inventory page jump on sort?";
+const PROMPT = "Why does the catalog table scroll during filtering?";
 const created = (...titles) => titles.reduce((observed, [title, at]) => observeTitle(observed, title, at), { createdAt: 0, changes: [] });
 
 test("observing a new workspace keeps its first title and each later different one", () => {
-  const observed = created([PROMPT, 1], [PROMPT, 2], ["Fix inventory sort jump", 3], ["Fix inventory sort jump", 4], [null, 5]);
+  const observed = created([PROMPT, 1], [PROMPT, 2], ["Fix catalog scrolling", 3], ["Fix catalog scrolling", 4], [null, 5]);
   assert.equal(observed.initial, PROMPT);
-  assert.deepEqual(observed.changes, [{ title: "Fix inventory sort jump", at: 3 }, { title: null, at: 5 }]);
+  assert.deepEqual(observed.changes, [{ title: "Fix catalog scrolling", at: 3 }, { title: null, at: 5 }]);
   assert.equal(created([null, 1]).initial, null);
 });
 
 test("Titles may name an empty or placeholder title, and keeps managing its own", () => {
   assert.equal(workspaceOwnership(null), "unnamed");
   assert.equal(workspaceOwnership(PROMPT, { placeholders: [PROMPT] }), "unnamed");
-  assert.equal(workspaceOwnership("Sticky Header", { chosen: "Sticky Header" }), "named");
+  assert.equal(workspaceOwnership("Frozen Columns", { chosen: "Frozen Columns" }), "named");
 });
 
 test("Paseo's generated title is the first change away from the placeholder, soon after creation", () => {
-  const generated = "Fix inventory sort jump";
+  const generated = "Fix catalog scrolling";
   const paseo = created([PROMPT, 0], [generated, 8_000]);
   assert.equal(workspaceOwnership(generated, { placeholders: [PROMPT], observed: paseo }), "paseo");
   // Created without a prompt line: an empty title is replaced the same way.
@@ -29,26 +29,26 @@ test("Paseo's generated title is the first change away from the placeholder, soo
 });
 
 test("any other title is hand-named and never changed automatically", () => {
-  const generated = "Fix inventory sort jump";
+  const generated = "Fix catalog scrolling";
   // Renamed again after Paseo's title landed.
-  const renamedAfter = created([PROMPT, 0], [generated, 8_000], ["Inventory UI", 20_000]);
-  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: renamedAfter }), "hand");
+  const renamedAfter = created([PROMPT, 0], [generated, 8_000], ["Catalog UI", 20_000]);
+  assert.equal(workspaceOwnership("Catalog UI", { placeholders: [PROMPT], observed: renamedAfter }), "hand");
   // A change long after creation.
-  const late = created([PROMPT, 0], ["Inventory UI", PASEO_TITLE_WINDOW_MS + 1]);
-  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: late }), "hand");
+  const late = created([PROMPT, 0], ["Catalog UI", PASEO_TITLE_WINDOW_MS + 1]);
+  assert.equal(workspaceOwnership("Catalog UI", { placeholders: [PROMPT], observed: late }), "hand");
   // Paseo never replaces a title chosen at creation, so a change from one is Stefan's.
-  const explicit = created(["Inventory", 0], ["Inventory UI", 5_000]);
-  assert.equal(workspaceOwnership("Inventory UI", { placeholders: [PROMPT], observed: explicit }), "hand");
-  assert.equal(workspaceOwnership("Inventory", { placeholders: [PROMPT], observed: explicit }), "hand");
+  const explicit = created(["Catalog", 0], ["Catalog UI", 5_000]);
+  assert.equal(workspaceOwnership("Catalog UI", { placeholders: [PROMPT], observed: explicit }), "hand");
+  assert.equal(workspaceOwnership("Catalog", { placeholders: [PROMPT], observed: explicit }), "hand");
   // Titles named it, then Stefan renamed it.
-  assert.equal(workspaceOwnership("My Inventory Notes", { chosen: "Sticky Header", placeholders: [PROMPT] }), "hand");
+  assert.equal(workspaceOwnership("My Catalog Notes", { chosen: "Frozen Columns", placeholders: [PROMPT] }), "hand");
   // A workspace Titles didn't see created has no observed history.
   assert.equal(workspaceOwnership(generated, { placeholders: [PROMPT] }), "hand");
 });
 
 test("project siblings: Titles' own bare; placeholders and hand names carry a note", () => {
-  assert.equal(projectEntry("Sticky Header", "Sticky Header"), "Sticky Header");
-  assert.deepEqual(projectEntry("Inventory UI", "Sticky Header"), { title: "Inventory UI", note: "named by hand" });
+  assert.equal(projectEntry("Frozen Columns", "Frozen Columns"), "Frozen Columns");
+  assert.deepEqual(projectEntry("Catalog UI", "Frozen Columns"), { title: "Catalog UI", note: "named by hand" });
   assert.deepEqual(projectEntry(PROMPT, null, [PROMPT]), { title: PROMPT, note: "placeholder: first prompt line, not a title" });
 });
 
@@ -57,8 +57,8 @@ test("workspaces split into this project's (all) and other projects' (most recen
   const self = { id: "self", projectId: "shop", title: null, activityAt: at(59) };
   const workspaces = [
     self,
-    { id: "a", projectId: "shop", title: "Sticky Header", activityAt: at(1) },
-    { id: "b", projectId: "shop", title: "Supplier Import", activityAt: at(5) },
+    { id: "a", projectId: "shop", title: "Frozen Columns", activityAt: at(1) },
+    { id: "b", projectId: "shop", title: "Product Import", activityAt: at(5) },
     { id: "c", projectId: "shop", title: null, activityAt: at(9) },
     { id: "d", projectId: "blog", projectDisplayName: "blog", projectCustomName: "Blog", title: "Review: RSS feed", activityAt: at(3) },
     { id: "e", projectId: "infra", projectDisplayName: "infra", title: "Review: Caddy", activityAt: at(7) },

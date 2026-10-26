@@ -6,13 +6,15 @@
 //
 // Rerun after a Paseo update. Custom (non-Lucide) icons live in kit/icons-extra.js.
 
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(process.argv[2] ?? `${homedir()}/forkspace/paseo-wt/axalon`);
+const configPath = join(homedir(), ".config/my-agents/paseo.json");
+const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : {};
+const root = resolve(process.argv[2] ?? process.env.PASEO_SOURCE_CHECKOUT ?? config.sourceCheckout ?? `${homedir()}/forkspace/paseo-wt/fork`);
 const pkgDir = join(root, "node_modules/lucide-react");
 const version = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")).version;
 const iconDir = join(pkgDir, "dist/esm/icons");

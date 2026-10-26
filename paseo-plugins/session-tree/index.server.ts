@@ -8,6 +8,7 @@ import {
   type ChatSummary, type Op, type OpKind, type Outcome, type TreeState,
   treeCancel, treeChats, treeDismiss, treeGoto, treeOpenTab, treeState, treeSummarize, treeSummary,
 } from "./shared/tree";
+import { DEFAULT_DISPLAY, displaySettings } from "./shared/settings";
 import { readEntries, SessionTree } from "./server/session-file";
 import { awaitResult, cancelRequest, cleanUp, linkRoot, type LinkRequest, loadsExtension, ompHosts, sendRequest, servingPids } from "./server/link";
 import { connectLocalDaemon, reloadChat } from "./server/daemon";
@@ -58,6 +59,7 @@ function sessionFile(agent: Agent): string | undefined {
 export default function contribute(server: PluginServerContext) {
   const ops = new Map<string, Op & { requestId?: string }>();
   const outcomes = new Map<string, Outcome>();
+  const display = server.registerSettings(displaySettings);
 
   async function supportedAgent(paseo: PaseoApi, agentId: string): Promise<{ agent: Agent; file: string } | undefined> {
     const found = await paseo.agents.ref(agentId).refresh().catch(() => undefined);
@@ -168,7 +170,8 @@ export default function contribute(server: PluginServerContext) {
         offer: offer?.setAside ?? null, phase: ops.get(agent.id)?.phase ?? null,
       });
     }
-    return { chats };
+    const settings = await display.read();
+    return { chats, display: settings.status === "ready" ? settings.values : DEFAULT_DISPLAY };
   });
 
   server.handle(treeState, async ({ agentId }, { paseo }) => {

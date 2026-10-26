@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# paseo-fork-sync: bring Stefan's Paseo daemon fork (branch `axalon` on
+# paseo-fork-sync: bring Stefan's Paseo daemon fork on
 # choephix/paseo) up to the newest stable upstream release, build it, test it,
 # push it. Conflicts go to a non-interactive Opus OMP resolver.
 # Never installs, restarts or touches the live daemon.
@@ -25,7 +25,7 @@ Options:
                      (after finishing a paused rebase by hand, or to publish an
                      earlier --no-push result).
   --no-resolver      Stop at the first conflict instead of starting the resolver.
-  --branch NAME      Fork branch (default: axalon).
+  --branch NAME      Fork branch (default: configured branch, or fork).
   --worktree DIR     Worktree for the branch (default: ~/forkspace/paseo-wt/<branch>;
                      created if missing).
   -h, --help         This help.
@@ -34,24 +34,27 @@ Exit codes: 0 synced / up to date, 1 error, 3 rebase paused for a human,
 4 build or tests failed (result kept local, not pushed).
 
 Environment: PASEO_FORK_REPO (default ~/forkspace/paseo), PASEO_FORK_SYNC_HOME
-(state, logs, lock; default ~/tmp-archive/paseo-fork-sync),
+(state, logs, lock; default ~/.local/state/paseo-fork-sync),
 PASEO_FORK_RESOLVER_MODEL (default @opus), PASEO_FORK_RESOLVER_MAX_TIME
-(default 45m), npm_config_cache (default ~/tmp-archive/paseo-fork-test/npm-cache).
+(default 45m), npm_config_cache (default ~/.cache/paseo-fork/npm).
 EOF
 }
 
+CONFIG=$HOME/.config/paseo-fork/config.sh
+[ ! -f "$CONFIG" ] || source "$CONFIG"
+BUILD_LABEL=${PASEO_FORK_LABEL:-fork}
 SELF=$(readlink -f "${BASH_SOURCE[0]}")
 SELF_DIR=$(dirname "$SELF")
 REPO=${PASEO_FORK_REPO:-$HOME/forkspace/paseo}
-HOME_DIR=${PASEO_FORK_SYNC_HOME:-$HOME/tmp-archive/paseo-fork-sync}
+HOME_DIR=${PASEO_FORK_SYNC_HOME:-$HOME/.local/state/paseo-fork-sync}
 RESOLVER_MODEL=${PASEO_FORK_RESOLVER_MODEL:-@opus}
 RESOLVER_MAX_TIME=${PASEO_FORK_RESOLVER_MAX_TIME:-45m}
-NOTES=/home/cx/agentspace/index/.scratch/paseo-fork/map.md
-RUNBOOK=/home/cx/agentspace/index/.scratch/paseo-fork/switch-runbook.md
+NOTES=${PASEO_FORK_NOTES:-}
+RUNBOOK=${PASEO_FORK_RUNBOOK:-}
 UPSTREAM=upstream
 ORIGIN=origin
 STAMP_FILES=(packages/server/package.json packages/cli/package.json)
-export npm_config_cache=${npm_config_cache:-$HOME/tmp-archive/paseo-fork-test/npm-cache}
+export npm_config_cache=${npm_config_cache:-$HOME/.cache/paseo-fork/npm}
 # rerere for this process and everything it starts (including the resolver's
 # `git rebase --continue`), without changing the shared clone's config.
 export GIT_CONFIG_COUNT=2
@@ -59,7 +62,7 @@ export GIT_CONFIG_KEY_0=rerere.enabled GIT_CONFIG_VALUE_0=true
 export GIT_CONFIG_KEY_1=rerere.autoupdate GIT_CONFIG_VALUE_1=true
 export GIT_EDITOR=true
 
-MODE=sync TO_TAG='' DRY_RUN=0 PUSH=1 USE_RESOLVER=1 BRANCH=axalon WORKTREE=''
+MODE=sync TO_TAG='' DRY_RUN=0 PUSH=1 USE_RESOLVER=1 BRANCH=${PASEO_FORK_BRANCH:-fork} WORKTREE=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --check) MODE=check ;;
@@ -88,7 +91,7 @@ stable_tags() { r tag -l 'v*' | grep -E "$STABLE_RE" | sort -V; }
 version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
 # Base = nearest stable upstream tag reachable from the branch. The branch is
 # always "<tag> + fork commits", so describe lands on exactly that tag; betas
-# (-*) and our own axalon/* tags are excluded by the patterns.
+# (-*) and our own namespaced fork tags are excluded by the patterns.
 detect_base() {
   local base
   base=$(r describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' "refs/heads/$BRANCH" 2>/dev/null) ||
@@ -263,10 +266,10 @@ push_branch() {
   return 1
 }
 
-next_build_number() { # next free N for axalon/v<ver>+axalon.N, local and origin tags
+next_build_number() { # next free N for namespaced fork versions, local and origin tags
   local ver=$1 max=0 n t
-  for t in $(r tag -l "axalon/v$ver+axalon.*") $(r ls-remote --tags "$ORIGIN" "refs/tags/axalon/v$ver+axalon.*" 2>/dev/null | awk '{print $2}' | sed 's#refs/tags/##'); do
-    n=${t##*+axalon.}
+  for t in $(r tag -l "$BUILD_LABEL/v$ver+$BUILD_LABEL.*") $(r ls-remote --tags "$ORIGIN" "refs/tags/$BUILD_LABEL/v$ver+$BUILD_LABEL.*" 2>/dev/null | awk '{print $2}' | sed 's#refs/tags/##'); do
+    n=${t##*+"$BUILD_LABEL".}
     [[ $n =~ ^[0-9]+$ ]] && [ "$n" -gt "$max" ] && max=$n
   done
   echo $((max + 1))
@@ -274,7 +277,7 @@ next_build_number() { # next free N for axalon/v<ver>+axalon.N, local and origin
 
 stamp_version() {
   local tag=$1
-  VERSION="${tag#v}+axalon.$(next_build_number "${tag#v}")"
+  VERSION="${tag#v}+$BUILD_LABEL.$(next_build_number "${tag#v}")"
   (cd "$WORKTREE" && node -e '
     const fs = require("fs"); const [version, ...files] = process.argv.slice(1);
     for (const f of files) { const j = JSON.parse(fs.readFileSync(f, "utf8")); j.version = version;
@@ -397,7 +400,7 @@ if [ "$MODE" = finish ]; then
     finish 4 "build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\`, then rerun \`paseo-fork-sync --finish\`."
   fi
   push_branch || finish 1 "built and tested, push failed" "Check \`$RUN/push.log\`."
-  finish 0 "built and tested at $OLD" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
+  finish 0 "built and tested at $OLD" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag: \`$BUILD_LABEL/v$VERSION\` at $(w rev-parse --short HEAD)."
 fi
 
 # ---------------------------------------------------------------- plan
@@ -429,7 +432,7 @@ if [ "$DRY_RUN" = 1 ]; then
   overlap=$(comm -12 <(w diff --name-only "$OLD" HEAD | sort) <(r diff --name-only "$OLD" "$NEW" | sort))
   echo "  files changed by both the fork and upstream (possible conflicts):"
   printf '    %s\n' ${overlap:-"(none)"}
-  echo "  then: npm ci, stamp ${NEW#v}+axalon.N, build:server, build:daemon-web-ui, typecheck:server, server unit tests, push ($([ "$PUSH" = 1 ] && echo yes || echo no))"
+  echo "  then: npm ci, stamp ${NEW#v}+$BUILD_LABEL.N, build:server, build:daemon-web-ui, typecheck:server, server unit tests, push ($([ "$PUSH" = 1 ] && echo yes || echo no))"
   rm -rf "$RUN"
   exit 0
 fi
@@ -588,4 +591,4 @@ if ! build_and_test "$NEW"; then
   finish 4 "rebased onto $NEW, but build/tests failed; nothing pushed" "Fix on \`$BRANCH\` in \`$WORKTREE\` (logs above), then \`paseo-fork-sync --finish\`. Rollback: \`git -C $WORKTREE reset --hard $BACKUP\`."
 fi
 push_branch || finish 1 "synced and tested, but push failed" "Check \`$RUN/push.log\`, then \`paseo-fork-sync --finish\`."
-finish 0 "synced $OLD → $NEW, built and tested" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag for this build: \`axalon/v$VERSION\` at $(w rev-parse --short HEAD)."
+finish 0 "synced $OLD → $NEW, built and tested" "Ready to deploy: run \`paseo-fork deploy\`, then switch as the runbook says ($RUNBOOK). Deploy tag for this build: \`$BUILD_LABEL/v$VERSION\` at $(w rev-parse --short HEAD)."

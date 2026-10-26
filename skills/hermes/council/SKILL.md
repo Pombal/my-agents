@@ -42,7 +42,7 @@ If a model name fails, make one reasonable fallback attempt with the fuzzy label
 Use OMP print mode so every run terminates with a text answer:
 
 ```bash
-PATH=/home/cx/.local/share/mise/shims:/home/cx/.local/share/mise/installs/bun/1.3.14/bin:/home/cx/.bun/bin:$PATH \
+PATH=$HOME/.local/share/mise/shims:$HOME/.local/share/mise/installs/bun/1.3.14/bin:$HOME/.bun/bin:$PATH \
 omp -p --hide-thinking --model <model> [--thinking <level>] -- "<query>"
 ```
 

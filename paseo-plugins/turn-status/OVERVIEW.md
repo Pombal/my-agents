@@ -49,8 +49,7 @@ Apply edits: `flock /tmp/paseo-plugin.lock paseo plugin reload turn-status`. Che
 
 Every animation runs on the compositor as a Web Animation (only `transform` and `opacity` change,
 plus starburst's `clip-path`, which Chromium composites), so a running turn in view costs the page's
-main thread nothing between steps. Measurements and reasoning:
-`~/agentspace/index/.scratch/paseo-grievances/runtime-cost-fix-advice.md` §2.5.
+main thread nothing between steps.
 
 - **Warming** steps every 10 s with no transition (`warmth()` in `client/web.ts`). It used a 1 s
   `color`/`opacity` transition re-aimed by every 1 s elapsed-text update, i.e. a main-thread
@@ -106,7 +105,7 @@ Option sweep: every option composited, or (pseudo-element targets the sweep cann
 the 1.6 floor. Visual: old vs new frames at the same animation times (24 per option, DPR 1 and 4)
 are pixel-identical for 22 of 25 spinners, rolling time and warming; moon phases, atom and morph
 differ only in edge antialiasing (at most 2.6 % of a 14 px tile's pixels by more than 32/255), the
-sheens in text-edge antialiasing (≤ 1 %). Files: `~/tmp-archive/runtime-cost/results/turn-status-visual/`.
+sheens in text-edge antialiasing (≤ 1 %).
 
 ## Limits
 
@@ -115,8 +114,7 @@ sheens in text-edge antialiasing (≤ 1 %). Files: `~/tmp-archive/runtime-cost/r
   footer falls back to Paseo's own look; nothing breaks.
 - Live activity: very fast tools (about 200 ms) only show as the label that follows them; in Paseo's
   "Overview" tool display it shows the group summary ("Read 3 files, ran 2 commands"). Codex reads
-  files through the shell, so it shows "Running cat". Feasibility study:
-  `~/agentspace/index/.scratch/paseo-grievances/live-activity-feasibility.md`.
+  files through the shell, so it shows "Running cat".
 - Warming colours are fixed amber/red tones (dark and light variants), not theme tokens.
 
 ## Live proof (2026-10-20, Paseo 0.12.0 daemon + app.paseo.sh, dark theme)
@@ -130,5 +128,3 @@ Installed from this folder; tested on a real running OMP turn in the web app:
 - `paseo plugin disable` removed every added element and style live (Paseo's dots back);
   `enable` restored ours. Settings were set back to the defaults afterwards.
 
-Design history (mock pages, picks, research): `~/www/webshare/pages/paseo-spinners.html`,
-`~/agentspace/index/.scratch/paseo-grievances/working-indicator-research.md`.

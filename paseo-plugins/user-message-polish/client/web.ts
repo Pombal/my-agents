@@ -292,8 +292,7 @@ function renderFold(fold: Extract<Segment, { kind: "fold" }>, startOpen: boolean
 }
 
 // ---------------------------------------------------------------------------------------------
-// Skills and attached files (Stefan's pick 2026-10-24, mock "one-tint, no line, USER caps, bulb,
-// chevron right" on http://axalon:8080/pages/user-message-polish-skill-view-mocks/). The bubble
+// Skills and attached files (Stefan's pick from a local mock page). The bubble
 // shows what the agent got: a loaded skill tints the bubble and heads it; the header opens the
 // skill text OMP sent; the text below is what followed `User:`, with its marker. Attached @files
 // get a row after the text that opens the file as sent.
@@ -470,7 +469,10 @@ const CSS = `
 .ump-list li > * + *, .ump-list li + li { margin-top: 2px; }
 .ump-h { font-weight: 600; }
 .ump-hr { border: 0; border-top: 1px solid ${MIX(18)}; margin: 4px 0; }
-.ump-quote { margin: 0; padding-left: 10px; border-left: 3px solid ${MIX(22)}; color: ${MIX(80)}; }
+/* Quotes step back from your own words: 12 px on a ×1.3 line (picked from mocks, 2026-10-25). */
+.ump-quote { margin: 0; padding-left: 10px; border-left: 3px solid ${MIX(22)}; color: ${MIX(80)}; font-size: 12px; line-height: 1.3; }
+/* margin: 0 above would also drop the 8 px block gap before a quote; this puts it back. */
+.ump-md > * + .ump-quote, .ump-quote > * + .ump-quote { margin-top: 8px; }
 .ump-list { margin: 0; padding-left: 20px; }
 .ump-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.86em; padding: 1px 4px; border-radius: 4px; background: ${MIX(10)}; }
 /* Long lines wrap rather than widen the bubble past a narrow window. */

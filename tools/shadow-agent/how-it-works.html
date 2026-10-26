@@ -206,8 +206,8 @@
       <strong>3. Ledger grows by one line</strong>
       Something like:
 <pre><code>{"ts":"2026-08-16T18:40:00.000Z",
- "session":"/home/cx/.omp/agent/sessions/-workspace-nilo/….jsonl",
- "cwd":"/home/cx/workspace/nilo",
+ "session":"~/.omp/agent/sessions/-workspace-acme-app/….jsonl",
+ "cwd":"~/workspace/acme-app",
  "id":"…",
  "leaf":"…"}</code></pre>
       No transcript. No prose. Just enough to find the turn later.
@@ -261,9 +261,9 @@
   <p>The user prompt is assembled in <code>renderDaemonWakeup</code>:</p>
 <pre><code>One finished turn in the session below.
 
-project: nilo/worktrees/pr-9134
-cwd: /home/cx/workspace/nilo/worktrees/pr-9134
-session: /home/cx/.omp/agent/sessions/…jsonl
+project: acme-app/worktrees/pr-123
+cwd: ~/workspace/acme-app/worktrees/pr-123
+session: ~/.omp/agent/sessions/…jsonl
 session id: …
 job files: ~/.omp/agent/shadow-daemon/jobs/journal
 
@@ -351,9 +351,9 @@ Act on your standing instruction now, then end your turn.</code></pre>
     </tbody>
   </table>
   <p>
-    Other profile: <code>--profile nilo</code> switches the agent dir to
-    <code>~/.omp/profiles/nilo/agent</code>. There is no cross-profile daemon.
-    The Nilo wall stays a wall.
+    Other profile: <code>--profile work</code> switches the agent dir to
+    <code>~/.omp/profiles/work/agent</code>. There is no cross-profile daemon.
+    The profile boundary stays a wall.
   </p>
   <p>
     Loop safety is the same trick as the original shadow: daemon sessions live next to,
@@ -384,7 +384,7 @@ instruction_file = "journal.instructions.md"</code></pre>
 <pre><code># from shadow-agent/
 bun shadow-daemon.ts examples/journal.toml
 bun shadow-daemon.ts skip examples/journal.toml
-bun shadow-daemon.ts --profile nilo jobs/decisions.toml</code></pre>
+bun shadow-daemon.ts --profile work jobs/decisions.toml</code></pre>
   <p>
     It does not start itself. You start the jobs you want, when you want them:
     a daily journal, a decisions file, a machine changelog — each a cheap Luna

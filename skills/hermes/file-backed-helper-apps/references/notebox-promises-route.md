@@ -1,6 +1,6 @@
 # Notebox promises route pattern
 
-Session pattern from Rhinox Console `/notebox-promises`.
+Example pattern for Example Console `/notebox-promises`.
 
 ## Data source
 

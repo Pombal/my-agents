@@ -29,6 +29,11 @@ async function listAllAgents(paseo: PaseoApi): Promise<PaseoAgent[]> {
   return all;
 }
 
+export interface LinksService {
+  forAgent(input: RpcInput<typeof linksForAgent>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForAgent>>;
+  forWorkspace(input: RpcInput<typeof linksForWorkspace>, paseo: PaseoApi): Promise<RpcOutput<typeof linksForWorkspace>>;
+}
+
 /**
  * `links.for-agent` and `links.for-workspace`, sharing one incremental cache per transcript file.
  * omp/claude/codex chats are read from their transcript (only the appended bytes after the first
@@ -37,8 +42,8 @@ async function listAllAgents(paseo: PaseoApi): Promise<PaseoAgent[]> {
  * The workspace endpoint covers many chats that may not be loaded, so it reads transcripts only.
  * Sub-agents are read from their transcripts only, never through the timeline.
  */
-export function createLinksService(home: string) {
-  const site = siteFor(home);
+export function createLinksService(home: string, webshareOrigin = "", webshareFolder?: string): LinksService {
+  const site = siteFor(home, webshareOrigin, webshareFolder);
   const transcripts = new TailFold<LinkMap>(() => new Map());
   const fold = (file: string, read: ProseReader) =>
     transcripts.read(file, (acc, line) => {

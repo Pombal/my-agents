@@ -28,8 +28,8 @@ OMP keeps project-scoped JSONL logs under:
 For example:
 
 ```text
-/home/cx/workspace/nilo      -> ~/.omp/agent/sessions/-workspace-nilo/*.jsonl
-/home/cx/workspace           -> ~/.omp/agent/sessions/-workspace/*.jsonl
+~/workspace/acme-app      -> ~/.omp/agent/sessions/-workspace-acme-app/*.jsonl
+~/workspace           -> ~/.omp/agent/sessions/-workspace/*.jsonl
 /mnt/obsidian-vault/         -> ~/.omp/agent/sessions/--mnt-obsidian-vault--/*.jsonl
 ```
 
@@ -161,7 +161,7 @@ Workflow:
 1. Resolve the date in local time with `date` when the user says “yesterday” or “today”.
 2. Search recursively, not just `maxdepth 3` or a flat file list:
    ```bash
-   find /home/cx/workspace/nilo/.agents-local/docs/artifacts -type f -path "*YYYY-MM-DD*" -printf '%TY-%Tm-%Td %TH:%TM %p\n' | sort
+   find ~/workspace/acme-app/.agents-local/docs/artifacts -type f -path "*YYYY-MM-DD*" -printf '%TY-%Tm-%Td %TH:%TM %p\n' | sort
    ```
 3. Read the matching dated artifact files and summarize them as durable evidence of what Stefan discussed/planned with agents.
 4. Treat artifact titles/frontmatter (`type`, `model`, `time`, `status`, `supersedes`) as first-class evidence; many artifacts are cross-agent plans/playbooks/proposals rather than code changes.
@@ -176,7 +176,7 @@ Use this deterministic helper to compute the OMP session directory for a project
 ```bash
 python3 - <<'PY'
 from pathlib import Path
-p = Path('/home/cx/workspace/nilo').resolve().as_posix()
+p = (Path.home() / 'workspace/acme-app').resolve().as_posix()
 encoded = p.replace('/', '-')
 print(Path.home() / '.omp/agent/sessions' / encoded)
 PY
@@ -186,8 +186,8 @@ Known examples:
 
 | Project path | Session dir |
 |---|---|
-| `/home/cx/workspace/nilo` | `~/.omp/agent/sessions/-home-cx-workspace-nilo` may be expected by pure replacement, but observed OMP uses `~/.omp/agent/sessions/-workspace-nilo` for cwd display rooted at `/home/cx`. Prefer discovery below. |
-| `/home/cx/workspace` | `~/.omp/agent/sessions/-workspace` |
+| `~/workspace/acme-app` | `~/.omp/agent/sessions/-home-user-workspace-acme-app` may be expected by pure replacement, but observed OMP uses `~/.omp/agent/sessions/-workspace-acme-app` for cwd display rooted at the home directory. Prefer discovery below. |
+| `~/workspace` | `~/.omp/agent/sessions/-workspace` |
 | `/mnt/obsidian-vault/` | `~/.omp/agent/sessions/--mnt-obsidian-vault--` |
 
 Because OMP’s exact path root can vary, prefer discovering by reading each session file’s first `session.cwd` field instead of relying only on directory naming.
@@ -198,7 +198,7 @@ Because OMP’s exact path root can vary, prefer discovering by reading each ses
 python3 - <<'PY'
 from pathlib import Path
 import json, datetime
-project = Path('/home/cx/workspace/nilo').resolve()
+project = (Path.home() / 'workspace/acme-app').resolve()
 root = Path.home() / '.omp/agent/sessions'
 rows = []
 for p in root.glob('**/*.jsonl'):
@@ -321,7 +321,7 @@ python3 - <<'PY'
 from pathlib import Path
 import json, datetime
 
-project = Path('/home/cx/workspace/nilo').resolve()
+project = (Path.home() / 'workspace/acme-app').resolve()
 limit = 2
 root = Path.home() / '.omp/agent/sessions'
 
@@ -396,7 +396,7 @@ Use Python to scan locally and print only paths/snippets:
 python3 - <<'PY'
 from pathlib import Path
 import json
-project = Path('/home/cx/workspace/nilo').resolve()
+project = (Path.home() / 'workspace/acme-app').resolve()
 needle = 'review'.lower()
 root = Path.home() / '.omp/agent/sessions'
 

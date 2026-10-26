@@ -113,14 +113,14 @@ export interface BlockedBy {
   own: string[];
   /** `<effort> NN` references to another effort's ticket. */
   elsewhere: { effort: string; num: string }[];
-  /** Text that names no ticket (`v0 shipped and in real use`, `PR #12895 merging`). */
+  /** Text that names no ticket (`release already shipped`, `PR #123 merging`). */
   note: string | null;
 }
 
 /**
- * `Blocked by:` values seen in real tickets: `none`, `—`, `01`, `04, 06`, `[02](02-x.md)`,
- * `12 — Linked Teleporter behavior.`, `None — can start immediately`, `03 (08 resolved …)`,
- * `01 Who owns …; 06 Commercial terms …`, `02, chat-widgets 08`, and prose.
+ * `Blocked by:` examples: `none`, `—`, `01`, `04, 06`, `[02](02-x.md)`,
+ * `12 — Example feature behavior.`, `None — can start immediately`, `03 (08 resolved …)`,
+ * `01 Who owns …; 06 Service costs …`, `02, acme-widgets 08`, and prose.
  */
 export function parseBlockedBy(raw: string | null | undefined): BlockedBy {
   const empty: BlockedBy = { own: [], elsewhere: [], note: null };
@@ -301,7 +301,7 @@ export function ticketNum(file: string): string | null {
 
 /**
  * Short names for slugs in one `.scratch`: a two-segment prefix that at least four slugs share is
- * dropped (`world-agent-playtest-logs` → `playtest-logs`).
+ * dropped (`acme-app-playtest-logs` → `playtest-logs`).
  */
 export function shortNames(slugs: readonly string[]): Map<string, string> {
   const counts = new Map<string, number>();
@@ -332,7 +332,7 @@ function tokens(text: string): string[] {
 /**
  * Whether a workspace name points at an effort slug: every word of the name matches a word of
  * the slug (equal, or one a prefix of the other with 4+ letters), or is the initials of
- * consecutive slug words (`WA` → `world-agent`). Returns the number of slug words covered, 0 = no.
+ * consecutive slug words (`AA` → `acme-app`). Returns the number of slug words covered, 0 = no.
  */
 export function nameMatch(name: string, slug: string): number {
   const words = tokens(name);

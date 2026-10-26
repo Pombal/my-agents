@@ -1,2 +1,2 @@
-Git name: Stefan Ginev  
-Git email: 962412+choephix@users.noreply.github.com  
+Git identity: use the locally configured `user.name` and `user.email`.
+

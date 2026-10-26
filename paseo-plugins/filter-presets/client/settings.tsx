@@ -13,10 +13,10 @@ type Colors = PluginSurfaceProps["theme"]["colors"];
 
 const ruleCopy: Record<RuleType, { label: string; placeholder: string }> = {
   folderPrefix: { label: "Inside folder", placeholder: "/home/me/workspace/client" },
-  folderName: { label: "Path has a folder named", placeholder: "nilo  or  nilo-*" },
+  folderName: { label: "Path has a folder named", placeholder: "acme  or  acme-*" },
   remoteGlob: { label: "Git remote", placeholder: "my-org/*" },
-  pathGlob: { label: "Path pattern", placeholder: "/home/*/workspace/nilo-*" },
-  pathRegex: { label: "Path regex", placeholder: "/nilo(-[^/]*)?$" },
+  pathGlob: { label: "Path pattern", placeholder: "/home/*/workspace/acme-*" },
+  pathRegex: { label: "Path regex", placeholder: "/acme(-[^/]*)?$" },
 };
 const otherCollapsedCount = 5;
 
@@ -185,8 +185,8 @@ export function createPresetSettings(client: PluginClientContext) {
         </Pressable>
         <LinkButton colors={colors} testID="filter-presets-discard" disabled={!dirty} onPress={() => void discard()}>Discard changes</LinkButton>
         <View style={{ flex: 1 }} />
-        {json !== null && <LinkButton colors={colors} onPress={async () => { if (await settings.reset()) { setDraft(null); setJson(null); setError(""); } }}>Reset to Nilo</LinkButton>}
-        {settings.status === "invalid" && <LinkButton colors={colors} onPress={async () => { if (await settings.reset()) { setDraft(null); setError(""); } }}>Reset to Nilo</LinkButton>}
+        {json !== null && <LinkButton colors={colors} onPress={async () => { if (await settings.reset()) { setDraft(null); setJson(null); setError(""); } }}>Reset to defaults</LinkButton>}
+        {settings.status === "invalid" && <LinkButton colors={colors} onPress={async () => { if (await settings.reset()) { setDraft(null); setError(""); } }}>Reset to defaults</LinkButton>}
         {draft && <LinkButton colors={colors} testID="filter-presets-json-toggle" accent onPress={toggleJson}>{json === null ? "Edit as JSON" : "Edit with form"}</LinkButton>}
       </View>
     </View>;

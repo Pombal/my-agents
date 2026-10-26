@@ -3,7 +3,7 @@ import { z } from "zod";
 
 /**
  * What a click does: `web` and `image` open `url` in the browser, `file` copies `copy`.
- * Webshare paths are `web`/`image` with their http://axalon:8080 URL.
+ * Configured webshare paths are `web`/`image` with their public URL.
  */
 export const LinkKindSchema = z.enum(["web", "image", "file"]);
 export type LinkKind = z.infer<typeof LinkKindSchema>;
@@ -32,7 +32,7 @@ export const LinkSchema = z.object({
   /** Muted: the host, or the folder shortened to `~/…/a/b`. */
   where: z.string(),
   /**
-   * What the row shows: the URL without scheme, query and fragment (`axalon:8080/pages/x/`, a webshare
+   * What the row shows: the URL without scheme, query and fragment (`example.com/pages/x/`, a webshare
    * `index.html` dropped), or the file path with `~` and its newest `:line`; folders end in `/`.
    */
   path: z.string(),

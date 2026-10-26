@@ -39,16 +39,16 @@ Filename rules:
 - Use ` - ` as the main separator.
 - Avoid `[]` and `#` in filenames.
 - Write `PR 1234`, not `PR #1234`.
-- Parentheses are allowed for one concise context qualifier, e.g. `Nilo (PR 9134)`.
+- Parentheses are allowed for one concise context qualifier, e.g. `Acme (PR 123)`.
 - Use a short model name in the filename: `GPT`, `Opus`, `Kimi`, `Composer`, `Fable`, etc.
 
 Examples:
 
 ```text
-2026-07-06 0734 Drimgar - Report by GPT via OMP - Legacy Babylon client migration seams.md
-2026-07-06 0442 Drimgar - Review by Fable via Cursor - Bot-player legality fixes and tribute asserter branch.md
-2026-06-22 1152 Axalon - Review by GPT via Rhinox - Belot Client Spec Rules Corrections.md
-2026-06-25 0900 Nilo (PR 9134) - Handoff by GPT via Rhinox - Integration bypass test implementation.md
+2026-01-05 0900 Acme - Report by GPT via OMP - Example parser migration.md
+2026-01-05 0930 Acme - Review by Fable via Cursor - Example validation tests.md
+2026-01-06 1000 Personal - Review by GPT via Agent - Example specification corrections.md
+2026-01-06 1100 Acme (PR 123) - Handoff by GPT via Agent - Example integration test.md
 ```
 
 ## Frontmatter
@@ -60,8 +60,8 @@ Use this shape, omitting any field that cannot be known reliably:
 kind: evaluation
 created: 2026-06-25 11:05
 by_model: GPT-5.5
-project: Drimgar
-context: Drimgar Game feature-name
+project: Acme
+context: Acme example-feature
 origin_folder: /path/where/the/agent/was/active
 git_repo: owner/repo
 git_branch: branch-name

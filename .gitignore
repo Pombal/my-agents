@@ -2,3 +2,7 @@ skills/vendor-*
 .agents-local
 skills/unorganised/moshi-notification/
 *.bak
+
+# Plugin screenshots are local test evidence and show private sessions.
+# Public listing images go in a separate, reviewed folder.
+paseo-plugins/*/screenshots/

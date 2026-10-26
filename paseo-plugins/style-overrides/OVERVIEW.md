@@ -48,10 +48,9 @@ with a `/* ── Name ── */` header, the date, and Stefan's own words. `cli
 `<style data-plugin="style-overrides">` and removes it on disable) and `index.client.ts` never need
 editing.
 
-1. **Find a stable selector.** Inspect the live web app (see the Paseo section of
-   `~/agentspace/index/atlas/tools.md` for opening it in a headless browser). Use `data-testid`
+1. **Find a stable selector.** Inspect the live web app in a browser. Use `data-testid`
    (prefix match `[data-testid^="…-"]` for per-item IDs) or `aria-*` attributes. Confirm in the
-   Paseo source (`~/forkspace/paseo/packages/app/src`, `grep testID=`) what the element is and
+   Paseo source (`packages/app/src`, `grep testID=`) what the element is and
    which sibling elements share its geometry, so the tweak covers all of them (e.g. "Show more"
    rows share workspace row geometry). Never use generated class names (`css-…`, `r-…`) or broad
    tag/role selectors.

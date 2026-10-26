@@ -164,15 +164,30 @@
         axes.set(axis, list);
       }
     });
-    return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes };
+    // <aside data-notes> renders beside the frame, not in it (README "Base and notes").
+    const notes = el.querySelector("[data-notes]");
+    notes?.remove();
+    notes?.querySelectorAll("[data-note-for]").forEach((p) => {
+      const num = document.createElement("b");
+      num.className = "kit-note-num";
+      num.textContent = p.dataset.noteFor;
+      p.prepend(num);
+    });
+    return { id: el.dataset.section, title: el.dataset.title || el.dataset.section, el, variants, axes, notes };
   });
+  // Base: plain Paseo without this mock's changes (variants, data-mod, slot contents).
+  const hasDelta =
+    sections.some((s) => s.variants.length) ||
+    !!frame.querySelector("[data-mod],[data-base],[data-variant]") ||
+    [...frame.querySelectorAll("[data-slot]")].some((s) => s.children.length);
+  const hasNotes = sections.some((s) => s.notes || s.el.querySelector("[data-note]"));
 
   const themes = words(html.dataset.themes || DEFAULT_THEMES);
   const viewports = words(html.dataset.viewports || "desktop laptop phone");
 
   // ---------------------------------------------------------------- state + hash
   // picks: each section's last variant, so switching sections keeps every choice.
-  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {} };
+  const state = { section: sections[0].id, variant: null, theme: themes[0], vp: viewports[0], states: {}, picks: {}, base: false, notes: true };
 
   function readHash() {
     const [path, query] = location.hash.slice(1).split("?");
@@ -193,8 +208,10 @@
     if (state.variant) state.picks[state.section] = state.variant;
     else state.variant = state.picks[state.section] || null;
     state.states = {};
-    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data"].includes(k)) state.states[k] = v;
+    for (const [k, v] of q) if (!["theme", "vp", "canvas", "picks", "data", "base", "notes"].includes(k)) state.states[k] = v;
     state.data = q.get("data") || defaultData;
+    state.base = q.get("base") === "1";
+    state.notes = q.get("notes") !== "off";
   }
   function writeHash() {
     const q = new URLSearchParams();
@@ -204,6 +221,8 @@
     for (const [axis, values] of sec.axes) if (state.states[axis] && state.states[axis] !== values[0]) q.set(axis, state.states[axis]);
     if (html.dataset.canvas) q.set("canvas", html.dataset.canvas);
     if (state.data !== defaultData) q.set("data", state.data);
+    if (state.base) q.set("base", "1");
+    if (hasNotes && !state.notes) q.set("notes", "off");
     const picks = sections
       .filter((s) => s.id !== state.section && state.picks[s.id] && state.picks[s.id] !== s.variants[0]?.id)
       .map((s) => s.id + "." + state.picks[s.id]);
@@ -245,10 +264,16 @@
     frame.dataset.theme = state.theme;
     frame.dataset.vp = state.vp;
     frame.dataset.section = sec.id;
-    if (state.variant) frame.dataset.v = state.variant;
+    if (state.variant && !state.base) frame.dataset.v = state.variant;
     else delete frame.dataset.v;
     // data-v-<section>: every section's pick at once, so one section can show another's choice.
-    for (const s of sections) if (s.variants.length) frame.setAttribute("data-v-" + s.id, state.picks[s.id] || s.variants[0].id);
+    for (const s of sections) {
+      if (!s.variants.length) continue;
+      if (state.base) frame.removeAttribute("data-v-" + s.id);
+      else frame.setAttribute("data-v-" + s.id, state.picks[s.id] || s.variants[0].id);
+    }
+    frame.classList.toggle("kit-base", state.base);
+    html.classList.toggle("kit-base-on", state.base);
     for (const k of Object.keys(frame.dataset)) if (k.startsWith("state")) delete frame.dataset[k];
     for (const [axis] of sec.axes) frame.setAttribute("data-state-" + axis, state.states[axis]);
     html.dataset.theme = state.theme; // lets kit-styled controls outside the frame pick up tokens if wanted
@@ -259,10 +284,12 @@
     const structOff = new Set();
     const tagged = new Set();
     shownAxes = new Set();
-    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when]")) {
+    for (const n of sec.el.querySelectorAll("[data-variant],[data-viewport],[data-when],[data-mod],[data-base],[data-slot] > *")) {
       let struct = true;
-      if (n.dataset.variant) struct &&= words(n.dataset.variant).includes(state.variant);
+      if (n.dataset.variant) struct &&= !state.base && words(n.dataset.variant).includes(state.variant);
       if (n.dataset.viewport) struct &&= words(n.dataset.viewport).flatMap((v) => VIEWPORT_ALIASES[v] || [v]).includes(state.vp);
+      if (n.hasAttribute("data-mod") || n.parentElement.hasAttribute("data-slot")) struct &&= !state.base;
+      if (n.hasAttribute("data-base")) struct &&= state.base;
       let on = struct;
       if (n.dataset.when) {
         const when = parseWhen(n.dataset.when);
@@ -297,7 +324,56 @@
   const holder = document.createElement("div");
   holder.className = "kit-frame-holder";
   holder.append(frame);
+  // Review notes: numbered markers over the frame, the notes column beside it.
+  const noteLayer = document.createElement("div");
+  noteLayer.className = "kit-note-layer";
+  frame.append(noteLayer);
+  const notesCol = document.createElement("div");
+  notesCol.className = "kit-notes";
+  holder.append(notesCol);
   stage.append(label, holder);
+  let notesFrame = 0;
+  frame.addEventListener("scroll", () => (notesFrame ||= requestAnimationFrame(renderNotes)), true);
+
+  // Hidden by a scrolled-away ancestor (chat, sidebar list)?
+  function clipped(n, r) {
+    for (let p = n.parentElement; p && p !== frame; p = p.parentElement) {
+      if (getComputedStyle(p).overflow === "visible") continue;
+      const q = p.getBoundingClientRect();
+      if (r.bottom <= q.top || r.top >= q.bottom || r.right <= q.left || r.left >= q.right) return true;
+    }
+    return false;
+  }
+  function renderNotes() {
+    notesFrame = 0;
+    const sec = current();
+    const on = hasNotes && state.notes && !exportMode;
+    frame.classList.toggle("kit-notes-on", on);
+    noteLayer.replaceChildren();
+    notesCol.style.visibility = on && sec.notes ? "" : "hidden";
+    if (!on) return;
+    const fr = frame.getBoundingClientRect();
+    const s = fr.width / frame.offsetWidth || 1;
+    const shown = new Set();
+    for (const n of sec.el.querySelectorAll("[data-note]")) {
+      if (n.closest(".kit-off") || !n.getClientRects().length) continue;
+      const r = n.getBoundingClientRect();
+      if (clipped(n, r)) continue;
+      shown.add(n.dataset.note);
+      const m = el("span", "kit-note-mark", n.dataset.note);
+      m.style.left = Math.max(2, (r.left - fr.left) / s - 9) + "px";
+      m.style.top = Math.max(2, (r.top - fr.top) / s - 9) + "px";
+      noteLayer.append(m);
+    }
+    if (sec.notes && notesCol.firstChild !== sec.notes) notesCol.replaceChildren(sec.notes);
+    // Notes follow the same variant tags; a note whose marker is off screen dims.
+    sec.notes?.querySelectorAll("[data-note-for]").forEach((p) => {
+      let ok = true;
+      if (p.dataset.variant) ok &&= words(p.dataset.variant).includes(state.variant);
+      p.classList.toggle("kit-off", !ok);
+      p.classList.toggle("kit-note-dim", !shown.has(p.dataset.noteFor));
+    });
+  }
 
   function layout() {
     const vp = VIEWPORTS[state.vp];
@@ -311,6 +387,25 @@
     // bar 1 = sections (identical everywhere), bar 2 = this section's variants
     // (its slot is kept, empty, on sections without variants), then the
     // caption line when any section has notes.
+    // Base / Notes sit in the top-right corner. When the window is too narrow
+    // for both, the top stack centres in the space left of them. Only the
+    // first top bar shares their row, and it is the same on every section.
+    const topStack = [designBar, variantBar, caption];
+    for (const b of topStack) {
+      b.style.right = "";
+      b.style.maxWidth = "";
+    }
+    const firstBar = !designBar.hidden ? designBar : !variantBar.hidden ? variantBar : null;
+    if (!reviewBar.hidden && firstBar) {
+      const rv = reviewBar.getBoundingClientRect();
+      if (firstBar.getBoundingClientRect().right > rv.left - 12) {
+        const right = window.innerWidth - rv.left + 12;
+        for (const b of topStack) {
+          b.style.right = right + "px";
+          b.style.maxWidth = `calc(100vw - ${right + 16}px)`;
+        }
+      }
+    }
     let y = 14;
     let slotH = 0;
     if (!designBar.hidden) {
@@ -329,13 +424,20 @@
     const top = y + 46;
     const bottom = situationBar.hidden ? 14 : window.innerHeight - situationBar.getBoundingClientRect().top + 24;
     const availH = window.innerHeight - top - bottom;
-    const availW = window.innerWidth - 48;
+    // The notes column's room is reserved whenever the page has notes, so
+    // toggling them never moves the frame.
+    const notesW = Math.round(Math.min(300, Math.max(200, window.innerWidth * 0.2)));
+    const reserve = hasNotes ? notesW + 24 : 0;
+    const availW = window.innerWidth - 48 - reserve;
     const scale = Math.min(1, availW / vp.w, availH / vp.h);
+    stage.style.paddingRight = reserve + "px";
+    notesCol.style.width = notesW + "px";
     frame.style.transform = `scale(${scale})`;
     holder.style.width = vp.w * scale + "px";
     holder.style.height = vp.h * scale + "px";
     stage.style.top = top - 22 + "px";
     label.textContent = `${vp.label} · ${vp.w}×${vp.h}${scale < 1 ? ` · ${Math.round(scale * 100)}%` : ""}`;
+    renderNotes();
   }
 
   // ---------------------------------------------------------------- bars
@@ -350,6 +452,9 @@
   caption.className = "kit-caption";
   const situationBar = document.createElement("div");
   situationBar.className = "kit-bar kit-situation";
+  // Top-right corner: Base (plain Paseo) and Notes, on every mock with a design.
+  const reviewBar = document.createElement("div");
+  reviewBar.className = "kit-bar kit-review";
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -386,6 +491,23 @@
       designBar.append(segmented(sections.map((s) => ({ key: s.id, label: s.title })), sec.id, (id) => set({ section: id })));
     }
     designBar.hidden = !designBar.childElementCount;
+
+    // Base / Notes: in-place toggles, the same spot flips back.
+    reviewBar.replaceChildren();
+    const toggle = (label, key, on, title, onClick) => {
+      const b = el("button", "kit-seg-btn kit-toggle" + (on ? " kit-on" : ""));
+      b.append(el("span", null, label), el("kbd", null, key));
+      b.title = title;
+      b.onclick = onClick;
+      return b;
+    };
+    if (hasDelta) reviewBar.append(toggle("Base", "b", state.base, "Plain Paseo, without this mock's changes (b)", () => set({ base: !state.base })));
+    if (hasNotes) {
+      const b = toggle("Notes", "n", state.notes, "What the design changes, how and why (n)", () => set({ notes: !state.notes }));
+      b.disabled = !sec.notes && !sec.el.querySelector("[data-note]");
+      reviewBar.append(b);
+    }
+    reviewBar.hidden = !reviewBar.childElementCount;
 
     // Variants: a row of buttons (an important choice, like sections);
     // data-variants-as="cycle" on the section asks for a cycle button instead.
@@ -447,6 +569,8 @@
     else if (e.key === "t") set({ theme: step(themes, state.theme, e.shiftKey ? -1 : 1) });
     else if (e.key === "v") set({ vp: step(viewports, state.vp, e.shiftKey ? -1 : 1) });
     else if (e.key === "d" && dataSets.live) set({ data: state.data === "live" ? "acme" : "live" });
+    else if (e.key === "b" && hasDelta) set({ base: !state.base });
+    else if (e.key === "n" && hasNotes) set({ notes: !state.notes });
     else return;
     e.preventDefault();
   }
@@ -519,7 +643,7 @@
   if (exportMode) {
     document.body.replaceChildren(frame);
   } else {
-    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar);
+    document.body.replaceChildren(stage, designBar, variantBar, caption, situationBar, reviewBar);
     window.addEventListener("resize", layout);
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", () => {

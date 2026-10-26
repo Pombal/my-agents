@@ -247,7 +247,7 @@ export function NewEffortModal(props: {
           Starts a chat in {props.workspace.name} that charts {props.root.label}/.scratch/{clean || "<name>"}/map.md with the wayfinder skill, and binds
           this workspace to it. The plugin itself writes no effort files.
         </Text>
-        <TextInput value={slug} onChangeText={setSlug} placeholder="Folder name, e.g. wa-onboarding" placeholderTextColor={c.muted} autoCapitalize="none" style={input} />
+        <TextInput value={slug} onChangeText={setSlug} placeholder="Folder name, e.g. acme-onboarding" placeholderTextColor={c.muted} autoCapitalize="none" style={input} />
         {taken ? <Text style={{ ...SMALL, color: c.amber }}>{clean} already exists; bind it from the list instead.</Text> : null}
         <TextInput value={goal} onChangeText={setGoal} placeholder="Goal in a sentence (optional)" placeholderTextColor={c.muted} multiline style={[input, { minHeight: 60 }]} />
         <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 6 }}>
