@@ -45,12 +45,14 @@ interface CliModules {
 let modules: Promise<CliModules> | null = null;
 
 /**
- * The CLI package root: inside the desktop app bundle beside the daemon's executable (Windows has
- * no `paseo` beside `Paseo.exe`, only `resources/bin/paseo.cmd`), else via the `paseo` binary.
+ * The CLI package root: on Windows, inside the desktop app bundle beside the daemon's executable (there is no
+ * `paseo` beside `Paseo.exe`, only `resources/bin/paseo.cmd`); elsewhere, or without a bundle, via the `paseo` binary.
  */
 function cliRoot(): string {
-  const bundled = path.join(path.dirname(process.execPath), "resources", "app.asar", "node_modules", "@getpaseo", "cli");
-  if (existsSync(bundled)) return bundled;
+  if (process.platform === "win32") {
+    const bundled = path.join(path.dirname(process.execPath), "resources", "app.asar", "node_modules", "@getpaseo", "cli");
+    if (existsSync(bundled)) return bundled;
+  }
   // bin/paseo is a symlink into <package>/bin/paseo.
   return path.dirname(path.dirname(realpathSync(paseoBinary())));
 }
